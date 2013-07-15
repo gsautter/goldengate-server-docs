@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+	Handles the compilation step itself. Especially the classpath is set up
+	here.
+-->
+
+<project name="javac">
+	
+	<!-- set up the classpath for compilation, this should always match the
+	     Eclipse configuration. -->
+	<path id="compile.classpath">
+		<!-- include all .jar in the lib/ directory -->
+	    <fileset dir="${lib.home}">
+	        <include name="*.jar" />
+	    </fileset>
+		<!-- include servlet API .jar -->
+	    <fileset dir="tomcatLib">
+	        <include name="*.jar" />
+	    </fileset>
+	</path>
+	
+	<!-- The task off all tasks -->
+	<target name="compile" depends="compileSvr,compileClt,compileWeb" description="Compile GoldenGATE Server Java sources">
+		<!-- only proxy for three compile tasks -->
+	</target>
+	
+	<!-- Compile backend server core and components -->
+	<target name="compileSvr" description="Compile GoldenGATE Server backend Java sources">
+		
+	    <!-- Compile Java classes as necessary -->
+	    <javac destdir="${build.home}/classes" includeantruntime="false" >
+	    	<src path="${src.home}" />
+    		<include name="**/goldenGateServer/*.java" />
+    		<include name="**/goldenGateServer/res/*.java" />
+    		<include name="**/goldenGateServer/uaa/*.java" />
+    		<include name="**/goldenGateServer/uaa/data/*.java" />
+    		<include name="**/goldenGateServer/uds/*.java" />
+    		<include name="**/goldenGateServer/ups/*.java" />
+    		<include name="**/goldenGateServer/util/*.java" />
+	        <classpath refid="compile.classpath" />
+	    </javac>
+	</target>
+	
+	<!-- Compile GoldenGATE Editor client plugins if GoldenGATE.jar available -->
+	<target name="check-gg" unless="gg.exists">
+		<available property="gg.exists" file="lib/GoldenGATE.jar"/>
+	</target>
+	<target name="compileClt" depends="check-gg" if="${gg.exists}" description="Compile GoldenGATE Editor plugin Java sources">
+		
+	    <!-- Compile Java classes as necessary -->
+	    <javac destdir="${build.home}/classes" includeantruntime="false" >
+	    	<src path="${src.home}" />
+    		<include name="**/goldenGateServer/GoldenGateServerConstants.java" />
+    		<include name="**/goldenGateServer/client/ServerConnection.java" />
+    		<include name="**/goldenGateServer/uaa/UserAccessAuthorityConstants.java" />
+ 			<include name="**/goldenGateServer/uaa/client/*.java" />
+			<exclude name="**/goldenGateServer/uaa/client/UserAccessAuthortityClient.java" />
+	        <classpath refid="compile.classpath" />
+	    </javac>
+	</target>
+	
+	<!-- Compile web frontend and modules -->
+	<target name="compileWeb" description="Compile GoldenGATE Server web front-end Java sources">
+		
+	    <!-- Compile Java classes as necessary -->
+	    <javac destdir="${build.home}/classes" includeantruntime="false" >
+	    	<src path="${src.home}" />
+    		<include name="**/goldenGateServer/GoldenGateServerConstants.java" />
+    		<include name="**/goldenGateServer/GoldenGateServerEventService.java" />
+    		<include name="**/goldenGateServer/client/*.java" />
+    		<include name="**/goldenGateServer/util/Base64*.java" />
+			<include name="**/goldenGateServer/uaa/UserAccessAuthortityConstants.java" />
+ 			<include name="**/goldenGateServer/uaa/client/AuthenticatedClient.java" />
+ 			<include name="**/goldenGateServer/uaa/client/UserAccessAuthorityClient.java" />
+ 			<include name="**/goldenGateServer/uaa/data/*.java" />
+ 			<include name="**/goldenGateServer/uaa/webClient/*.java" />
+    		<include name="**/goldenGateServer/uds/GoldenGateUdsConstants.java" />
+ 			<include name="**/goldenGateServer/uds/client/*.java" />
+    		<include name="**/goldenGateServer/ups/GoldenGateUpsConstants.java" />
+ 			<include name="**/goldenGateServer/ups/client/*.java" />
+ 			<include name="**/goldenGateServer/utilities/*.java" />
+	        <classpath refid="compile.classpath" />
+	    </javac>
+	</target>
+</project>

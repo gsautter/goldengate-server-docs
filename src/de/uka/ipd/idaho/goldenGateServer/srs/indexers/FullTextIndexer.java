@@ -1,0 +1,893 @@
+/*
+ * Copyright (c) 2006-, IPD Boehm, Universitaet Karlsruhe (TH) / KIT, by Guido Sautter
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+package de.uka.ipd.idaho.goldenGateServer.srs.indexers;
+
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileFilter;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Properties;
+import java.util.TreeMap;
+
+import de.uka.ipd.idaho.gamta.Annotation;
+import de.uka.ipd.idaho.gamta.Gamta;
+import de.uka.ipd.idaho.gamta.QueriableAnnotation;
+import de.uka.ipd.idaho.gamta.TokenSequence;
+import de.uka.ipd.idaho.goldenGateServer.srs.AbstractIndexer;
+import de.uka.ipd.idaho.goldenGateServer.srs.Query;
+import de.uka.ipd.idaho.goldenGateServer.srs.QueryResult;
+import de.uka.ipd.idaho.goldenGateServer.srs.QueryResultElement;
+import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult;
+import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResult;
+import de.uka.ipd.idaho.stringUtils.StringUtils;
+import de.uka.ipd.idaho.stringUtils.StringVector;
+
+/**
+ * Indexer for full text search, using file based inverted index lists
+ * 
+ * @author sautter
+ */
+public class FullTextIndexer extends AbstractIndexer {
+	
+	/*
+	 * Append document number to index lists for all terms present in the
+	 * document. Keep document numbers sorted in index lists. Leave every
+	 * fourth index entry empty for future insertions.
+	 * 
+	 * Index entry = 6 bytes:
+	 * - four bytes document number
+	 * - one byte term frequency
+	 * - one byte 2-log of document length
+	 */
+	
+	private static final boolean DEBUG = false;
+	
+	private static final String FULL_TEXT_QUREY = "ftQuery";
+	private static final String MATCH_MODE = "matchMode";
+	private static final String EXACT_MATCH_MODE = "exact";
+	private static final String PREFIX_MATCH_MODE = "prefix";
+	private static final String INFIX_MATCH_MODE = "infix";
+	
+	private StringVector stopWords = new StringVector();
+	
+	private TreeMap trigramsToIndexTerms = new TreeMap();
+	
+	private HashMap termIndexCache = new LinkedHashMap();
+	private int termIndexCacheLimit = 512; // TODO: make this a config parameter
+	
+	private HashSet dirtyTermIndexQueue = new LinkedHashSet();
+	private HashMap pendingTermIndexEntryCache = new LinkedHashMap();
+	
+	private HashSet invalidDocumentNumbers = new HashSet();
+	
+	private IndexUpdater indexUpdater;
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexName()
+	 */
+	public String getIndexName() {
+		return "fullText";
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.AbstractIndexer#init()
+	 */
+	public void init() {
+		System.out.println("FullTextIndexer: initializing ...");
+		
+		//	load stop words
+		System.out.println("  - loading stop words ...");
+		try {
+			this.stopWords = StringVector.loadList(new File(this.dataPath, "stopWords.txt"));
+			for (int s = 0; s < this.stopWords.size(); s++)
+				this.stopWords.setElementAt(this.normalizeTerm(this.stopWords.get(s)), s);
+			this.stopWords.removeDuplicateElements();
+			System.out.println("  - got " + this.stopWords.size() + " stop words");
+		}
+		catch (IOException ioe) {
+			System.out.println("  - " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while loading stop word list");
+			ioe.printStackTrace(System.out);
+		}
+		
+		//	load invalid document numbers
+		System.out.println("  - loading invalidated document numbers ...");
+		File invalidDocNrFile = new File(this.dataPath, "invalid");
+		if (invalidDocNrFile.length() > 0) { // replace existing file
+			try {
+				DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(invalidDocNrFile)));
+				synchronized (this.invalidDocumentNumbers) {
+					while (dis.available() >= 4)
+						this.invalidDocumentNumbers.add(new Integer(dis.readInt()));
+				}
+				dis.close();
+				System.out.println("  - got " + this.invalidDocumentNumbers.size() + " invalid document numbers");
+			}
+			catch (FileNotFoundException fnfe) {
+				//	ignore this exception, it simply means there are no invalid document numbers so far
+				System.out.println("  - got no invalid document numbers");
+			}
+			catch (IOException ioe) {
+				System.out.println("  - " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while loading invalid docNr file.");
+				ioe.printStackTrace(System.out);
+			}
+		}
+		
+		//	start index updater thread
+		System.out.println("  - starting index updater ...");
+		this.indexUpdater = new IndexUpdater();
+		this.indexUpdater.start();
+		System.out.println("  - index updater started");
+		
+		System.out.println("  - FullTextIndexer initialized");
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.AbstractIndexer#exit()
+	 */
+	public void exit() {
+		
+		//	shut down index updater
+		this.indexUpdater.shutdown();
+		try {
+			this.indexUpdater.join();
+		} catch (InterruptedException ie) {}
+		
+		//	store invalidated document numbers
+		try {
+			File invalidDocNrFile = new File(this.dataPath, "invalid");
+			if (invalidDocNrFile.length() > 0) { // replace existing file
+				File oldIdnf = new File(invalidDocNrFile.getAbsolutePath() + ".old");
+				if (oldIdnf.exists()) oldIdnf.delete();
+				invalidDocNrFile.renameTo(new File(invalidDocNrFile.getAbsolutePath() + ".old"));
+				invalidDocNrFile = new File(this.dataPath, "invalid");
+			}
+			invalidDocNrFile.createNewFile();
+			DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(invalidDocNrFile, true)));
+			synchronized (this.invalidDocumentNumbers) {
+				for (Iterator it = this.invalidDocumentNumbers.iterator(); it.hasNext();)
+					dos.writeInt(((Integer) it.next()).intValue());
+			}
+			dos.flush();
+			dos.close();
+		}
+		catch (IOException ioe) {
+			System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing invalid docNr file.");
+			ioe.printStackTrace(System.out);
+		}
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.AbstractIndexer#getFieldGroup()
+	 */
+	protected SearchFieldGroup getFieldGroup() {
+		SearchFieldRow fullTextSfr = new SearchFieldRow();
+		fullTextSfr.addField(new SearchField(FULL_TEXT_QUREY, "Terms", 3));
+		SearchField matchMode = new SearchField(MATCH_MODE, "Search Mode", PREFIX_MATCH_MODE, SearchField.SELECT_TYPE);
+		matchMode.addOption("Exact Match", EXACT_MATCH_MODE);
+		matchMode.addOption("Prefix Match", PREFIX_MATCH_MODE);
+		matchMode.addOption("Infix Match", INFIX_MATCH_MODE);
+		fullTextSfr.addField(matchMode);
+		
+		SearchFieldGroup sfg = new SearchFieldGroup(this.getIndexName(), "Full Text Index", "Use these fields to search the document text (terms shorter than 3 letters will be ignored)", null);
+		sfg.addFieldRow(fullTextSfr);
+		
+		return sfg;
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.Indexer#processQuery(de.goldenGateScf.srs.Query)
+	 */
+	public QueryResult processQuery(Query query) {
+		
+		//	get raw query
+		String termString = query.getValue(FULL_TEXT_QUREY);
+		if (DEBUG) System.out.println("  - processing query '" + termString + "'");
+		
+		//	void raw query
+		if ((termString == null) || (termString.trim().length() == 0))
+			return null;
+		
+		//	extract query terms
+		TokenSequence termTs = Gamta.newTokenSequence(termString, Gamta.NO_INNER_PUNCTUATION_TOKENIZER);
+		StringVector terms = new StringVector();
+		for (int t = 0; t < termTs.size(); t++) {
+			String term = termTs.valueAt(t);
+			if (Gamta.isWord(term) && (term.length() > 2) && !this.stopWords.containsIgnoreCase(term))
+				terms.addElement(this.normalizeTerm(term));
+		}
+		if (DEBUG) System.out.println("  - got terms '" + terms.concatStrings("', '") + "'");
+		
+		//	no terms given
+		if (terms.isEmpty()) return null;
+		
+		//	eliminate duplicates
+		StringVector distinctTerms = new StringVector();
+		distinctTerms.addContentIgnoreDuplicates(terms);
+		
+		//	read match mode
+		String matchMode = query.getValue(MATCH_MODE, PREFIX_MATCH_MODE);
+		
+		//	process query
+		QueryResult result = null;
+		for (int t = 0; t < distinctTerms.size(); t++) {
+			if (DEBUG) System.out.println("  - doing query term '" + distinctTerms.get(t) + "'");
+			
+			//	assemble result for current term/infix
+			QueryResult termOrInfixResult = null;
+			
+			//	do exact match
+			if (EXACT_MATCH_MODE.equals(matchMode)) {
+				String term = distinctTerms.get(t);
+				
+				//	get index for term
+				TermIndex termIndex = this.getTermIndex(term);
+				
+				//	produce query result
+				termOrInfixResult = new QueryResult();
+				if (termIndex != null)
+					for (int e = 0; e < termIndex.size(); e++)
+						termOrInfixResult.addResultElement(new QueryResultElement(termIndex.entries[e].docNr, 1.0));
+			}
+			
+			//	do wildcard lookup
+			else {
+				String infix = distinctTerms.get(t);
+				HashSet infixBearingTerms = new HashSet();
+				
+				//	find index terms bearing wildcard match term as infix
+				for (int i = 0; i <= (infix.length() - 3); i++) {
+					HashSet trigramTermSet = ((HashSet) this.trigramsToIndexTerms.get(infix.substring(i, (i+3))));
+					if (trigramTermSet == null) { // we have no index terms including this trigram
+						infixBearingTerms.clear();
+						i = infix.length();
+						// could return empty result here in boolean AND mode, but not in VSR or other advanced modes
+					}
+					else { // we have index terms including this trigram
+						if (i == 0) infixBearingTerms.addAll(trigramTermSet); // first trigram, initialize intersecting
+						else infixBearingTerms.retainAll(trigramTermSet); // do intersection with all further sets
+					}
+				}
+				
+				//	iterate over terms bearing current infix
+				for (Iterator it = infixBearingTerms.iterator(); it.hasNext();) {
+					String infixBearingTerm = it.next().toString();
+					
+					//	check if actual suffix matches (trigrams are indicators, but no secure evidence)
+					if (INFIX_MATCH_MODE.equals(matchMode) ? (infixBearingTerm.indexOf(infix) != -1) : infixBearingTerm.startsWith(infix)) {
+						if (DEBUG) System.out.println("    - got " + matchMode + " match term '" + infixBearingTerm + "'");
+						
+						//	get index for wildcard matched term
+						TermIndex infixBearingTermIndex = this.getTermIndex(infixBearingTerm);
+						
+						//	produce query result
+						QueryResult infixBearingTermResult = new QueryResult(false);
+						if (infixBearingTermIndex != null)
+							for (int e = 0; e < infixBearingTermIndex.size(); e++)
+								infixBearingTermResult.addResultElement(new QueryResultElement(infixBearingTermIndex.entries[e].docNr, 1.0));
+						
+						//	union with results for other terms bearing current infix
+						if (termOrInfixResult == null) termOrInfixResult = infixBearingTermResult;
+						else termOrInfixResult = QueryResult.merge(termOrInfixResult, infixBearingTermResult, QueryResult.USE_MAX, 0);
+					}
+				}
+			}
+			
+			if (DEBUG) System.out.println("  - got " + ((termOrInfixResult == null) ? "no" : ("" + termOrInfixResult.size())) + " results for '" + distinctTerms.get(t) + "'");
+			
+			//	combine result for current term/infix with results for other terms/infixes (boolean AND, vector space measure, etc)
+			if (result == null) result = ((termOrInfixResult == null) ? new QueryResult() : termOrInfixResult); // empty result will cause merge to be fast and final result to be empty in boolean mode
+			else result = QueryResult.join(result, termOrInfixResult, QueryResult.USE_MIN, 0);
+		}
+		
+		//	return final result
+		return result;
+	}
+	
+	private TermIndex getTermIndex(String term) {
+		TermIndex termIndex;
+		
+		//	have to synchronize cache lookup in order to avoid problems with LRU ordering in the face of concurrency
+		synchronized (this.termIndexCache) {
+			
+			//	do cache lookup
+			if (termIndexCache.containsKey(term)) {
+				
+				//	have to remove and re-add index to maintain LRU ordering in linked map
+				termIndex = ((TermIndex) this.termIndexCache.remove(term));
+				this.termIndexCache.put(term, termIndex);
+				return termIndex;
+			}
+		}
+			
+		//	cache miss, load index from disc
+		termIndex = new TermIndex(term);
+		try {
+			//	get file
+			File indexFile = this.getIndexFile(term, false);
+			if (indexFile == null) return termIndex;
+			
+			//	read file
+			DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(indexFile)));
+			
+			//	read index data
+			while (dis.available() >= 6) {
+				int docNr = dis.readInt();
+				byte tf = dis.readByte();
+				byte lenLog = dis.readByte();
+				
+				//	check if index contains invalid entries
+				synchronized (this.invalidDocumentNumbers) {
+					
+					//	if so, add index to dirty list so file is rewritten
+					if (this.invalidDocumentNumbers.contains(new Integer(docNr)))
+						synchronized (this.dirtyTermIndexQueue) {
+							this.dirtyTermIndexQueue.add(termIndex);
+						}
+					
+					//	check if index entries in file are sorted, if not, add index to dirty list so file is rewritten (may happen if updates are appended)  
+					else {
+						int size = termIndex.size;
+						if (
+								termIndex.addEntry(new TermIndexEntry(docNr, tf, lenLog))// ==> sort order violated
+								||
+								(size == termIndex.size)// ==> duplicate entry (adding did not increase index size)
+							) 
+							synchronized (this.dirtyTermIndexQueue) {
+								this.dirtyTermIndexQueue.add(termIndex);
+							}
+					}
+				}
+			}
+			dis.close();
+			
+			//	add pending entries
+			synchronized (this.pendingTermIndexEntryCache) {
+				if (this.pendingTermIndexEntryCache.containsKey(term)) {
+					
+					//	add pending entries to index
+					ArrayList pendingEntries = ((ArrayList) this.pendingTermIndexEntryCache.get(term));
+					boolean modified = false;
+					int size = termIndex.size;
+					for (int e = 0; e < pendingEntries.size(); e++) {
+						if (termIndex.addEntry((TermIndexEntry) pendingEntries.get(e)))
+							modified = true;
+						else if (size == termIndex.size) // remove existing entries so they are not written to file
+							pendingEntries.remove(e--);
+					}
+					
+					//	if new entries contradict sorting order of index file, add index to dirty list and remove pending entries
+					if (modified)
+						synchronized (this.dirtyTermIndexQueue) {
+							this.dirtyTermIndexQueue.add(termIndex);
+							this.pendingTermIndexEntryCache.remove(term);
+						}
+				}
+			}
+		}
+		catch (IOException ioe) {
+			System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while loading index file for '" + term + "'");
+			ioe.printStackTrace(System.out);
+		}
+		
+		//	have to synchronize cache modification in order to avoid problems in the face of concurrency
+		synchronized (this.termIndexCache) {
+			
+			//	add index to cache
+			this.termIndexCache.put(term, termIndex);
+			
+			//	test cache size limit
+			if (this.termIndexCache.size() > this.termIndexCacheLimit) {
+				Iterator it = this.termIndexCache.keySet().iterator();
+				while ((this.termIndexCache.size() > this.termIndexCacheLimit) && it.hasNext()) {
+					it.next();
+					it.remove();
+				}
+			}
+		}
+		
+		//	return the index
+		return termIndex;
+	}
+	
+	private File getIndexFile(String term, boolean create) throws IOException {
+		File indexFile = this.dataPath;
+		for (int l = 0; l < Math.min(term.length(), 3); l++)
+			indexFile = new File(indexFile, term.substring(l, (l+1)));
+		
+		if (!indexFile.exists()) {
+			if (create) indexFile.mkdirs();
+			else return null;
+		}
+		
+		indexFile = new File(indexFile, ("idx-" + term)); // prevent using forbidden file names like 'con'
+		if (!indexFile.exists()) {
+			if (create) try {
+				indexFile.createNewFile();
+			}
+			catch (IOException ioe) {
+				if ("FileNameTooLong".equalsIgnoreCase(ioe.getMessage().replaceAll("\\s+", ""))) // simply cut overly long file names
+					return this.getIndexFile(term.substring(0, (term.length()-1)), create);
+				else throw ioe;
+			}
+			else return null;
+		}
+		
+		return indexFile;
+	}
+	
+	private static class TermIndex {
+		private static final int CAPACITY_INCREMENT = 16;
+		private final String term;
+		private TermIndexEntry[] entries = new TermIndexEntry[CAPACITY_INCREMENT];
+		private int size = 0;
+		private TermIndex(String term) {
+			this.term = term;
+		}
+		private synchronized int size() {
+			return this.size;
+		}
+		/*
+		 * returns true is the new entry was inserted in the middle instead of
+		 * appended ==> sort order in file invalid
+		 */
+		private synchronized boolean addEntry(TermIndexEntry entry) {
+			
+			//	check if append operation in order to save binary search
+			if ((this.size != 0) && (this.entries[this.size - 1].docNr >= entry.docNr)) {
+				
+				//	check if entry already present
+				int index = this.find(entry.docNr);
+				
+				//	entry is present ==> update
+				if (index != -1) {
+					boolean modified = ((this.entries[index].tf != entry.tf) || (this.entries[index].docLenLog != entry.docLenLog));
+					this.entries[index] = entry;
+					return modified;
+				}
+			}
+			
+			//	have to extend content array (linear increment, for updates are not as frequent)
+			if (this.size == this.entries.length) {
+				TermIndexEntry[] newEntries = new TermIndexEntry[this.entries.length + CAPACITY_INCREMENT];
+				System.arraycopy(this.entries, 0, newEntries, 0, this.entries.length);
+				this.entries = newEntries;
+			}
+			
+			//	append new entry
+			this.entries[this.size++] = entry;
+			
+			/*
+			 * have to re-sort ==> one backward pass of bubble sort will do, for
+			 * all but the last two elements are guarantied to be sorted (would
+			 * have to shift array anyway for insertion)
+			 */
+			boolean modified = false;
+			for (int i = (this.size - 1); i > 0; i--) {
+				if (this.entries[i-1].docNr < this.entries[i].docNr)
+					i = 0; // break, we're done
+				else { // swap current elements
+					entry = this.entries[i-1]; // use entry as temp
+					this.entries[i-1] = this.entries[i];
+					this.entries[i] = entry;
+					modified = true;
+				}
+			}
+			return modified;
+		}
+		private int find(int docNr) {
+			int low = 0;
+			int high = this.size - 1;
+			while (low <= high) {
+				int middle = ((low + high) / 2);
+				int midDocNr = this.entries[middle].docNr;
+				if (midDocNr < docNr) low = middle + 1;
+				else if (midDocNr > docNr) high = middle - 1;
+				else return middle;
+			}
+			return -1;
+		}
+	}
+	
+	private static class TermIndexEntry {
+		private final int docNr;
+		private final byte tf;
+		private final byte docLenLog;
+		private TermIndexEntry(int docNr, byte tf, byte lenLog) {
+			this.docNr = docNr;
+			this.tf = tf;
+			this.docLenLog = lenLog;
+		}
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.Indexer#addSearchAttributes(de.uka.ipd.idaho.gamta.Annotation)
+	 */
+	public void addSearchAttributes(Annotation annotation) {
+		//	no search links for full text
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, int[], boolean)
+	 */
+	public IndexResult getIndexEntries(Query query, int[] docNumbers, boolean sort) {
+		//	no support for index search
+		return null;
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.Indexer#doThesaurusLookup(de.goldenGateScf.srs.Query)
+	 */
+	public ThesaurusResult doThesaurusLookup(Query query) {
+		//	no support for thesaurus search
+		return null;
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.Indexer#index(de.uka.ipd.idaho.gamta.QueriableAnnotation, int)
+	 */
+	public void index(QueriableAnnotation doc, int docNr) {
+		
+		//	mark document number as valid
+		synchronized (this.invalidDocumentNumbers) {
+			this.invalidDocumentNumbers.remove(new Integer(docNr));
+		}
+		
+		//	catch empty document
+		if (doc.size() == 0) return;
+		
+		//	extract index terms
+		TokenSequence termTs = Gamta.newTokenSequence(doc, Gamta.NO_INNER_PUNCTUATION_TOKENIZER);
+		StringVector terms = new StringVector();
+		for (int t = 0; t < termTs.size(); t++) {
+			String term = termTs.valueAt(t);
+			if (Gamta.isWord(term) && (term.length() > 2) && !this.stopWords.containsIgnoreCase(term))
+				terms.addElement(this.normalizeTerm(term));
+			//	TODO index numbers
+		}
+		
+		//	eliminate duplicates
+		StringVector distinctTerms = new StringVector();
+		distinctTerms.addContentIgnoreDuplicates(terms);
+		
+		//	compute doc size
+		byte docLenLog = ((byte) Math.min(Byte.MAX_VALUE, ((int) Math.round(Math.log(doc.size()) / Math.log(2)))));
+		
+		//	index terms
+		for (int t = 0; t < distinctTerms.size(); t++) {
+			String term = distinctTerms.get(t);
+			byte tf = ((byte) Math.min(Byte.MAX_VALUE, terms.getElementCount(term)));
+			
+			//	add entries to cached indices (update from pending entries happens only on loading from disc)
+			synchronized (this.termIndexCache) {
+				if (this.termIndexCache.containsKey(term)) {
+					TermIndex termIndex = ((TermIndex) this.termIndexCache.get(term));
+					int size = termIndex.size;
+					
+					//	new entry violates sort order
+					if (termIndex.addEntry(new TermIndexEntry(docNr, tf, docLenLog)))
+						synchronized (this.dirtyTermIndexQueue) {
+							this.dirtyTermIndexQueue.add(termIndex);
+							tf = 0; // indicate index is dirty, no need for pending entry list
+						}
+					
+					//	entry re-added without changing anything, dont't write entry to index file
+					else if (size == termIndex.size) tf = 0;
+				}
+			}
+			
+			//	enqueue new entries for persistent storage (if not whole index is sheduled for rewrite)
+			if (tf != 0)
+				synchronized (this.pendingTermIndexEntryCache) {
+					ArrayList pendingEntries = ((ArrayList) this.pendingTermIndexEntryCache.get(term));
+					if (pendingEntries == null) {
+						pendingEntries = new ArrayList();
+						this.pendingTermIndexEntryCache.put(term, pendingEntries);
+					}
+					synchronized (pendingEntries) {
+						pendingEntries.add(new TermIndexEntry(docNr, tf, docLenLog));
+					}
+				}
+		}
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.Indexer#deleteDocument(int)
+	 */
+	public synchronized void deleteDocument(int docNr) {
+		/*
+		 * Going through all inverted lists in order to remove document number
+		 * would be too costly. Add document number to list of deleted
+		 * documents, and ignore document number in future searches. Only in
+		 * next maintenance, reorganize index lists and remove the entries for
+		 * all documents marked as deleted.
+		 */
+		synchronized (this.invalidDocumentNumbers) {
+			this.invalidDocumentNumbers.add(new Integer(docNr));
+		}
+	}
+	
+	private class IndexUpdater extends Thread {
+		private boolean keepRunning = true;
+		private Object lock = new Object();
+		public void run() {
+			
+			//	initialize wildcard matching helper
+			System.out.println("  - indexing index terms by trigrams ...");
+			int indexTermCount = 0;
+			File[] idxFolders1 = dataPath.listFiles(new FileFilter() {
+				public boolean accept(File file) {
+					return file.isDirectory();
+				}
+			});
+			for (int f1 = 0; f1 < idxFolders1.length; f1++) {
+				File[] idxFolders2 = idxFolders1[f1].listFiles(new FileFilter() {
+					public boolean accept(File file) {
+						return file.isDirectory();
+					}
+				});
+				for (int f2 = 0; f2 < idxFolders2.length; f2++) {
+					File[] idxFolders3 = idxFolders2[f2].listFiles(new FileFilter() {
+						public boolean accept(File file) {
+							return file.isDirectory();
+						}
+					});
+					for (int f3 = 0; f3 < idxFolders3.length; f3++) {
+						File[] idxFiles = idxFolders3[f3].listFiles(new FileFilter() {
+							public boolean accept(File file) {
+								return (file.isFile() && file.getName().startsWith("idx-"));
+							}
+						});
+						for (int f = 0; f < idxFiles.length; f++) {
+							String term = idxFiles[f].getName().substring(4);
+							indexTermCount ++;
+							for (int t = 0; t <= (term.length() - 3); t++) {
+								String trigram = term.substring(t, (t+3));
+								HashSet trigramTermSet = ((HashSet) trigramsToIndexTerms.get(trigram));
+								if (trigramTermSet == null) {
+									trigramTermSet = new HashSet();
+									trigramsToIndexTerms.put(trigram, trigramTermSet);
+								}
+								trigramTermSet.add(term);
+							}
+						}
+					}
+				}
+			}
+			System.out.println("  - got " + trigramsToIndexTerms.size() + " trigrams from " + indexTermCount + " index terms");
+			
+			while (this.keepRunning) {
+				
+				//	sleep a little
+				try {
+					synchronized (this.lock) {
+						this.lock.wait(1000);
+					}
+				} catch (InterruptedException ie) {}
+				
+				//	do the pending work
+				while (this.keepRunning && this.doWork())
+					try {
+						Thread.sleep(100);
+					} catch (InterruptedException ie) {}
+			}
+			
+			//	work off the rest before shutdown
+			if (DEBUG) System.out.println("IndexUpdater shutting down, working off remaining queues ...");
+			while (this.doWork()) {}
+		}
+		private boolean doWork() {
+			
+			//	write dirty term index
+			synchronized (dirtyTermIndexQueue) {
+				if (dirtyTermIndexQueue.size() != 0) {
+					Iterator it = dirtyTermIndexQueue.iterator();
+					TermIndex termIndex = ((TermIndex) it.next());
+					synchronized (termIndex) {
+						try {
+							if (DEBUG) System.out.println("  - storing index file for '" + termIndex.term + "'");
+							File termIndexFile = getIndexFile(termIndex.term, true);
+							if (termIndexFile.length() > 0) { // replace existing file
+								File oldTif = new File(termIndexFile.getAbsolutePath() + ".old");
+								if (oldTif.exists()) oldTif.delete();
+								termIndexFile.renameTo(new File(termIndexFile.getAbsolutePath() + ".old"));
+								termIndexFile = getIndexFile(termIndex.term, true);
+							}
+							if (DEBUG) System.out.println("    - writing " + termIndex.size + " entries");
+							DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(termIndexFile, false)));
+							for (int e = 0; e < termIndex.size; e++) {
+								TermIndexEntry tie = termIndex.entries[e];
+								dos.writeInt(tie.docNr);
+								dos.writeByte(tie.tf);
+								dos.writeByte(tie.docLenLog);
+							}
+							dos.flush();
+							dos.close();
+							it.remove();
+							if (DEBUG) System.out.println("    - done");
+							return true;
+						}
+						catch (IOException ioe) {
+							System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing index file for '" + termIndex.term + "'");
+							ioe.printStackTrace(System.out);
+						}
+					}
+				}
+			}
+			
+			//	add pending entries to term index
+			synchronized (pendingTermIndexEntryCache) {
+				if (pendingTermIndexEntryCache.size() != 0) {
+					Iterator it = pendingTermIndexEntryCache.keySet().iterator();
+					String term = it.next().toString();
+					ArrayList pendingEntries = ((ArrayList) pendingTermIndexEntryCache.get(term));
+					synchronized (pendingEntries) {
+						try {
+							if (DEBUG) System.out.println("  - extending index file for '" + term + "'");
+							File termIndexFile = getIndexFile(term, true);
+							if (DEBUG) System.out.println("    - writing " + pendingEntries.size() + " entries");
+							DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(termIndexFile, true)));
+							for (int e = 0; e < pendingEntries.size(); e++) {
+								TermIndexEntry tie = ((TermIndexEntry) pendingEntries.get(e));
+								dos.writeInt(tie.docNr);
+								dos.writeByte(tie.tf);
+								dos.writeByte(tie.docLenLog);
+							}
+							dos.flush();
+							dos.close();
+							it.remove();
+							if (DEBUG) System.out.println("    - done");
+							return true;
+						}
+						catch (IOException ioe) {
+							System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while extending index file for '" + term + "'");
+							ioe.printStackTrace(System.out);
+						}
+					}
+				}
+			}
+			
+			//	nothing to do
+			return false;
+		}
+		private void shutdown() {
+			this.keepRunning = false;
+			synchronized (this.lock) {
+				this.lock.notify();
+			}
+		}
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.Indexer#isQuoted(java.lang.String)
+	 */
+	public boolean isQuoted(String fieldName) {
+		return FULL_TEXT_QUREY.equals(fieldName);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.goldenGateScf.srs.Indexer#getLength(java.lang.String)
+	 */
+	public int getLength(String fieldName) {
+		return 0;
+	}
+	
+	private String normalizeTerm(String term) {
+		/*
+		 * TODO: maybe add stemming or even iterative stemming, though results
+		 * for non-english terms might be a problem, as may be typoes
+		 */
+		StringBuffer sb = new StringBuffer();
+		for (int c = 0; c < term.length(); c++) {
+			String part = term.substring(c, (c+1));
+			sb.append(charMapping.getProperty(part, part).toLowerCase());
+		}
+		term = sb.toString();
+		int len = term.length();
+		while (len > (term = StringUtils.porterStem(term)).length())
+			len = term.length();
+		return term;
+	}
+	private static Properties charMapping = new Properties();
+	static {
+		charMapping.setProperty("À", "A");
+		charMapping.setProperty("Á", "A");
+		charMapping.setProperty("Â", "A");
+		charMapping.setProperty("Ã", "A");
+		charMapping.setProperty("Ä", "Ae");
+		charMapping.setProperty("Å", "A");
+		charMapping.setProperty("Æ", "Ae");
+		charMapping.setProperty("Ç", "C");
+		charMapping.setProperty("È", "E");
+		charMapping.setProperty("É", "E");
+		charMapping.setProperty("Ê", "E");
+		charMapping.setProperty("Ë", "E");
+		charMapping.setProperty("Ì", "I");
+		charMapping.setProperty("Í", "I");
+		charMapping.setProperty("Î", "I");
+		charMapping.setProperty("Ï", "I");
+		charMapping.setProperty("Ñ", "N");
+		charMapping.setProperty("Ò", "O");
+		charMapping.setProperty("Ó", "O");
+		charMapping.setProperty("Ô", "O");
+		charMapping.setProperty("Õ", "O");
+		charMapping.setProperty("Ö", "Oe");
+		charMapping.setProperty("Œ", "Oe");
+		charMapping.setProperty("Ø", "O");
+		charMapping.setProperty("Ù", "U");
+		charMapping.setProperty("Ú", "U");
+		charMapping.setProperty("Û", "U");
+		charMapping.setProperty("Ü", "Ue");
+		charMapping.setProperty("Ý", "Y");
+		charMapping.setProperty("à", "a");
+		charMapping.setProperty("á", "a");
+		charMapping.setProperty("â", "a");
+		charMapping.setProperty("ã", "a");
+		charMapping.setProperty("ä", "ae");
+		charMapping.setProperty("å", "a");
+		charMapping.setProperty("æ", "ae");
+		charMapping.setProperty("ç", "c");
+		charMapping.setProperty("è", "e");
+		charMapping.setProperty("é", "e");
+		charMapping.setProperty("ê", "e");
+		charMapping.setProperty("ë", "e");
+		charMapping.setProperty("ì", "i");
+		charMapping.setProperty("í", "i");
+		charMapping.setProperty("î", "i");
+		charMapping.setProperty("ï", "i");
+		charMapping.setProperty("ñ", "n");
+		charMapping.setProperty("ò", "o");
+		charMapping.setProperty("ó", "o");
+		charMapping.setProperty("ô", "o");
+		charMapping.setProperty("õ", "o");
+		charMapping.setProperty("ö", "oe");
+		charMapping.setProperty("œ", "oe");
+		charMapping.setProperty("ø", "o");
+		charMapping.setProperty("ù", "u");
+		charMapping.setProperty("ú", "u");
+		charMapping.setProperty("û", "u");
+		charMapping.setProperty("ü", "ue");
+		charMapping.setProperty("ý", "y");
+		charMapping.setProperty("ÿ", "y");
+		charMapping.setProperty("ß", "ss");
+		charMapping.setProperty("–", "-");
+		charMapping.setProperty("—", "-");
+	}
+}

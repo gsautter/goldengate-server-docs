@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!-- the project global configuration for the build system.
+ 
+ Please: be very careful when modifing this, as this file lives in GIT and you can easily break
+ other peoples system when commiting changes to this file. -->
+
+<project name="config">
+	
+	<!-- =================================================================== -->
+	<!-- DIRECTORY CONFIGURATION -->
+	
+	<!-- root directory of the common source tree -->
+	<property name="core.src.home" value="../idaho-core/src" />
+	
+	<!-- directory that contains all libraries that are required in the .war -->
+	<property name="core.lib.home" value="../idaho-core/lib" />
+	
+	<!-- directory that contains all libraries that are required in the .war -->
+	<property name="core.dist.home" value="../idaho-core/dist" />
+	
+	<!-- root directory of the common source tree -->
+	<property name="src.home" value="src" />
+	
+	<!-- directory that contains all libraries that are required in the .war -->
+	<property name="lib.home" value="lib" />
+	
+	<!-- build directory that will contain all the .jars and what else is required for a .war -->
+	<property name="build.home" value="build" />
+	
+	<!-- build directory that contains all files to include in the .zips except for the .jars -->
+	<property name="file.home" value="files" />
+	
+	<!-- directory that contains packed archives, such as the .war -->
+	<property name="dist.home" value="dist" />
+	
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.server" value="${dist.home}/GgServer.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.serverextender" value="${dist.home}/Components/Installer.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.res" value="${dist.home}/Components/GgServerRES.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.uaa" value="${dist.home}/Components/GgServerUAA.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.uds" value="${dist.home}/Components/GgServerUDS.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.ups" value="${dist.home}/Components/GgServerUPS.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.serverconsole" value="${dist.home}/GgServerConsole.jar" />
+	
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.authmanager" value="${dist.home}/Plugins/AuthManagerPlugin.jar" />
+	
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.webapp" value="${dist.home}/WEB-INF/lib/GgServerWebFrontend.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.webappextender" value="${dist.home}/WEB-INF/Installer.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.authwebclient" value="${dist.home}/WEB-INF/lib/AuthenticatedWebClient.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.uaamodul" value="${dist.home}/WEB-INF/managerData/Moduls/UserManagerModul.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.udsmodul" value="${dist.home}/WEB-INF/managerData/Moduls/UserDataModul.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.upsmodul" value="${dist.home}/WEB-INF/managerData/Moduls/PermissionManagerModul.jar" />
+	
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.uploader" value="${dist.home}/_DataUploader.jar" />
+	
+	
+	<!-- path to the application .zip file that shall be created -->
+	<property name="app.server" value="${dist.home}/GgServer.app.zip" />
+	
+	<!-- path to the application .zip file that shall be created -->
+	<property name="app.webfrontend" value="${dist.home}/GgServer.web.zip" />
+	
+	<!-- path to the application .zip file that shall be created -->
+	<property name="app.uploader" value="${dist.home}/DataUploader.zip" />
+</project>

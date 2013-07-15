@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!--
+	Fetches OpenStringPool and RefParse from projects existing in same workspace
+-->
+
+<project name="import">
+	<target name="fetch" depends="fetch-su,fetch-hxu,fetch-gamta,fetch-eio,fetch-iclibs,fetch-gg,fetch-ggs,fetch-ggswf,fetch-uaa,fetch-res,fetch-authman" />
+	
+	<target name="check-fetch-su" unless="su.exists">
+		<available property="su.exists" file="../idaho-core/dist/StringUtils.jar"/>
+	</target>
+	<target name="fetch-su" depends="check-fetch-su" if="${su.exists}">
+    	<copy file="../idaho-core/dist/StringUtils.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-hxu" unless="hxu.exists">
+		<available property="hxu.exists" file="../idaho-core/dist/HtmlXmlUtil.jar"/>
+	</target>
+	<target name="fetch-hxu" depends="check-fetch-hxu" if="${hxu.exists}">
+    	<copy file="../idaho-core/dist/HtmlXmlUtil.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-gamta" unless="gamta.exists">
+		<available property="gamta.exists" file="../idaho-core/dist/Gamta.jar"/>
+	</target>
+	<target name="fetch-gamta" depends="check-fetch-gamta" if="${gamta.exists}">
+    	<copy file="../idaho-core/dist/Gamta.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-eio" unless="eio.exists">
+		<available property="eio.exists" file="../idaho-core/dist/EasyIO.jar"/>
+	</target>
+	<target name="fetch-eio" depends="check-fetch-eio" if="${eio.exists}">
+    	<copy file="../idaho-core/dist/EasyIO.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-gg" unless="gg.exists">
+		<available property="gg.exists" file="../goldengate-editor/dist/GoldenGATE.jar"/>
+	</target>
+	<target name="fetch-gg" depends="check-fetch-gg" if="${gg.exists}">
+    	<copy file="../goldengate-editor/dist/GoldenGATE.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-ggs" unless="ggs.exists">
+		<available property="ggs.exists" file="../goldengate-server/dist/GgServer.jar"/>
+	</target>
+	<target name="fetch-ggs" depends="check-fetch-ggs" if="${ggs.exists}">
+    	<copy file="../goldengate-server/dist/GgServer.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-ggswf" unless="ggswf.exists">
+		<available property="ggswf.exists" file="../goldengate-server/dist/WEB-INF/lib/GgServerWebFrontend.jar"/>
+	</target>
+	<target name="fetch-ggswf" depends="check-fetch-ggswf" if="${ggswf.exists}">
+    	<copy file="../goldengate-server/dist/WEB-INF/lib/GgServerWebFrontend.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-uaa" unless="uaa.exists">
+		<available property="uaa.exists" file="../goldengate-server/dist/Components/GgServerUAA.jar"/>
+	</target>
+	<target name="fetch-uaa" depends="check-fetch-uaa" if="${uaa.exists}">
+    	<copy file="../goldengate-server/dist/Components/GgServerUAA.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-authman" unless="authman.exists">
+		<available property="authman.exists" file="../goldengate-server/dist/Plugins/AuthManagerPlugin.jar"/>
+	</target>
+	<target name="fetch-authman" depends="check-fetch-authman" if="${authman.exists}">
+    	<copy file="../goldengate-server/dist/Plugins/AuthManagerPlugin.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-res" unless="res.exists">
+		<available property="res.exists" file="../goldengate-server/dist/Components/GgServerRES.jar"/>
+	</target>
+	<target name="fetch-res" depends="check-fetch-res" if="${res.exists}">
+    	<copy file="../goldengate-server/dist/Components/GgServerRES.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-iclibs" unless="iclibs.exists">
+		<available property="iclibs.exists" file="../idaho-core/lib/mail.jar"/>
+	</target>
+	<target name="fetch-iclibs" depends="check-fetch-iclibs" if="${iclibs.exists}">
+    	<copy todir="${lib.home}" overwrite="true" verbose="false">
+    		<fileset dir="../idaho-core/lib/" includes="**.jar"/>
+    	</copy>
+	</target>
+</project>
