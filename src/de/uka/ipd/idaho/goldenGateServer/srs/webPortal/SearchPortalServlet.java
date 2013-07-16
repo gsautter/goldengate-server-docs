@@ -2201,12 +2201,6 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		path = path.getAbsoluteFile();
 		
 		String relPath = "";
-//		while (!this.rootFolder.equals(path)) {
-//			relPath = ("/" + path.getName() + relPath);
-//			path = path.getParentFile();
-//			if (path == null)
-//				return null;
-//		}
 		while (!this.dataFolder.equals(path)) {
 			relPath = ("/" + path.getName() + relPath);
 			path = path.getParentFile();
@@ -2355,57 +2349,6 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		return layout;
 	}
-//	
-//	/**
-//	 * Write the content of an HTML file's body element to a token receiver
-//	 * @param fileName the name of the file to include
-//	 * @param tr the token receiver to write to
-//	 * @throws IOException
-//	 */
-//	private void includeFile(String fileName, final TokenReceiver tr) throws IOException {
-//		FileInputStream fis = null;
-//		try {
-//			TokenReceiver fr = new TokenReceiver() {
-//				private boolean inBody = false;
-//				public void close() throws IOException {}
-//				public void storeToken(String token, int treeDepth) throws IOException {
-//					if (html.isTag(token) && "body".equalsIgnoreCase(html.getType(token))) {
-//						if (html.isEndTag(token)) this.inBody = false;
-//						else this.inBody = true;
-//					}
-//					else if (this.inBody) tr.storeToken(token, treeDepth);
-//				}
-//			};
-//			fis = new FileInputStream(this.findFile(fileName));
-//			htmlParser.stream(fis, fr);
-//		}
-//		catch (FileNotFoundException fnfe) {
-//			//	ignore inclusions that don't exist
-//			System.out.println("Include file not found: " + this.layoutDataPath + fileName);
-//		}
-//		catch (Exception e) {
-//			throw new IOException(e.getMessage());
-//		}
-//		finally {
-//			if (fis != null)
-//				fis.close();
-//		}
-//	}
-//	
-//	private File findFile(String fileName) throws FileNotFoundException {
-//		File file;
-//		
-//		file = new File(this.dataFolder, (this.layoutDataPath + fileName));
-//		if (file.exists()) return file;
-//		
-//		file = new File(this.dataFolder, fileName);
-//		if (file.exists()) return file;
-//		
-//		file = new File(this.rootFolder, fileName);
-//		if (file.exists()) return file;
-//		
-//		throw new FileNotFoundException(fileName);
-//	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.easyIO.web.WebServlet#findFile(java.lang.String)
@@ -2414,7 +2357,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		File file = new File(this.dataFolder, (this.layoutDataPath + fileName));
 		return (file.exists() ? file : super.findFile(fileName));
 	}
-
+	
 	/**	produce a nice looking column name from a field name
 	 * @param	fieldName	the field name to parse
 	 * @return a nice looking version of the specified field name, in particular, field names in camel case are parsed at internal upper case characters

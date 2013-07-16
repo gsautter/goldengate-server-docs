@@ -36,60 +36,88 @@
 	
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.server" value="${dist.home}/GgServer.jar" />
+	<property name="jar.ats" value="${dist.home}/Components/GgServerATS.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.serverextender" value="${dist.home}/Components/Installer.jar" />
+	<property name="jar.dic" value="${dist.home}/Components/GgServerDIC.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.res" value="${dist.home}/Components/GgServerRES.jar" />
+	<property name="jar.dio" value="${dist.home}/Components/GgServerDIO.jar" />
+	<property name="jar.dioexp" value="${dist.home}/Components/Bin/GgServerDioEXP.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.uaa" value="${dist.home}/Components/GgServerUAA.jar" />
+	<property name="jar.drs" value="${dist.home}/Components/GgServerDRS.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.uds" value="${dist.home}/Components/GgServerUDS.jar" />
+	<property name="jar.dst" value="${dist.home}/Components/GgServerDST.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.ups" value="${dist.home}/Components/GgServerUPS.jar" />
+	<property name="jar.exp" value="${dist.home}/Components/Bin/GgServerEXP.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.serverconsole" value="${dist.home}/GgServerConsole.jar" />
-	
-	
-	<!-- path to the .jar file that shall be created -->
-	<property name="jar.authmanager" value="${dist.home}/Plugins/AuthManagerPlugin.jar" />
-	
+	<property name="jar.exc" value="${dist.home}/Components/Bin/GgServerEXist.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.webapp" value="${dist.home}/WEB-INF/lib/GgServerWebFrontend.jar" />
+	<property name="jar.wcs" value="${dist.home}/Components/Bin/GgServerWCS.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.webappextender" value="${dist.home}/WEB-INF/Installer.jar" />
+	<property name="jar.srs" value="${dist.home}/Components/GgServerSRS.jar" />
+	<property name="jar.srsdio" value="${dist.home}/Components/GgServerSrsDIO.jar" />
+	<property name="jar.srsexp" value="${dist.home}/Components/Bin/GgServerSrsEXP.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.authwebclient" value="${dist.home}/WEB-INF/lib/AuthenticatedWebClient.jar" />
+	<property name="jar.srsidxft" value="${dist.home}/Components/GgServerSRSData/Plugins/FullTextIndexer.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.uaamodul" value="${dist.home}/WEB-INF/managerData/Moduls/UserManagerModul.jar" />
+	<property name="jar.srsfltschema" value="${dist.home}/Components/GgServerSRSData/Plugins/XmlSchemaFilter.jar.off" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.udsmodul" value="${dist.home}/WEB-INF/managerData/Moduls/UserDataModul.jar" />
-	
-	<!-- path to the .jar file that shall be created -->
-	<property name="jar.upsmodul" value="${dist.home}/WEB-INF/managerData/Moduls/PermissionManagerModul.jar" />
+	<property name="jar.srsfltxpath" value="${dist.home}/Components/GgServerSRSData/Plugins/XPathFilter.jar.off" />
 	
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.uploader" value="${dist.home}/_DataUploader.jar" />
+	<property name="jar.diobatch" value="${dist.home}/Plugins/ServerBatch.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.diodocio" value="${dist.home}/Plugins/DioDocumentIO.jar" />
+	
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.diowebclient" value="${dist.home}/WEB-INF/lib/DioDocumentServlet.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.srswebportal" value="${dist.home}/WEB-INF/lib/GgSrsSearchPortal.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.srslytcss" value="${dist.home}/WEB-INF/srsWebPortalData/Layouts/CssLayout.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.srslytxslt" value="${dist.home}/WEB-INF/srsWebPortalData/Layouts/XsltLayout.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.srslnklgm" value="${dist.home}/WEB-INF/srsWebPortalData/Linkers/GoogleMapsLinker.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.srslnkxmldoc" value="${dist.home}/WEB-INF/srsWebPortalData/Linkers/XmlDocumentLinker.jar" />
+	
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.diodocgateway" value="${dist.home}/DocGateway/GgServerDocumentGateway.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.dgpacker" value="${dist.home}/_DocumentGatewayPacker.jar" />
 	
 	
 	<!-- path to the application .zip file that shall be created -->
-	<property name="app.server" value="${dist.home}/GgServer.app.zip" />
+	<property name="pack.serverdocs" value="${dist.home}/GgServer.docs.zip" />
 	
 	<!-- path to the application .zip file that shall be created -->
-	<property name="app.webfrontend" value="${dist.home}/GgServer.web.zip" />
+	<property name="pack.searchportal" value="${dist.home}/GgSrsSearchPortal.zip" />
+	
 	
 	<!-- path to the application .zip file that shall be created -->
-	<property name="app.uploader" value="${dist.home}/DataUploader.zip" />
+	<property name="app.docgateway" value="${dist.home}/GgServerDocumentGateway.zip" />
+	
+	<!-- path to the application .zip file that shall be created -->
+	<property name="app.dgpacker" value="${dist.home}/DocumentGatewayPacker.zip" />
 </project>

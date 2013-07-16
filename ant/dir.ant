@@ -12,7 +12,16 @@
 		<mkdir dir="${build.home}" />
 		<mkdir dir="${build.home}/classes" />
 		<mkdir dir="${dist.home}" />
+		<mkdir dir="${dist.home}/DocGateway" />
 		<mkdir dir="${dist.home}/Plugins" />
+		<mkdir dir="${dist.home}/Components" />
+		<mkdir dir="${dist.home}/Components/GgServerSRSData" />
+		<mkdir dir="${dist.home}/Components/GgServerSRSData/Plugins" />
+		<mkdir dir="${dist.home}/WEB-INF" />
+		<mkdir dir="${dist.home}/WEB-INF/lib" />
+		<mkdir dir="${dist.home}/WEB-INF/srsWebPortalData" />
+		<mkdir dir="${dist.home}/WEB-INF/srsWebPortalData/Layouts" />
+		<mkdir dir="${dist.home}/WEB-INF/srsWebPortalData/Linkers" />
 	</target>
 	
 	<!-- more or less the reverse of it, delete all the directories again -->
@@ -27,6 +36,12 @@
 		</delete>
 		<delete includeemptydirs="true">
 			<fileset dir="${dist.home}/Plugins" includes="*.jar"/>
+		</delete>
+		<delete includeemptydirs="true">
+			<fileset dir="${dist.home}/Components" includes="*.jar"/>
+		</delete>
+		<delete includeemptydirs="true">
+			<fileset dir="${dist.home}/WEB-INF/lib" includes="*.jar"/>
 		</delete>
 		<delete includeemptydirs="true">
 			<fileset dir="${dist.home}" includes="*.zip"/>

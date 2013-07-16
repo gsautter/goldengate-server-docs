@@ -20,7 +20,7 @@
 	</path>
 	
 	<!-- The task off all tasks -->
-	<target name="compile" depends="compileSvr,compileClt,compileWeb" description="Compile GoldenGATE Server Java sources">
+	<target name="compile" depends="compileSvr,compileClt,compileWeb,compileDgPacker" description="Compile GoldenGATE Server Java sources">
 		<!-- only proxy for three compile tasks -->
 	</target>
 	
@@ -30,13 +30,21 @@
 	    <!-- Compile Java classes as necessary -->
 	    <javac destdir="${build.home}/classes" includeantruntime="false" >
 	    	<src path="${src.home}" />
-    		<include name="**/goldenGateServer/*.java" />
-    		<include name="**/goldenGateServer/res/*.java" />
-    		<include name="**/goldenGateServer/uaa/*.java" />
-    		<include name="**/goldenGateServer/uaa/data/*.java" />
-    		<include name="**/goldenGateServer/uds/*.java" />
-    		<include name="**/goldenGateServer/ups/*.java" />
-    		<include name="**/goldenGateServer/util/*.java" />
+    		<include name="**/goldenGateServer/ats/*.java" />
+    		<include name="**/goldenGateServer/ats/client/*.java" />
+    		<include name="**/goldenGateServer/dic/*.java" />
+    		<include name="**/goldenGateServer/dio/*.java" />
+    		<include name="**/goldenGateServer/dio/connectors/*.java" />
+    		<include name="**/goldenGateServer/dio/data/*.java" />
+    		<include name="**/goldenGateServer/dio/util/*.java" />
+    		<include name="**/goldenGateServer/drs/*.java" />
+    		<include name="**/goldenGateServer/dst/*.java" />
+    		<include name="**/goldenGateServer/eXist/*.java" />
+    		<include name="**/goldenGateServer/exp/*.java" />
+    		<include name="**/goldenGateServer/srs/*.java" />
+    		<include name="**/goldenGateServer/srs/connectors/*.java" />
+    		<include name="**/goldenGateServer/srs/data/*.java" />
+    		<include name="**/goldenGateServer/wcs/*.java" />
 	        <classpath refid="compile.classpath" />
 	    </javac>
 	</target>
@@ -50,11 +58,14 @@
 	    <!-- Compile Java classes as necessary -->
 	    <javac destdir="${build.home}/classes" includeantruntime="false" >
 	    	<src path="${src.home}" />
-    		<include name="**/goldenGateServer/GoldenGateServerConstants.java" />
-    		<include name="**/goldenGateServer/client/ServerConnection.java" />
-    		<include name="**/goldenGateServer/uaa/UserAccessAuthorityConstants.java" />
- 			<include name="**/goldenGateServer/uaa/client/*.java" />
-			<exclude name="**/goldenGateServer/uaa/client/UserAccessAuthortityClient.java" />
+	    	
+    		<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
+    		<include name="**/goldenGateServer/dio/client/GoldenGateDioClient.java" />
+    		<include name="**/goldenGateServer/dio/client/GoldenGateDioDocumentIO.java" />
+    		<include name="**/goldenGateServer/dio/client/batch/*.java" />
+    		<include name="**/goldenGateServer/dio/client/documentGateway/*.java" />
+    		<include name="**/goldenGateServer/dio/data/*.java" />
+	    	
 	        <classpath refid="compile.classpath" />
 	    </javac>
 	</target>
@@ -65,21 +76,31 @@
 	    <!-- Compile Java classes as necessary -->
 	    <javac destdir="${build.home}/classes" includeantruntime="false" >
 	    	<src path="${src.home}" />
-    		<include name="**/goldenGateServer/GoldenGateServerConstants.java" />
-    		<include name="**/goldenGateServer/GoldenGateServerEventService.java" />
-    		<include name="**/goldenGateServer/client/*.java" />
-    		<include name="**/goldenGateServer/util/Base64*.java" />
-			<include name="**/goldenGateServer/uaa/UserAccessAuthortityConstants.java" />
- 			<include name="**/goldenGateServer/uaa/client/AuthenticatedClient.java" />
- 			<include name="**/goldenGateServer/uaa/client/UserAccessAuthorityClient.java" />
- 			<include name="**/goldenGateServer/uaa/data/*.java" />
- 			<include name="**/goldenGateServer/uaa/webClient/*.java" />
-    		<include name="**/goldenGateServer/uds/GoldenGateUdsConstants.java" />
- 			<include name="**/goldenGateServer/uds/client/*.java" />
-    		<include name="**/goldenGateServer/ups/GoldenGateUpsConstants.java" />
- 			<include name="**/goldenGateServer/ups/client/*.java" />
- 			<include name="**/goldenGateServer/utilities/*.java" />
+	    	
+    		<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
+    		<include name="**/goldenGateServer/dio/client/DocumentServlet.java" />
+    		<include name="**/goldenGateServer/dio/client/GoldenGateDioClient.java" />
+    		<include name="**/goldenGateServer/dio/data/*.java" />
+	    	
+    		<include name="**/goldenGateServer/srs/GoldenGateSrsConstants*.java" />
+    		<include name="**/goldenGateServer/srs/client/*.java" />
+    		<include name="**/goldenGateServer/srs/data/*.java" />
+    		<include name="**/goldenGateServer/srs/webPortal/*.java" />
+    		<include name="**/goldenGateServer/srs/webPortal/layoutData/*.java" />
+    		<include name="**/goldenGateServer/srs/webPortal/layouts/*.java" />
+    		<include name="**/goldenGateServer/srs/webPortal/resultLinkers*.java" />
+	    	
 	        <classpath refid="compile.classpath" />
+	    </javac>
+	</target>
+	
+	<!-- Compile packer utility for document gateway -->
+	<target name="compileDgPacker" description="Compile document gateway packer tool">
+		
+	    <!-- Compile Java classes as necessary -->
+	    <javac destdir="${build.home}/classes" includeantruntime="false" >
+	    	<src path="${src.home}" />
+  	 		<include name="**/goldenGateServer/dio/utilities/*.java" />
 	    </javac>
 	</target>
 </project>

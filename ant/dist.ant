@@ -5,223 +5,309 @@
 -->
 
 <project name="dist">
-	<target name="zips" depends="backendzip,frontendzip,authmanager,datauploaderzip">
+	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip">
 	</target>
 	
-	<target name="backendzip" depends="serverjar,serverconsolejar,resjar,uaajar,udsjar,upsjar,serverextenderjar">
-		<delete file="${app.server}"/>
-		<zip destfile="${app.server}">
+	<target name="backenddocszip" depends="atsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,srsdiojar,srsexpjar,srsidxftjar,srsfltschemajar,srsfltxpathjar">
+		<delete file="${pack.serverdocs}"/>
+		<zip destfile="${pack.serverdocs}">
 			<fileset dir="${file.home}/server"/>
-			<fileset dir="${dist.home}/Components" includes="Installer.jar"/>
-			<fileset dir="${dist.home}" includes="GgServer.jar"/>
-			<fileset dir="${dist.home}" includes="GgServerConsole.jar"/>
-			<fileset dir="${dist.home}" includes="Components/**.jar" excludes="Components/Installer.jar" />
-			<fileset dir="${lib.home}" includes="EasyIO.jar"/>
-			<fileset dir="${lib.home}" includes="Gamta.jar"/>
-			<fileset dir="${lib.home}" includes="HtmlXmlUtil.jar"/>
-			<fileset dir="${lib.home}" includes="mail.jar"/>
-			<fileset dir="${lib.home}" includes="StringUtils.jar"/>
+			<fileset dir="${dist.home}" includes="Components/**/**" />
 			<fileset dir="." includes="LICENSE.txt"/>
 		</zip>
 	</target>
 	
-	<target name="serverjar">
-		<delete file="${jar.server}" />
-		<jar destfile="${jar.server}" manifest="${file.home}/MANIFEST.server.MF">
+	<target name="atsjar">
+		<delete file="${jar.ats}" />
+		<jar destfile="${jar.ats}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/*.class" />
-				<include name="**/goldenGateServer/util/*.class" />
-				<exclude name="**/goldenGateServer/GoldenGateServerConsole*.class" />
+				<include name="**/goldenGateServer/ats/*.class" />
+				<include name="**/goldenGateServer/ats/client/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/*.java" />
-				<include name="**/goldenGateServer/util/*.java" />
-				<exclude name="**/goldenGateServer/GoldenGateServerConsole.java" />
+				<include name="**/goldenGateServer/ats/*.java" />
+				<include name="**/goldenGateServer/ats/client/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
-	<target name="serverconsolejar">
-		<delete file="${jar.serverconsole}" />
-		<jar destfile="${jar.serverconsole}" manifest="${file.home}/MANIFEST.serverconsole.MF">
+	<target name="dicjar">
+		<delete file="${jar.dic}" />
+		<jar destfile="${jar.dic}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/GoldenGateServerConsole*.class" />
+				<include name="**/goldenGateServer/dic/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/GoldenGateServerConsole.java" />
+				<include name="**/goldenGateServer/dic/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
-	<target name="serverextenderjar">
-		<delete file="${jar.serverextender}"/>
-		<jar destfile="${jar.serverextender}" manifest="${file.home}/MANIFEST.serverextender.MF">
-			<fileset dir="${build.home}/classes" includes="**/utilities/ServerComponentInstaller*.class"/>
-			<fileset dir="${build.home}/classes" includes="**/utilities/InstallerUtils*.class"/>
-			<fileset dir="${src.home}" includes="**/utilities/ServerComponentInstaller.java"/>
-			<fileset dir="${src.home}" includes="**/utilities/InstallerUtils.java"/>
-			<fileset dir="." includes="LICENSE.txt"/>
-		</jar>
-	</target>
-	
-	<target name="resjar">
-		<delete file="${jar.res}" />
-		<jar destfile="${jar.res}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="diojar">
+		<delete file="${jar.dio}" />
+		<jar destfile="${jar.dio}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/client/ServerConnection*.class" />
-				<include name="**/goldenGateServer/res/*.class" />
+				<include name="**/goldenGateServer/dio/*.class" />
+				<include name="**/goldenGateServer/dio/data/*.class" />
+				<include name="**/goldenGateServer/dio/util/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/client/ServerConnection.java" />
-				<include name="**/goldenGateServer/res/*.java" />
+				<include name="**/goldenGateServer/dio/*.java" />
+				<include name="**/goldenGateServer/dio/data/*.java" />
+				<include name="**/goldenGateServer/dio/util/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
-	
-	<target name="uaajar">
-		<delete file="${jar.uaa}" />
-		<jar destfile="${jar.uaa}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="dioexpjar">
+		<delete file="${jar.dioexp}" />
+		<jar destfile="${jar.dioexp}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/uaa/*.class" />
-				<include name="**/goldenGateServer/uaa/data/*.class" />
+				<include name="**/goldenGateServer/dio/connectors/GoldenGateDioEXP*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/uaa/*.java" />
-				<include name="**/goldenGateServer/uaa/data/*.java" />
+				<include name="**/goldenGateServer/dio/connectors/GoldenGateDioEXP.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
-	<target name="udsjar">
-		<delete file="${jar.uds}" />
-		<jar destfile="${jar.uds}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="drsjar">
+		<delete file="${jar.drs}" />
+		<jar destfile="${jar.drs}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/uds/*.class" />
+				<include name="**/goldenGateServer/drs/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/uds/*.java" />
+				<include name="**/goldenGateServer/drs/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
-	<target name="upsjar">
-		<delete file="${jar.ups}" />
-		<jar destfile="${jar.ups}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="dstjar">
+		<delete file="${jar.dst}" />
+		<jar destfile="${jar.dst}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/ups/*.class" />
+				<include name="**/goldenGateServer/dst/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/ups/*.java" />
+				<include name="**/goldenGateServer/dst/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
+	<target name="expjar">
+		<delete file="${jar.exp}" />
+		<jar destfile="${jar.exp}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/exp/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/exp/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
+	<target name="excjar">
+		<delete file="${jar.exc}" />
+		<jar destfile="${jar.exc}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/exc/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/exc/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
+	<target name="wcsjar">
+		<delete file="${jar.wcs}" />
+		<jar destfile="${jar.wcs}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/wcs/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/wcs/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
+	<target name="srsjar">
+		<delete file="${jar.srs}" />
+		<jar destfile="${jar.srs}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/*.class" />
+				<include name="**/goldenGateServer/srs/data/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="srsdiojar">
+		<delete file="${jar.srsdio}" />
+		<jar destfile="${jar.srsdio}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/connectors/GoldenGateSrsDioConnector*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/connectors/GoldenGateSrsDioConnector.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="srsexpjar">
+		<delete file="${jar.srsexp}" />
+		<jar destfile="${jar.srsexp}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/connectors/GoldenGateSrsEXP*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/connectors/GoldenGateSrsEXP.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="srsidxftjar">
+		<delete file="${jar.srsidxft}" />
+		<jar destfile="${jar.srsidxft}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/indexers/FullTextIndexer*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/indexers/FullTextIndexer.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="srsfltschemajar">
+		<delete file="${jar.srsfltschema}" />
+		<jar destfile="${jar.srsfltschema}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/filters/XmlSchemaFilter*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/filters/XmlSchemaFilter.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="srsfltxpathjar">
+		<delete file="${jar.srsfltxpath}" />
+		<jar destfile="${jar.srsfltxpath}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/filters/XPathFilter*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/filters/XPathFilter.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
 	
-	<target name="frontendzip" depends="webfrontendjar,authwebclientjar,uaamodul,udsmodul,upsmodul,webappextenderjar">
-		<delete file="${app.webfrontend}" />
-		<zip destfile="${app.webfrontend}">
+	<target name="frontendzip" depends="diowebclientjar,srswebportaljar,srslytcssjar,srslytxsltjar,srslnklgmjar,srslnkxmldocjar">
+		<delete file="${pack.searchportal}" />
+		<zip destfile="${pack.searchportal}">
 			<fileset dir="${file.home}/webapp" />
-			<fileset dir="${dist.home}" includes="**/WEB-INF/**" excludes="WEB-INF/Installer.jar"/>
-			<fileset dir="${dist.home}/WEB-INF" includes="Installer.jar" />
-			<fileset dir="${lib.home}" includes="EasyIO.jar"/>
-			<fileset dir="${lib.home}" includes="Gamta.jar"/>
-			<fileset dir="${lib.home}" includes="HtmlXmlUtil.jar.jar"/>
-			<fileset dir="${lib.home}" includes="mail.jar"/>
-			<fileset dir="${lib.home}" includes="StringUtils.jar"/>
+			<fileset dir="${dist.home}" includes="**/WEB-INF/**" />
 			<fileset dir="." includes="LICENSE.txt"/>
 		</zip>
 	</target>
 	
-	<target name="webfrontendjar">
-		<delete file="${jar.webapp}" />
-		<jar destfile="${jar.webapp}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="diowebclientjar">
+		<delete file="${jar.diowebclient}" />
+		<jar destfile="${jar.diowebclient}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/GoldenGateServerConstants*.class" />
-				<include name="**/goldenGateServer/GoldenGateServerEventService*.class" />
-				<include name="**/goldenGateServer/client/*.class" />
-				<include name="**/goldenGateServer/util/Base64*.class" />
-				<include name="**/goldenGateServer/utilities/DownloadServlet*.class" />
-				<include name="**/goldenGateServer/utilities/RefresherServlet*.class" />
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.class" />
+				<include name="**/goldenGateServer/dio/client/DocumentServlet*.class" />
+				<include name="**/goldenGateServer/dio/data/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/GoldenGateServerConstants.java" />
-				<include name="**/goldenGateServer/GoldenGateServerEventService.java" />
-				<include name="**/goldenGateServer/client/*.java" />
-				<include name="**/goldenGateServer/util/Base64*.java" />
-				<include name="**/goldenGateServer/utilities/DownloadServlet.java" />
-				<include name="**/goldenGateServer/utilities/RefresherServlet.java" />
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.java" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.java" />
+				<include name="**/goldenGateServer/dio/client/DocumentServlet*.java" />
+				<include name="**/goldenGateServer/dio/data/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
-	<target name="authwebclientjar">
-		<delete file="${jar.authwebclient}" />
-		<jar destfile="${jar.authwebclient}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="srswebportaljar">
+		<delete file="${jar.srswebportal}" />
+		<jar destfile="${jar.srswebportal}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/uaa/UserAccessAuthorityConstants*.class" />
-				<include name="**/goldenGateServer/uaa/client/AuthenticatedClient*.class" />
-				<include name="**/goldenGateServer/uaa/webClient/*.class" />
-				<exclude name="**/goldenGateServer/uaa/webClient/UserManagerModul*.class" />
+				<include name="**/goldenGateServer/srs/GoldenGateSrsConstants*.class" />
+				<include name="**/goldenGateServer/srs/client/*.class" />
+				<include name="**/goldenGateServer/srs/data/*.class" />
+				<include name="**/goldenGateServer/srs/webPortal/*.class" />
+				<include name="**/goldenGateServer/srs/webPortal/layoutData/*.class" />
+				<include name="**/goldenGateServer/srs/webPortal/layouts/DefaultSearchPortalLayout*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/uaa/UserAccessAuthorityConstants.java" />
-				<include name="**/goldenGateServer/uaa/client/AuthenticatedClient.java" />
-				<include name="**/goldenGateServer/uaa/webClient/*.java" />
-				<exclude name="**/goldenGateServer/uaa/webClient/UserManagerModul.java" />
+				<include name="**/goldenGateServer/srs/GoldenGateSrsConstants.java" />
+				<include name="**/goldenGateServer/srs/client/*.java" />
+				<include name="**/goldenGateServer/srs/data/*.java" />
+				<include name="**/goldenGateServer/srs/webPortal/*.java" />
+				<include name="**/goldenGateServer/srs/webPortal/layoutData/*.java" />
+				<include name="**/goldenGateServer/srs/webPortal/layouts/DefaultSearchPortalLayout.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
-	
-	<target name="uaamodul">
-		<delete file="${jar.uaamodul}" />
-		<jar destfile="${jar.uaamodul}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="srslytcssjar">
+		<delete file="${jar.srslytcss}" />
+		<jar destfile="${jar.srslytcss}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/uaa/client/UserAccessAuthorityClient*.class" />
-				<include name="**/goldenGateServer/uaa/data/*.class" />
-				<include name="**/goldenGateServer/uaa/webClient/UserManagerModul*.class" />
+				<include name="**/goldenGateServer/srs/webPortal/layouts/CssSearchPortalLayout*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/uaa/client/UserAccessAuthorityClient.java" />
-				<include name="**/goldenGateServer/uaa/data/*.java" />
-				<include name="**/goldenGateServer/uaa/webClient/UserManagerModul.java" />
+				<include name="**/goldenGateServer/srs/webPortal/layouts/CssSearchPortalLayout.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
-	
-	<target name="udsmodul">
-		<delete file="${jar.udsmodul}" />
-		<jar destfile="${jar.udsmodul}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="srslytxsltjar">
+		<delete file="${jar.srslytxslt}" />
+		<jar destfile="${jar.srslytxslt}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/uds/GoldenGateUdsConstants*.class" />
-				<include name="**/goldenGateServer/uds/client/*.class" />
+				<include name="**/goldenGateServer/srs/webPortal/layouts/XsltSearchPortalLayout*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/uds/GoldenGateUdsConstants.java" />
-				<include name="**/goldenGateServer/uds/client/*.java" />
+				<include name="**/goldenGateServer/srs/webPortal/layouts/XsltSearchPortalLayout.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
-				
-	<target name="upsmodul">
-		<delete file="${jar.upsmodul}" />
-		<jar destfile="${jar.upsmodul}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="srslnklgmjar">
+		<delete file="${jar.srslnklgm}" />
+		<jar destfile="${jar.srslnklgm}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/ups/GoldenGateUpsConstants*.class" />
-				<include name="**/goldenGateServer/ups/client/*.class" />
+				<include name="**/goldenGateServer/srs/webPortal/resultLinkers/LocationGoogleMapsLinker*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/ups/GoldenGateUpsConstants.java" />
-				<include name="**/goldenGateServer/ups/client/*.java" />
+				<include name="**/goldenGateServer/srs/webPortal/resultLinkers/LocationGoogleMapsLinker.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="srslnkxmldocjar">
+		<delete file="${jar.srslnkxmldoc}" />
+		<jar destfile="${jar.srslnkxmldoc}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/webPortal/resultLinkers/XmlDocumentLinker*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/webPortal/resultLinkers/XmlDocumentLinker.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
@@ -231,53 +317,107 @@
 	<target name="check-gg" unless="gg.exists">
 		<available property="gg.exists" file="lib/GoldenGATE.jar"/>
 	</target>
-	<target name="authmanager" depends="check-gg" if="${gg.exists}">
-		<delete file="${jar.authmanager}" />
-		<jar destfile="${jar.authmanager}" manifest="${file.home}/MANIFEST.components.MF">
+	<target name="diodociojar" depends="check-gg" if="${gg.exists}">
+		<delete file="${jar.diodocio}" />
+		<jar destfile="${jar.diodocio}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/GoldenGateServerConstants*.class" />
-				<include name="**/goldenGateServer/client/ServerConnection*.class" />
-				<include name="**/goldenGateServer/uaa/UserAccessAuthorityConstants*.class" />
-				<include name="**/goldenGateServer/uaa/client/AuthenticatedClient*.class" />
-				<include name="**/goldenGateServer/uaa/client/AuthenticationManager*.class" />
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
+				<include name="**/goldenGateServer/client/GoldenGateDioClient*.class" />
+				<include name="**/goldenGateServer/client/GoldenGateDioDocumentIO*.class" />
+				<include name="**/goldenGateServer/dio/data/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/GoldenGateServerConstants.java" />
-				<include name="**/goldenGateServer/client/ServerConnection.java" />
-				<include name="**/goldenGateServer/uaa/UserAccessAuthorityConstants.java" />
-				<include name="**/goldenGateServer/uaa/client/AuthenticatedClient.java" />
-				<include name="**/goldenGateServer/uaa/client/AuthenticationManager*.java" />
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
+				<include name="**/goldenGateServer/client/GoldenGateDioClient.java" />
+				<include name="**/goldenGateServer/client/GoldenGateDioDocumentIO.java" />
+				<include name="**/goldenGateServer/dio/data/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="diobatchjar" depends="check-gg" if="${gg.exists}">
+		<delete file="${jar.diobatch}" />
+		<jar destfile="${jar.diobatch}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
+				<include name="**/goldenGateServer/client/GoldenGateDioClient*.class" />
+				<include name="**/goldenGateServer/client/batch/ServerBatchManager*.class" />
+				<include name="**/goldenGateServer/dio/data/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
+				<include name="**/goldenGateServer/client/GoldenGateDioClient.java" />
+				<include name="**/goldenGateServer/client/batch/ServerBatchManager.java" />
+				<include name="**/goldenGateServer/dio/data/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
 	
-	<target name="datauploaderjar">
-		<delete file="${jar.uploader}"/>
-		<jar destfile="${jar.uploader}" manifest="${file.home}/MANIFEST.datauploader.MF">
-			<fileset dir="${build.home}/classes" includes="**/utilities/DataUploader*.class"/>
-			<fileset dir="${src.home}" includes="**/utilities/DataUploader.java"/>
+	<target name="docgatewayzip" depends="check-ggstuff,diodocgatewayjar">
+		<delete file="${app.docgateway}" />
+		<zip destfile="${app.docgateway}">
+			<fileset dir="${file.home}/docgateway" />
+			<fileset dir="${dist.home}/DocGateway" includes="GgServerDocumentGateway.jar" />
+			<fileset dir="${lib.home}" includes="AuthManagerPlugin.jar" />
+			<fileset dir="${lib.home}" includes="EasyIO.jar" />
+			<fileset dir="${lib.home}" includes="Gamta.jar" />
+			<fileset dir="${lib.home}" includes="GoldenGATE.jar" />
+			<fileset dir="${lib.home}" includes="HtmlXmlUtil.jar" />
+			<fileset dir="${lib.home}" includes="mail.jar" />
+			<fileset dir="${lib.home}" includes="StringUtils.jar" />
+			<fileset dir="." includes="LICENSE.txt"/>
+		</zip>
+	</target>
+	
+	<target name="check-ggstuff" unless="ggstuff.exists">
+	    <condition property="ggstuff.exists">
+	        <and>
+	    		<available file="lib/AuthManagerPlugin.jar"/>
+	    		<available file="lib/GoldenGATE.jar"/>
+	        </and>
+	    </condition>
+	</target>
+	<target name="diodocgatewayjar" depends="check-ggstuff" if="${ggstuff.exists}">
+		<delete file="${jar.diodocgateway}"/>
+		<jar destfile="${jar.diodocgateway}" manifest="${file.home}/MANIFEST.docgateway.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
+				<include name="**/goldenGateServer/client/GoldenGateDioClient*.class" />
+				<include name="**/goldenGateServer/client/documentGateway/GgServerDocumentGateway*.class" />
+				<include name="**/goldenGateServer/dio/data/*.class" />
+				<include name="**/goldenGateServer/dst/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
+				<include name="**/goldenGateServer/client/GoldenGateDioClient.java" />
+				<include name="**/goldenGateServer/client/documentGateway/GgServerDocumentGateway.java" />
+				<include name="**/goldenGateServer/dio/data/*.java" />
+				<include name="**/goldenGateServer/dst/*.java" />
+			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
-	<target name="webappextenderjar">
-		<delete file="${jar.webappextender}"/>
-		<jar destfile="${jar.webappextender}" manifest="${file.home}/MANIFEST.webappextender.MF">
-			<fileset dir="${build.home}/classes" includes="**/utilities/WebAppExtensionInstaller*.class"/>
-			<fileset dir="${build.home}/classes" includes="**/utilities/InstallerUtils*.class"/>
-			<fileset dir="${src.home}" includes="**/utilities/WebAppExtensionInstaller.java"/>
-			<fileset dir="${src.home}" includes="**/utilities/InstallerUtils.java"/>
+	<target name="dgpackerjar">
+		<delete file="${jar.dgpacker}"/>
+		<jar destfile="${jar.dgpacker}" manifest="${file.home}/MANIFEST.dgpacker.MF">
+			<fileset dir="${build.home}/classes" includes="**/DocumentGatewayPacker.class"/>
+			<fileset dir="${build.home}/classes" includes="**/DocumentGatewayPacker$**.class"/>
+			<fileset dir="${build.home}/classes" includes="**/PackerUtils.class"/>
+			<fileset dir="${build.home}/classes" includes="**/PackerUtils$**.class"/>
+			<fileset dir="${src.home}" includes="**/DocumentGatewayPacker.java"/>
+			<fileset dir="${src.home}" includes="**/PackerUtils.java"/>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
 	
-	<target name="datauploaderzip" depends="datauploaderjar">
-		<delete file="${app.uploader}"/>
-		<zip destfile="${app.uploader}">
-			<fileset dir="${file.home}/datauploader"/>
-			<fileset dir="${dist.home}" includes="_DataUploader.jar"/>
+	<target name="dgpackerzip" depends="dgpackerjar">
+		<delete file="${app.dgpacker}"/>
+		<zip destfile="${app.dgpacker}">
+			<fileset dir="${file.home}/dgpacker"/>
+			<fileset dir="${dist.home}/" includes="_DocumentGatewayPacker.jar"/>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</zip>
 	</target>
