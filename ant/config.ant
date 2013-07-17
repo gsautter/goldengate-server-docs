@@ -61,6 +61,9 @@
 	<property name="jar.wcs" value="${dist.home}/Components/Bin/GgServerWCS.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
+	<property name="jar.scs" value="${dist.home}/Components/GgServerSCS.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
 	<property name="jar.srs" value="${dist.home}/Components/GgServerSRS.jar" />
 	<property name="jar.srsdio" value="${dist.home}/Components/GgServerSrsDIO.jar" />
 	<property name="jar.srsexp" value="${dist.home}/Components/Bin/GgServerSrsEXP.jar" />
@@ -84,6 +87,9 @@
 	
 	<!-- path to the .jar file that shall be created -->
 	<property name="jar.diowebclient" value="${dist.home}/WEB-INF/lib/DioDocumentServlet.jar" />
+	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.scsservlet" value="${dist.home}/WEB-INF/lib/GgSrsCollectionStatistics.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
 	<property name="jar.srswebportal" value="${dist.home}/WEB-INF/lib/GgSrsSearchPortal.jar" />

@@ -41,6 +41,7 @@
     		<include name="**/goldenGateServer/dst/*.java" />
     		<include name="**/goldenGateServer/eXist/*.java" />
     		<include name="**/goldenGateServer/exp/*.java" />
+    		<include name="**/goldenGateServer/scs/*.java" />
     		<include name="**/goldenGateServer/srs/*.java" />
     		<include name="**/goldenGateServer/srs/connectors/*.java" />
     		<include name="**/goldenGateServer/srs/data/*.java" />
@@ -81,6 +82,9 @@
     		<include name="**/goldenGateServer/dio/client/DocumentServlet.java" />
     		<include name="**/goldenGateServer/dio/client/GoldenGateDioClient.java" />
     		<include name="**/goldenGateServer/dio/data/*.java" />
+	    	
+    		<include name="**/goldenGateServer/scs/GoldenGateScsConstants*.java" />
+    		<include name="**/goldenGateServer/scs/client/*.java" />
 	    	
     		<include name="**/goldenGateServer/srs/GoldenGateSrsConstants*.java" />
     		<include name="**/goldenGateServer/srs/client/*.java" />

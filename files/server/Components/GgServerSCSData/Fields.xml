@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<statisticsFields xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="StatisticsFields.xsd">
+	<fieldSet name="exampleFiedSet" label="Example Fields">
+		<field name="exampleFieldStr" label="Example String" type="string" length="32">
+			<aggregate type="min" defLowGroup="true"/>
+			<aggregate type="max"/>
+			<aggregate type="count"/>
+			<aggregate type="ignore"/>
+			<predicate test="//example/xpath/to/string" expression="//example/xpath/to/string/@attributeToCollect"/>
+			<predicate expression="//example//string/@attributeToCollect"/>
+		</field>
+		<field name="exampleFieldNum" label="Example Number" type="number" length="0">
+			<aggregate type="count"/>
+			<aggregate type="ignore" defHighGroup="true" defLowGroup="true"/>
+			<predicate test="//example/xpath/to/number" expression="//example/xpath/to/number/@attributeToCollect"/>
+			<predicate expression="//example//number/@attributeToCollect"/>
+		</field>
+		<field name="exampleFieeldBool" label="Example Boolean" type="boolean" length="0">
+			<aggregate type="min"/>
+			<aggregate type="max"/>
+			<aggregate type="count"/>
+			<aggregate type="ignore" defHighGroup="true"/>
+			<predicate test="//example/xpath/to/bool" expression="//example/xpath/to/bool"/>
+			<predicate expression="//example//bool"/>
+		</field>
+	</fieldSet>
+	<fieldSet name="publicationData" label="Publication Data">
+		<field name="year" label="Year" type="number" length="0">
+			<aggregate type="count"/>
+			<aggregate type="ignore" defHighGroup="true" defLowGroup="true"/>
+			<predicate expression="./@docDate"/>
+		</field>
+		<field name="author" label="Author(s)" type="string" length="128">
+			<aggregate type="min"/>
+			<aggregate type="max"/>
+			<aggregate type="count"/>
+			<aggregate type="ignore" defHighGroup="true"/>
+			<predicate expression="./@docAuthor"/>
+		</field>
+	</fieldSet>
+</statisticsFields>

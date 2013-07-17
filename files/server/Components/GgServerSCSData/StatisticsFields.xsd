@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2005 U (http://www.xmlspy.com) by Guido Sautter (Institut für Programmstrukturen und Datenorganisation (IPD), Universität Karlsruhe) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:element name="statisticsFields">
+		<xs:annotation>
+			<xs:documentation>The whole set of statistics fields</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence maxOccurs="unbounded">
+				<xs:element ref="fieldSet"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="fieldSet">
+		<xs:annotation>
+			<xs:documentation>One set of related statistics fields</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence maxOccurs="unbounded">
+				<xs:element ref="field"/>
+			</xs:sequence>
+			<xs:attribute name="name" use="required">
+				<xs:annotation>
+					<xs:documentation>The name of the field set. Has to be unique. Has to consist of letters only, no whitespaces, numbers or punctuation.</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+			<xs:attribute name="label" use="required">
+				<xs:annotation>
+					<xs:documentation>The label of the field set, to display in the UI and to use in statistics output.</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
+	<xs:element name="field">
+		<xs:annotation>
+			<xs:documentation>A single statistics field</xs:documentation>
+		</xs:annotation>
+		<xs:complexType>
+			<xs:sequence>
+				<xs:sequence>
+					<xs:element name="aggregate" maxOccurs="unbounded">
+						<xs:complexType>
+							<xs:attribute name="type" use="required">
+								<xs:annotation>
+									<xs:documentation>The aggregate type, i.e., count, sum, min, max, average, or ignore. Note that sum and average only work for fields of type number. Ignore will exclude the field from the statistics if it is not used as a grouping field.</xs:documentation>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:enumeration value="count"/>
+										<xs:enumeration value="sum"/>
+										<xs:enumeration value="min"/>
+										<xs:enumeration value="max"/>
+										<xs:enumeration value="average"/>
+										<xs:enumeration value="ignore"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:attribute>
+							<xs:attribute name="defHighGroup" type="xs:boolean" default="false">
+								<xs:annotation>
+									<xs:documentation>Marks an aggreagte as the one to be used if a field preceeding this field in the same field set is used for grouping. For each field, the first aggregate with this attribute set to true will be used.</xs:documentation>
+								</xs:annotation>
+							</xs:attribute>
+							<xs:attribute name="defLowGroup" type="xs:boolean" default="false">
+								<xs:annotation>
+									<xs:documentation>Marks an aggreagte as the one to be used if a field following this field in the same field set is used for grouping. For each field, the first aggregate with this attribute set to true will be used.</xs:documentation>
+								</xs:annotation>
+							</xs:attribute>
+						</xs:complexType>
+					</xs:element>
+				</xs:sequence>
+				<xs:sequence>
+					<xs:element name="predicate" maxOccurs="unbounded">
+						<xs:annotation>
+							<xs:documentation>An XPath predicate for extracting the field value from an SRS document. If multiple predicates exist for one field, they have to be ordered in descending restrictiveness of their 'test' expessions, as the first predicate whose test expression evaluates to true will be used.</xs:documentation>
+						</xs:annotation>
+						<xs:complexType>
+							<xs:attribute name="expression" use="required">
+								<xs:annotation>
+									<xs:documentation>The actual XPath expresion for extracting the field value from an SRS document.</xs:documentation>
+								</xs:annotation>
+							</xs:attribute>
+							<xs:attribute name="test" type="xs:string" default="true">
+								<xs:annotation>
+									<xs:documentation>An boolean XPath expession for testing whether or not to use this predicate for filling the field. Defaults to true.</xs:documentation>
+								</xs:annotation>
+							</xs:attribute>
+						</xs:complexType>
+					</xs:element>
+				</xs:sequence>
+			</xs:sequence>
+			<xs:attribute name="name" type="xs:string" use="required">
+				<xs:annotation>
+					<xs:documentation>The field name. Has to be unique throughout the field set. Has to consist of letters only, no whitespaces, numbers or punctuation. The field name 'docId' is preserved for internal use, in whichever capitalization.</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+			<xs:attribute name="label" type="xs:string" use="required">
+				<xs:annotation>
+					<xs:documentation>The field label, to display in the UI and to use in statistics output.</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+			<xs:attribute name="type" use="required">
+				<xs:annotation>
+					<xs:documentation>The field type, i.e., boolean, number, or string.</xs:documentation>
+				</xs:annotation>
+				<xs:simpleType>
+					<xs:restriction base="xs:string">
+						<xs:enumeration value="boolean"/>
+						<xs:enumeration value="number"/>
+						<xs:enumeration value="string"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:attribute>
+			<xs:attribute name="length" use="required">
+				<xs:annotation>
+					<xs:documentation>The maximum lenght of field values. Has an effect only if type is string.</xs:documentation>
+				</xs:annotation>
+			</xs:attribute>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

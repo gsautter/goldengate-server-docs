@@ -1,0 +1,2 @@
+localPassPhrase = "DRS provides remote access!";
+remotePassPhrase.ExampleDomain = "This gives me documents from remote.";

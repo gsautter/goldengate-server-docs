@@ -1,0 +1,134 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<web-app>
+	
+	<!-- this servlet is deactivated by default in order to prevent accidental public exposure of documents that are copyrighted. -->
+	<!--
+	<servlet>
+		<servlet-name>GgDioDocuments</servlet-name>
+		<servlet-class>de.uka.ipd.idaho.goldenGateServer.dio.client.DocumentServlet</servlet-class>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>GgDioDocuments</servlet-name>
+		<url-pattern>/documents</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgDioDocuments</servlet-name>
+		<url-pattern>/documents/*</url-pattern>
+	</servlet-mapping>
+	-->
+	
+	<servlet>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<servlet-class>de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalServlet</servlet-class>
+		<init-param>
+			<param-name>configFile</param-name>
+			<param-value>SearchPortal.cnfg</param-value>
+		</init-param>
+		<init-param>
+			<param-name>dataPath</param-name>
+			<param-value>srsWebPortalData</param-value>
+		</init-param>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<url-pattern>/search</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<url-pattern>/thesaurus</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<url-pattern>/statistics</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<url-pattern>/html</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<url-pattern>/html/*</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<url-pattern>/xml/*</url-pattern>
+	</servlet-mapping>
+	
+	<servlet>
+		<servlet-name>GgSrsLinkPortal</servlet-name>
+		<servlet-class>de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchLinkServlet</servlet-class>
+		<init-param>
+			<param-name>configFile</param-name>
+			<param-value>SearchPortal.cnfg</param-value>
+		</init-param>
+		<init-param>
+			<param-name>dataPath</param-name>
+			<param-value>srsWebPortalData</param-value>
+		</init-param>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>GgSrsLinkPortal</servlet-name>
+		<url-pattern>/searchLinks</url-pattern>
+	</servlet-mapping>
+	
+	
+	<servlet>
+		<servlet-name>GgSrsXSLT</servlet-name>
+		<servlet-class>de.uka.ipd.idaho.goldenGateServer.srs.webPortal.XsltServlet</servlet-class>
+		<init-param>
+			<param-name>configFile</param-name>
+			<param-value>XSLT.cnfg</param-value>
+		</init-param>
+		<init-param>
+			<param-name>dataPath</param-name>
+			<param-value>srsWebPortalData</param-value>
+		</init-param>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>GgSrsXSLT</servlet-name>
+		<url-pattern>/xslt/*</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsXSLT</servlet-name>
+		<!-- for TaxonX document delivery -->
+		<url-pattern>/taxonx/*</url-pattern>
+	</servlet-mapping>
+	
+	<servlet>
+		<servlet-name>GgSrsRssFeeder</servlet-name>
+		<servlet-class>de.uka.ipd.idaho.goldenGateServer.srs.webPortal.RssServlet</servlet-class>
+		<init-param>
+			<param-name>configFile</param-name>
+			<param-value>RSS.cnfg</param-value>
+		</init-param>
+		<init-param>
+			<param-name>dataPath</param-name>
+			<param-value>srsWebPortalData</param-value>
+		</init-param>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>GgSrsRssFeeder</servlet-name>
+		<url-pattern>/xml.rss.xml</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsRssFeeder</servlet-name>
+		<url-pattern>/html.rss.xml</url-pattern>
+	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsRssFeeder</servlet-name>
+		<url-pattern>/taxonx.rss.xml</url-pattern>
+	</servlet-mapping>
+	
+	<servlet>
+		<servlet-name>GgSrsCollectionStatistics</servlet-name>
+		<servlet-class>de.uka.ipd.idaho.goldenGateServer.scs.client.ScsStatisticsServlet</servlet-class>
+		<init-param>
+			<param-name>dataPath</param-name>
+			<param-value>srsReportData</param-value>
+		</init-param>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>GgSrsCollectionStatistics</servlet-name>
+		<url-pattern>/srs_reports</url-pattern>
+	</servlet-mapping>
+</web-app>

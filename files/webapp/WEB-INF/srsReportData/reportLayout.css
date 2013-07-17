@@ -1,0 +1,162 @@
+/* FORMATS FOR RANKING LIST */
+
+.statisticsQueryMainTable {
+  width: 90%;
+  margin: 5px 15px 15px;
+}
+
+.statisticsQueryMainTableBody {
+  vertical-align: top;
+}
+
+.statisticsQueryMainButtons {
+	text-align: center;
+}
+
+.statisticsQueryTable {
+  margin: 10px 10px 10px;
+  border: solid 1px #9c0;
+}
+
+.statisticsQueryTableHeader {
+  background-color: #9c0;
+  padding: 5px 15px 5px;
+  text-align: center;
+	font-size: 11pt;
+	font-weight: bold;
+}
+
+.statisticsQueryTableBody {
+	border-top-color: #eee;
+	border-top-width: 1px;
+	border-top-style: solid;
+	padding:  2px 4px 2px 4px;
+}
+
+.fieldTable {
+  width: 550px;
+}
+.sortTable {
+  width: 250px;
+}
+
+.submitButton {
+	color: white; 
+	background-color: #9c0; 
+	margin: 10px 10px 0; 
+	border: solid 1px #9c0;
+}
+
+.resetButton {
+	color: white; 
+	background-color: #9c0; 
+	margin: 10px 10px 0; 
+	border: solid 1px #9c0;
+}
+
+.clearButton {
+	color: white; 
+	background-color: #9c0; 
+	margin: 10px 10px 0; 
+	border: solid 1px #9c0;
+}
+
+.statisticsDataTable {
+	border: solid 1px #9c0;
+}
+
+.statisticsDataTableHeader {
+	background-color: #9c0;
+	font-size: 10pt;
+	font-weight: bold;
+	text-align: center;
+	padding: 2px 5px 2px 5px;
+}
+
+.statisticsDataTableBody {
+	background-color: #fff;
+	padding:  2px 4px 2px 4px;
+	border-top-color: #eee;
+	border-top-width: 1px;
+	border-top-style: solid;
+}
+
+
+/* FORMATS FOR PAGE IN GENERAL */
+
+.page { 
+	width: 1000px; 
+	text-align: left;
+	margin: 30px auto 0 auto;
+}
+
+body { 
+	color: #003366; 
+	font-size: 81.25%; 
+	font-family: Helvetica, Verdana, Arial, sans-serif; 
+	margin: 0; 
+	margin-left: 0px;
+	padding: 0; 
+	text-align: center;
+}
+
+h1, h2, h3, h4, h5, h6 { 
+	color: #003366; 
+	font-family: Helvetica, Verdana, Arial, sans-serif; 
+	font-weight: normal; 
+	margin: 0 0 0.25em 
+}
+
+a { 
+	color: #0099cc; 
+	text-decoration: none 
+}
+
+a:focus, a:hover, a:active { 
+	color: #cc0000; 
+	text-decoration: underline 
+}
+
+table {
+	border-spacing: 0px;
+	padding: 0px;
+	margin: 0px;
+}
+
+/* FORMATS FOR PAGE'S STRUCTUREAL ELEMENTS */
+
+.header { 
+	background-color: #fff; 
+	margin: 0;
+	text-align: left;
+}
+
+.main {
+	margin: 0; 
+	padding: 10px; 
+	border: solid 1px #9c0;
+}
+
+.footer {
+	font-size: 10pt;
+	text-align: center;
+}
+
+/* FORMATS FOR PAGE HEADER */
+
+.headerInfo {
+	padding-left: 60px; 
+	padding-top: 38px;
+	font-size: 10pt;
+}
+
+.headerInfo p {
+	margin: 0px;
+	padding: 0px;
+}
+
+.headerInfoLink {
+	color: #003366; 
+	margin: 0px;
+	padding: 0px;
+}

@@ -8,7 +8,7 @@
 	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip">
 	</target>
 	
-	<target name="backenddocszip" depends="atsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,srsdiojar,srsexpjar,srsidxftjar,srsfltschemajar,srsfltxpathjar">
+	<target name="backenddocszip" depends="atsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,scsjar,srsjar,srsdiojar,srsexpjar,srsidxftjar,srsfltschemajar,srsfltxpathjar">
 		<delete file="${pack.serverdocs}"/>
 		<zip destfile="${pack.serverdocs}">
 			<fileset dir="${file.home}/server"/>
@@ -139,6 +139,19 @@
 		</jar>
 	</target>
 	
+	<target name="scsjar">
+		<delete file="${jar.scs}" />
+		<jar destfile="${jar.scs}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/scs/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/scs/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
 	<target name="srsjar">
 		<delete file="${jar.srs}" />
 		<jar destfile="${jar.srs}" manifest="${file.home}/MANIFEST.components.MF">
@@ -214,7 +227,7 @@
 	</target>
 	
 	
-	<target name="frontendzip" depends="diowebclientjar,srswebportaljar,srslytcssjar,srslytxsltjar,srslnklgmjar,srslnkxmldocjar">
+	<target name="frontendzip" depends="diowebclientjar,scsservletjar,srswebportaljar,srslytcssjar,srslytxsltjar,srslnklgmjar,srslnkxmldocjar">
 		<delete file="${pack.searchportal}" />
 		<zip destfile="${pack.searchportal}">
 			<fileset dir="${file.home}/webapp" />
@@ -237,6 +250,21 @@
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.java" />
 				<include name="**/goldenGateServer/dio/client/DocumentServlet*.java" />
 				<include name="**/goldenGateServer/dio/data/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
+	<target name="scsservletjar">
+		<delete file="${jar.scsservlet}" />
+		<jar destfile="${jar.scsservlet}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/scs/GoldenGateScsConstants*.class" />
+				<include name="**/goldenGateServer/scs/client/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/scs/GoldenGateScsConstants*.java" />
+				<include name="**/goldenGateServer/scs/client/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>

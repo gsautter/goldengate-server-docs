@@ -1,0 +1,13 @@
+ANNOTATION_NESTING_ORDER = "document section subSection footnote subSubSection caption paragraph sentence";
+
+documentLabelsingular = "article";
+documentLabelPlural = "articles";
+
+displayTitlePattern = "@docAuthor @docDate, @docTitle, pages @pageNumber-@lastPageNumber";
+
+layoutClassName = "de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layouts.XsltSearchPortalLayout";
+
+resultFormatAlias.example = "http://plazi.cs.umb.edu/GgServer/resources/srsWebPortalData/example.xslt";
+
+virtualField.example.srsFieldName = "exampleIndex.exampleSearchField";
+virtualField.example.srsParameters = "exampleIndex.anotherSearchField=someValue";
