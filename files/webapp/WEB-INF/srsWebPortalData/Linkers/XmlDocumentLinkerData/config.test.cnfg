@@ -1,0 +1,9 @@
+LinkBaseURL = "http://localhost:8080/GgServer/xslt";
+//XsltURL = "http://plazi.org:8080/GgSRS/ResultLinkers/XmlDocumentLinkerData/gg2taxonx.xsl";
+//LinkTitle = "View this document marked up according to the TaxonX schema";
+//LinkLabel = "TaxonX";
+TRANSFORMATION_0.LABEL = "Plain XML";
+TRANSFORMATION_0.TITLE = "View this document as plain XML";
+TRANSFORMATION_1.LABEL = "TaxonX";
+TRANSFORMATION_1.TITLE = "View this document marked up according to the TaxonX schema";
+TRANSFORMATION_1.XSLT_URL = "http://localhost:8080/GgServer/srsWebPortalData/Linkers/XmlDocumentLinkerData/gg2taxonx.xsl";
