@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006-2008, IPD Boehm, Universitaet Karlsruhe (TH)
+ * Copyright (c) 2006-, IPD Boehm, Universitaet Karlsruhe (TH) / KIT, by Guido Sautter
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -14,7 +14,7 @@
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -25,7 +25,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 package de.uka.ipd.idaho.goldenGateServer.scs.client;
 
 import java.io.BufferedWriter;
@@ -65,8 +64,6 @@ import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
  */
 public class ScsStatisticsServlet extends GgServerHtmlServlet implements ReInitializableServlet {
 	
-//	private String stylesheetUrl;
-//	
 	private GoldenGateScsClient scsClient;
 	
 	/* (non-Javadoc)
@@ -83,20 +80,8 @@ public class ScsStatisticsServlet extends GgServerHtmlServlet implements ReIniti
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet#reInit(de.uka.ipd.idaho.easyIO.settings.Settings)
 	 */
-	public void reInit(Settings config) {
-//		
-//		//	load stylesheet location
-//		this.stylesheetUrl = config.getSetting("cssName");
-	}
+	public void reInit(Settings config) {}
 	
-//	/* (non-Javadoc)
-//	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerHtmlServlet#getCssStylesheets()
-//	 */
-//	public String[] getCssStylesheets() {
-//		String[] stylesheets = {this.stylesheetUrl};
-//		return stylesheets;
-//	}
-//	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerHtmlServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
@@ -325,62 +310,6 @@ public class ScsStatisticsServlet extends GgServerHtmlServlet implements ReIniti
 						
 						this.writeLine("</tr>");
 					}
-//					
-//					//	write count field row
-//					this.writeLine("<tr id=\"field_" + Field.COUNT_FIELD.fullName + "\">");
-//					this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//					this.writeLine("<input type=\"checkbox\" name=\"use_" + Field.COUNT_FIELD.fullName + "\" value=\"U\"" + ("U".equals(this.request.getParameter("use_" + Field.COUNT_FIELD.fullName)) ? " checked" : "") + " onclick=\"selectField('" + Field.COUNT_FIELD.fullName + "', 'Document Count', this.checked);\">");
-//					this.writeLine("<a href=\"#\" onclick=\"return moveUpField('field_" + Field.COUNT_FIELD.fullName + "');\">Up</a>");
-//					this.writeLine("<a href=\"#\" onclick=\"return moveDownField('field_" + Field.COUNT_FIELD.fullName + "');\">Down</a>");
-//					this.writeLine("</td>");
-//					
-//					this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//					this.writeLine("Document Count");
-//					this.writeLine("</td>");
-//					
-//					this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//					this.writeLine("&nbsp;");
-//					this.writeLine("</td>");
-//					
-//					this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//					this.writeLine("&nbsp;");
-//					this.writeLine("</td>");
-//					this.writeLine("</tr>");
-//					
-//					//	write field sets
-//					for (int fs = 0; fs < fieldSets.length; fs++) {
-//						
-//						//	write field rows
-//						Field[] fields = fieldSets[fs].getFields();
-//						for (int f = 0; f < fields.length; f++) {
-//							this.writeLine("<tr id=\"field_" + fields[f].fullName + "\">");
-//							
-//							this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//							this.writeLine("<input type=\"checkbox\" name=\"use_" + fields[f].fullName + "\" value=\"U\"" + ("U".equals(this.request.getParameter("use_" + fields[f].fullName)) ? " checked" : "") + " onclick=\"selectField('" + fields[f].fullName + "', '" + IoTools.prepareForHtml(fieldSets[fs].label) + ": " + IoTools.prepareForHtml(fields[f].label) + "', this.checked);\">");
-//							this.writeLine("<a href=\"#\" onclick=\"return moveUpField('field_" + fields[f].fullName + "');\">Up</a>");
-//							this.writeLine("<a href=\"#\" onclick=\"return moveDownField('field_" + fields[f].fullName + "');\">Down</a>");
-//							this.writeLine("</td>");
-//							
-//							this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//							this.writeLine(IoTools.prepareForHtml(fieldSets[fs].label) + ": " + IoTools.prepareForHtml(fields[f].label));
-//							this.writeLine("</td>");
-//							
-//							this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//							this.writeLine("<select name=\"operation_" + fields[f].fullName + "\">");
-//							Aggregate[] aggregates = fields[f].getAggregates();
-//							for (int a = 0; a < aggregates.length; a++)
-//								this.writeLine("<option value=\"" + aggregates[a].type + "\"" + (aggregates[a].type.equals(this.request.getParameter("operation_" + fields[f].fullName)) ? " selected" : "") + ">" + this.getAggregateLabel(aggregates[a].type) + "</option>");
-//							this.writeLine("<option value=\"" + QueryField.GROUP_OPERATION + "\"" + (QueryField.GROUP_OPERATION.equals(this.request.getParameter("operation_" + fields[f].fullName)) ? " selected" : "") + ">" + this.getAggregateLabel(QueryField.GROUP_OPERATION) + "</option>");
-//							this.writeLine("</select>");
-//							this.writeLine("</td>");
-//							
-//							this.writeLine("<td class=\"statisticsQueryTableBody\">");
-//							this.writeLine("<input type=\"text\" name=\"filter_" + fields[f].fullName + "\"" + ((this.request.getParameter("filter_" + fields[f].fullName) == null) ? "" : (" value=\"" + this.request.getParameter("filter_" + fields[f].fullName) + "\"")) + ">");
-//							this.writeLine("</td>");
-//							
-//							this.writeLine("</tr>");
-//						}
-//					}
 					
 					//	close field table
 					this.writeLine("</table>");
