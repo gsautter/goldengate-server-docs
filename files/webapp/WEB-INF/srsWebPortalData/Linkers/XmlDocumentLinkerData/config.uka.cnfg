@@ -1,4 +1,0 @@
-LinkBaseURL = "http://idaho.ipd.uka.de/GgSRS/xslt";
-XsltURL = "http://idaho.ipd.uka.de/GgSRS/ResultLinkers/TaxonxLinkerData/gg2taxonx.xsl";
-LinkTitle = "View this document marked up according to the TaxonX schema";
-LinkLabel = "TaxonX";

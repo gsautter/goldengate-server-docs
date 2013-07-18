@@ -1,6 +1,6 @@
 LinkBaseURL = "http://your.url.com/GgServer/xslt";
 TRANSFORMATION_0.LABEL = "Plain XML";
-TRANSFORMATION_0.TITLE = "View this document as plain XML";
+TRANSFORMATION_0.TITLE = "View this article as plain XML";
 TRANSFORMATION_1.LABEL = "Example";
 TRANSFORMATION_1.TITLE = "View this document marked in Example schema";
 TRANSFORMATION_1.XSLT_URL = "http://your.url.com/GgServer/example.xslt";
