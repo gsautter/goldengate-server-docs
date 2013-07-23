@@ -39,6 +39,8 @@ import java.util.zip.ZipOutputStream;
 import javax.swing.JOptionPane;
 import javax.swing.UIManager;
 
+import de.uka.ipd.idaho.goldenGate.utilities.PackerUtils;
+
 /**
  * @author sautter
  *

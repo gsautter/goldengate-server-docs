@@ -52,7 +52,7 @@
 	
 	<!-- Compile GoldenGATE Editor client plugins if GoldenGATE.jar available -->
 	<target name="check-gg" unless="gg.exists">
-		<available property="gg.exists" file="lib/GoldenGATE.jar"/>
+		<available property="gg.exists" file="../goldengate-editor/dist/GoldenGATE.jar"/>
 	</target>
 	<target name="compileClt" depends="check-gg" if="${gg.exists}" description="Compile GoldenGATE Editor plugin Java sources">
 		
@@ -105,6 +105,9 @@
 	    <javac destdir="${build.home}/classes" includeantruntime="false" >
 	    	<src path="${src.home}" />
   	 		<include name="**/goldenGateServer/dio/utilities/*.java" />
+	    	
+	    	<src path="../goldengate-editor/src" />
+			<include name="**/goldenGate/utilities/PackerUtils.java" />
 	    </javac>
 	</target>
 </project>

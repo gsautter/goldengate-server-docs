@@ -5,7 +5,7 @@
 -->
 
 <project name="dist">
-	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip">
+	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip,dgpackerzip">
 	</target>
 	
 	<target name="backenddocszip" depends="atsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,scsjar,srsjar,srsdiojar,srsexpjar,srsidxftjar,srsfltschemajar,srsfltxpathjar">
@@ -403,7 +403,7 @@
 	    <condition property="ggstuff.exists">
 	        <and>
 	    		<available file="lib/AuthManagerPlugin.jar"/>
-	    		<available file="lib/GoldenGATE.jar"/>
+	    		<available file="../goldengate-editor/dist/GoldenGATE.jar"/>
 	        </and>
 	    </condition>
 	</target>
@@ -433,10 +433,9 @@
 		<jar destfile="${jar.dgpacker}" manifest="${file.home}/MANIFEST.dgpacker.MF">
 			<fileset dir="${build.home}/classes" includes="**/DocumentGatewayPacker.class"/>
 			<fileset dir="${build.home}/classes" includes="**/DocumentGatewayPacker$**.class"/>
-			<fileset dir="${build.home}/classes" includes="**/PackerUtils.class"/>
-			<fileset dir="${build.home}/classes" includes="**/PackerUtils$**.class"/>
 			<fileset dir="${src.home}" includes="**/DocumentGatewayPacker.java"/>
-			<fileset dir="${src.home}" includes="**/PackerUtils.java"/>
+			<fileset dir="${build.home}/classes" includes="**/utilities/PackerUtils*.class"/>
+			<fileset dir="../goldengate-editor/src" includes="**/utilities/PackerUtils.java"/>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>

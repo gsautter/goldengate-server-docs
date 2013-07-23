@@ -25,7 +25,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-This project is provides document management and retrieval facilities for
+This project provides document management and retrieval facilities for
 GoldenGATE Server, as well as respective connector plug-ins for GoldenGATE
 Editor, and extensions for GoldenGATE Server web front-end that allow searching
 and visualizing documents and parts thereof.
