@@ -1,0 +1,23 @@
+//	elements marking logical document structure
+document
+section
+subSection
+subSubSection
+paragraph
+
+//	elements marking layout document structure
+page
+region
+column
+block
+line
+word
+
+//	marker tokens
+pageBreakToken
+normalizedToken
+
+//	elements marking special types of paragraphs
+//bibRef
+caption
+footnote
