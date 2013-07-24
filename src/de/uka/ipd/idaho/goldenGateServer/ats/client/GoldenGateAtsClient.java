@@ -31,17 +31,16 @@ package de.uka.ipd.idaho.goldenGateServer.ats.client;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.util.ArrayList;
 
+import de.uka.ipd.idaho.easyIO.streams.CharSequenceReader;
 import de.uka.ipd.idaho.gamta.Annotation;
-import de.uka.ipd.idaho.gamta.Gamta;
-import de.uka.ipd.idaho.gamta.TokenSequence;
 import de.uka.ipd.idaho.goldenGateServer.ats.GoldenGateAtsConstants;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection.Connection;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringRelation;
-import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
 /**
  * Client for accessing the annotation lists stored in a GoldenGATE ATS.
@@ -117,39 +116,53 @@ public class GoldenGateAtsClient implements GoldenGateAtsConstants {
 			bw.newLine();
 			bw.write(type);
 			bw.newLine();
-//			bw.write((predicate == null) ? "" : predicate);
-//			bw.newLine(); // TODO: enable predicate filtering
+			bw.write((predicate == null) ? "" : predicate);
+			bw.newLine();
 			bw.flush();
 			
 			BufferedReader br = con.getReader();
 			String error = br.readLine();
 			if (GET_ANNOTATIONS.equals(error)) {
-				
-				//	TODO: read data and create annotations in same pass (stream data)
-				
-				StringRelation data = StringRelation.readCsvData(br, CSV_DELIMITER, true, null);
-				StringVector dataKeys = data.getKeys();
-				dataKeys.removeAll(Annotation.ANNOTATION_VALUE_ATTRIBUTE);
-				dataKeys.removeAll(Annotation.START_INDEX_ATTRIBUTE);
-				dataKeys.removeAll(Annotation.SIZE_ATTRIBUTE);
-				dataKeys.removeAll(Annotation.END_INDEX_ATTRIBUTE);
-				String[] keys = dataKeys.toStringArray();
-				
 				ArrayList annotations = new ArrayList();
-				for (int d = 0; d < data.size(); d++) {
-					StringTupel dataTupel = data.get(d);
-					String value = dataTupel.getValue(Annotation.ANNOTATION_VALUE_ATTRIBUTE);
-					if (value != null) {
-						TokenSequence tokens = Gamta.newTokenSequence(value, null);
-						Annotation annotation = Gamta.newAnnotation(tokens, type, 0, tokens.size());
-						for (int k = 0; k < keys.length; k++) {
-							value = dataTupel.getValue(keys[k]);
-							if (value != null)
-								annotation.setAttribute(keys[k], value);
+				
+				//	read data file by file
+				StringWriter fileBuffer = null;
+				for (String line; (line = br.readLine()) != null;) {
+					
+					//	end of file
+					if (line.length() == 0) {
+						
+						//	process file (if any data available)
+						if ((fileBuffer != null) && (fileBuffer.getBuffer().length() != 0)) {
+							StringRelation fileData = StringRelation.readCsvData(new CharSequenceReader(fileBuffer.getBuffer()), CSV_DELIMITER, true, null);
+							String[] keys = fileData.getKeys().toStringArray();
+							for (int d = 0; d < fileData.size(); d++)
+								annotations.add(new AtsAnnotation(type, fileData.get(d), keys));
 						}
-						annotations.add(annotation);
+						
+						//	reset buffer
+						fileBuffer = null;
+						continue;
 					}
+					
+					//	start of new file
+					if (fileBuffer == null)
+						fileBuffer = new StringWriter();
+					
+					//	buffer data
+					fileBuffer.write(line);
+					fileBuffer.write("\r\n");
 				}
+				
+				//	add last file (if any data available)
+				if ((fileBuffer != null) && (fileBuffer.getBuffer().length() != 0)) {
+					StringRelation fileData = StringRelation.readCsvData(new CharSequenceReader(fileBuffer.getBuffer()), CSV_DELIMITER, true, null);
+					String[] keys = fileData.getKeys().toStringArray();
+					for (int d = 0; d < fileData.size(); d++)
+						annotations.add(new AtsAnnotation(type, fileData.get(d), keys));
+				}
+				
+				//	finally ...
 				return ((Annotation[]) annotations.toArray(new Annotation[annotations.size()]));
 			}
 			else throw new IOException(error);
