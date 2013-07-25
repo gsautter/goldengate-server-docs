@@ -36,13 +36,11 @@ import java.util.ArrayList;
 
 import de.uka.ipd.idaho.easyIO.streams.CharSequenceReader;
 import de.uka.ipd.idaho.gamta.Annotation;
-import de.uka.ipd.idaho.gamta.util.AttributeMapAnnotation;
 import de.uka.ipd.idaho.goldenGateServer.ats.GoldenGateAtsConstants;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection.Connection;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringRelation;
-import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
 /**
  * Client for accessing the annotation lists stored in a GoldenGATE ATS.
@@ -138,10 +136,8 @@ public class GoldenGateAtsClient implements GoldenGateAtsConstants {
 						if ((fileBuffer != null) && (fileBuffer.getBuffer().length() != 0)) {
 							StringRelation fileData = StringRelation.readCsvData(new CharSequenceReader(fileBuffer.getBuffer()), CSV_DELIMITER, true, null);
 							String[] keys = fileData.getKeys().toStringArray();
-							for (int d = 0; d < fileData.size(); d++) {
-								StringTupel fd = fileData.get(d);
-								annotations.add(new AttributeMapAnnotation(type, fd, keys, fd.getValue(Annotation.ANNOTATION_VALUE_ATTRIBUTE), null));
-							}
+							for (int d = 0; d < fileData.size(); d++)
+								annotations.add(new AtsAnnotation(type, fileData.get(d), keys));
 						}
 						
 						//	reset buffer
@@ -156,6 +152,14 @@ public class GoldenGateAtsClient implements GoldenGateAtsConstants {
 					//	buffer data
 					fileBuffer.write(line);
 					fileBuffer.write("\r\n");
+				}
+				
+				//	add last file (if any data available)
+				if ((fileBuffer != null) && (fileBuffer.getBuffer().length() != 0)) {
+					StringRelation fileData = StringRelation.readCsvData(new CharSequenceReader(fileBuffer.getBuffer()), CSV_DELIMITER, true, null);
+					String[] keys = fileData.getKeys().toStringArray();
+					for (int d = 0; d < fileData.size(); d++)
+						annotations.add(new AtsAnnotation(type, fileData.get(d), keys));
 				}
 				
 				//	finally ...

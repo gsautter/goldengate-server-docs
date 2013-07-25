@@ -50,7 +50,6 @@ import java.util.Properties;
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.TokenSequenceUtils;
-import de.uka.ipd.idaho.gamta.util.AttributeMapAnnotation;
 import de.uka.ipd.idaho.gamta.util.gPath.GPath;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathExpression;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathParser;
@@ -327,7 +326,7 @@ public class GoldenGateATS extends GoldenGateEXP implements GoldenGateAtsConstan
 				
 				//	get relevant files, and prepare to filter out duplicates
 				File[] typeDataFiles = getFiles(type);
-				HashSet alreadySeen = new HashSet();
+				HashSet alreadySent = new HashSet();
 				
 				//	indicate annotations coming
 				output.write(GET_ANNOTATIONS);
@@ -342,36 +341,35 @@ public class GoldenGateATS extends GoldenGateEXP implements GoldenGateAtsConstan
 					in.close();
 					
 					//	get keys for current file
-					StringVector keyList = typeDocData.getKeys();
-					keyList.remove(SOURCE_DOCUMENT_ID);
-					keyList.remove(Annotation.ANNOTATION_VALUE_ATTRIBUTE);
-					String[] keys = keyList.toStringArray();
+					String[] keys = typeDocData.getKeys().toStringArray();
 					
 					//	filter out duplicates
 					for (int d = 0; d < typeDocData.size(); d++) {
-						
-						//	wrap current tupel
-						StringTupel tdd = typeDocData.get(d);
-						QueriableAnnotation dat = new AttributeMapAnnotation(type, tdd, keys, tdd.getValue(Annotation.ANNOTATION_VALUE_ATTRIBUTE), null);
-						
-						//	filter out duplicates
-						if (!alreadySeen.add(dat.toXML()))
-							typeDocData.remove(d--);
-						
-						//	apply filter predicate if given
-						else if ((gpe != null) && !GPath.evaluateExpression(gpe, dat, null).asBoolean().value)
+						Annotation dat = new AtsAnnotation(type, typeDocData.get(d), keys);
+						if (!alreadySent.add(dat.toXML()))
 							typeDocData.remove(d--);
 					}
 					
-					//	anything left?
-					if (typeDocData.size() == 0)
-						continue;
+					//	filter data if required
+					if (gpe != null) {
+						
+						//	do filtering
+						for (int d = 0; d < typeDocData.size(); d++) {
+							if (!GPath.evaluateExpression(gpe, new AtsAnnotation(type, typeDocData.get(d), keys), null).asBoolean().value)
+								typeDocData.remove(d--);
+						}
+						
+						//	anything left?
+						if (typeDocData.size() == 0)
+							continue;
+					}
 					
 					//	send data
 					StringRelation.writeCsvData(output, typeDocData, CSV_DELIMITER, true);
 					
-					//	add line break to indicate to client the end of the current file, and potentially a new file coming with new keys
-					output.newLine();
+					//	add line break to indicate to client the end of the current file coming (potentially with new keys)
+					if (f != 0)
+						output.newLine();
 				}
 			}
 		};
