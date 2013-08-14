@@ -109,7 +109,7 @@
 	<property name="pack.serverdocs" value="${dist.home}/GgServer.docs.zip" />
 	
 	<!-- path to the application .zip file that shall be created -->
-	<property name="pack.searchportal" value="${dist.home}/GgSrsSearchPortal.zip" />
+	<property name="pack.searchportal" value="${dist.home}/GgServerWeb.docs.zip" />
 	
 	
 	<!-- path to the application .zip file that shall be created -->

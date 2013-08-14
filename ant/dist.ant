@@ -350,14 +350,14 @@
 		<jar destfile="${jar.diodocio}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
-				<include name="**/goldenGateServer/client/GoldenGateDioClient*.class" />
-				<include name="**/goldenGateServer/client/GoldenGateDioDocumentIO*.class" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.class" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioDocumentIO*.class" />
 				<include name="**/goldenGateServer/dio/data/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
-				<include name="**/goldenGateServer/client/GoldenGateDioClient.java" />
-				<include name="**/goldenGateServer/client/GoldenGateDioDocumentIO.java" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient.java" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioDocumentIO.java" />
 				<include name="**/goldenGateServer/dio/data/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
@@ -368,14 +368,14 @@
 		<jar destfile="${jar.diobatch}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
-				<include name="**/goldenGateServer/client/GoldenGateDioClient*.class" />
-				<include name="**/goldenGateServer/client/batch/ServerBatchManager*.class" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.class" />
+				<include name="**/goldenGateServer/dio/client/batch/ServerBatchManager*.class" />
 				<include name="**/goldenGateServer/dio/data/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
-				<include name="**/goldenGateServer/client/GoldenGateDioClient.java" />
-				<include name="**/goldenGateServer/client/batch/ServerBatchManager.java" />
+				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient.java" />
+				<include name="**/goldenGateServer/dio/client/batch/ServerBatchManager.java" />
 				<include name="**/goldenGateServer/dio/data/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
