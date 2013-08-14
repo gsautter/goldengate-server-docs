@@ -280,7 +280,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 								fieldValue = fieldValue.substring(0, fieldLength);
 							where = (fieldName + " LIKE '" + fieldValue + "%'");
 						}
-						int count = triggerUpdatesFromIndex(where);
+						int count = triggerUpdatesFromIndex(where, DOCUMENT_NAME_ATTRIBUTE.equals(fieldName));
 						System.out.println("Issued update events for " + count + " documents.");
 					}
 				}
@@ -305,7 +305,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				if (arguments.length != 1)
 					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the year as the only argument.");
 				else {
-					int count = triggerUpdatesFromIndex(DOCUMENT_DATE_ATTRIBUTE + " = " + Integer.parseInt(arguments[0]));
+					int count = triggerUpdatesFromIndex((DOCUMENT_DATE_ATTRIBUTE + " = " + Integer.parseInt(arguments[0])), false);
 					System.out.println("Issued update events for " + count + " documents.");
 				}
 			}
@@ -328,7 +328,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				if (arguments.length != 0)
 					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
 				else {
-					int count = triggerUpdatesFromIndex("1=1");
+					int count = triggerUpdatesFromIndex("1=1", false);
 					System.out.println("Issued update events for " + count + " documents.");
 				}
 			}
@@ -406,7 +406,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
 	}
 	
-	private int triggerUpdatesFromIndex(String where) {
+	private int triggerUpdatesFromIndex(String where, boolean highPriority) {
 		String docQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
 				" FROM " + DATA_TABLE_NAME + 
 				" WHERE " + where +
@@ -417,7 +417,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		try {
 			sqr = io.executeSelectQuery(docQuery);
 			while (sqr.next()) {
-				documentUpdated(sqr.getString(0), ((Properties) null)); // set attributes to null initially to prevent holding whole index table in memory for large console-triggered updates
+				documentUpdated(sqr.getString(0), highPriority, ((Properties) null)); // set attributes to null initially to prevent holding whole index table in memory for large console-triggered updates
 				count++;
 			}
 		}
@@ -441,6 +441,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	 */
 	public void documentUpdated(String docId, QueriableAnnotation doc) {
 		Properties docAttributes = new Properties();
+		boolean highPriority = (doc != null);
 		
 		//	assemble fields
 		StringBuffer fields = new StringBuffer(DOCUMENT_DATE_ATTRIBUTE);
@@ -558,11 +559,11 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		}
 		
 		//	enqueue update
-		this.documentUpdated(docId, docAttributes);
+		this.documentUpdated(docId, highPriority, docAttributes);
 	}
 	
-	private void documentUpdated(String docId, Properties docAttributes) {
-		this.enqueueEvent(new UpdateEvent(docId, docAttributes, false));
+	private void documentUpdated(String docId, boolean highPriority, Properties docAttributes) {
+		this.enqueueEvent(new UpdateEvent(docId, highPriority, docAttributes, false));
 	}
 	
 	/**
@@ -638,10 +639,33 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		final String docId;
 		final DocAttributes docAttributes;
 		final boolean isDelete;
+		final boolean highPriority;
 		UpdateEvent(String documentId, Properties docAttributes, boolean isDelete) {
+			this(documentId, false, docAttributes, isDelete);
+		}
+		UpdateEvent(String documentId, boolean highPriority, Properties docAttributes, boolean isDelete) {
 			this.docId = documentId;
+			this.highPriority = highPriority;
 			this.docAttributes = new DocAttributes(docAttributes);
 			this.isDelete = isDelete;
+		}
+	}
+	
+	private class UpdateEventQueue {
+		private LinkedList highPriorityQueue = new LinkedList();
+		private LinkedList lowPriorityQueue = new LinkedList();
+		void enqueue(UpdateEvent ue) {
+			(ue.highPriority ? this.highPriorityQueue : this.lowPriorityQueue).addLast(ue);
+		}
+		UpdateEvent dequeue() {
+			return ((UpdateEvent) ((this.highPriorityQueue.size() == 0) ? this.lowPriorityQueue : this.highPriorityQueue).removeFirst());
+		}
+		void clear() {
+			this.highPriorityQueue.clear();
+			this.lowPriorityQueue.clear();
+		}
+		int size() {
+			return (this.highPriorityQueue.size() + this.lowPriorityQueue.size());
 		}
 	}
 	
@@ -659,12 +683,14 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	
 	private void enqueueEvent(UpdateEvent event) {
 		synchronized (this.eventQueue) {
-			this.eventQueue.addLast(event); // enqueue event for asynchronous handling
+//			this.eventQueue.addLast(event); // enqueue event for asynchronous handling
+			this.eventQueue.enqueue(event); // enqueue event for asynchronous handling
 			this.eventQueue.notify(); // wake up event handler
 		}
 	}
 	
-	private LinkedList eventQueue = new LinkedList();
+//	private LinkedList eventQueue = new LinkedList();
+	private UpdateEventQueue eventQueue = new UpdateEventQueue();
 	
 	private UpdateEventHandler eventHandler;
 	
@@ -695,7 +721,8 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 						eventQueue.wait();
 					} catch (InterruptedException ie) {}
 					if (eventQueue.size() != 0)
-						ue = ((UpdateEvent) eventQueue.removeFirst());
+//						ue = ((UpdateEvent) eventQueue.removeFirst());
+						ue = eventQueue.dequeue();
 				}
 				
 				//	keep track of resource use
