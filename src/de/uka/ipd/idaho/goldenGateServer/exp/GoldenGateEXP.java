@@ -813,6 +813,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				this.shutdown = true;
 				eventQueue.clear();
 				eventQueue.notify();
+				this.interrupt(); // end any post export waiting immediately
 			}
 		}
 	}
