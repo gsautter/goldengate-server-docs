@@ -204,11 +204,16 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 				where += (" AND " + EXT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(id) + "'");
 		}
 		else where += (" AND " + EXT_ID_ATTRIBUTE + " IN ('" + ids.concatStrings("', '") + "')");
-		if (author.length() != 0) where += (" AND " + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
-		if (date.length() != 0) where += (" AND " + DOCUMENT_DATE_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(date) + "'");
-		if (title.length() != 0) where += (" AND " + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
-		if (origin.length() != 0) where += (" AND " + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
-		if (page.length() != 0) where += (" AND (" + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND " + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
+		if (author.length() != 0)
+			where += (" AND " + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
+		if (date.length() != 0)
+			where += (" AND " + DOCUMENT_DATE_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(date) + "'");
+		if (title.length() != 0)
+			where += (" AND " + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
+		if (origin.length() != 0)
+			where += (" AND " + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
+		if (page.length() != 0)
+			where += (" AND (" + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND " + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
 		
 		//	assemble query
 		String queryString = ("SELECT DISTINCT " + DOC_NUMBER_COLUMN_NAME + 
@@ -376,7 +381,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	/** @see de.goldenGateSrs.Indexer#doThesaurusLookup(de.goldenGateSrs.Query)
 	 */
 	public ThesaurusResult doThesaurusLookup(Query query) {
-//		
+		
 		//	get data
 		String id = query.getValue(EXT_ID_ATTRIBUTE, "").trim();
 		String author = prepareSearchString(query.getValue(DOCUMENT_AUTHOR_ATTRIBUTE, "").trim().toLowerCase());
@@ -406,12 +411,18 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		
 		//	assemble predicates
 		String where = "1=1";
-		if (id.length() != 0) where += (" AND " + EXT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(id) + "'");
-		if (author.length() != 0) where += (" AND " + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
-		if (date.length() != 0) where += (" AND " + DOCUMENT_DATE_ATTRIBUTE + "Search" + " LIKE '" + EasyIO.sqlEscape(date) + "'");
-		if (title.length() != 0) where += (" AND " + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
-		if (origin.length() != 0) where += (" AND " + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
-		if (page.length() != 0) where += (" AND (" + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND " + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
+		if (id.length() != 0)
+			where += (" AND " + EXT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(id) + "'");
+		if (author.length() != 0)
+			where += (" AND " + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
+		if (date.length() != 0)
+			where += (" AND " + DOCUMENT_DATE_ATTRIBUTE + "Search" + " LIKE '" + EasyIO.sqlEscape(date) + "'");
+		if (title.length() != 0)
+			where += (" AND " + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
+		if (origin.length() != 0)
+			where += (" AND " + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
+		if (page.length() != 0)
+			where += (" AND (" + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND " + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
 		
 		//	check if query given
 		if (where.length() < 4) return null;
