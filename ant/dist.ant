@@ -8,7 +8,7 @@
 	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip,dgpackerzip">
 	</target>
 	
-	<target name="backenddocszip" depends="atsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,scsjar,srsjar,srsdiojar,srsexpjar,srsidxftjar,srsfltschemajar,srsfltxpathjar">
+	<target name="backenddocszip" depends="atsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,scsjar,srsjar,srsdiojar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar">
 		<delete file="${pack.serverdocs}"/>
 		<zip destfile="${pack.serverdocs}">
 			<fileset dir="${file.home}/server"/>
@@ -185,6 +185,18 @@
 			</fileset>
 			<fileset dir="${src.home}">
 				<include name="**/goldenGateServer/srs/connectors/GoldenGateSrsEXP.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="srsidxbibjar">
+		<delete file="${jar.srsidxbib}" />
+		<jar destfile="${jar.srsidxbib}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/indexers/BibliographicIndexer*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/indexers/BibliographicIndexer.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>

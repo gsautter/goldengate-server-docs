@@ -30,6 +30,7 @@
 	</target>
 	
 	<target name="zips" description="pack the jar files" >
+		<antcall target="dir.copyjars" />
 		<antcall target="dist.zips" />
 	</target>
 </project>

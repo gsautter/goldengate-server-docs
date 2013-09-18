@@ -47,4 +47,13 @@
 			<fileset dir="${dist.home}" includes="*.zip"/>
 		</delete>
 	</target>
+	
+	<!-- copy everything that needs to be in the .war -->
+	<target name="copyjars" depends="mkdirs" >
+		
+		<!-- copy required libraries -->
+		<copy todir="${dist.home}/Components/Bin">
+			<fileset dir="${lib.home}" includes="BibRefUtils.jar" />
+		</copy>
+	</target>
 </project>

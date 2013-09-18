@@ -32,11 +32,13 @@ and visualizing documents and parts thereof.
 
 
 This project requires the JAR files build by the Ant scripts in the idaho-core
-(http://code.google.com/p/idaho-core/) and goldengate-server
+(http://code.google.com/p/idaho-core/), idaho-extensions
+(http://code.google.com/p/idaho-extensions/), and goldengate-server
 (http://code.google.com/p/goldengate-server/) projects, as well as the JAR files
-referenced from there. See http://code.google.com/p/idaho-core/source/browse/README.txt
-and http://code.google.com/p/goldengate-server/source/browse/README.txt and for
-the latter. You can either check out idaho-core and goldengate-server as projects
+referenced from there. See http://code.google.com/p/idaho-core/source/browse/README.txt,
+http://code.google.com/p/idaho-extensions/source/browse/README.txt, and
+http://code.google.com/p/goldengate-server/source/browse/README.txt for the
+latter. You can either check out idaho-core and goldengate-server as projects
 into the same workspace and build them first, or include the JAR files it generates
 in the "lib" folder.
 

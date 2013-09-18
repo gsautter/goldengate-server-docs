@@ -5,7 +5,7 @@
 -->
 
 <project name="import">
-	<target name="fetch" depends="fetch-su,fetch-hxu,fetch-gamta,fetch-eio,fetch-iclibs,fetch-gg,fetch-ggs,fetch-ggswf,fetch-uaa,fetch-res,fetch-authman" />
+	<target name="fetch" depends="fetch-su,fetch-hxu,fetch-gamta,fetch-eio,fetch-iclibs,fetch-bru,fetch-gg,fetch-ggs,fetch-ggswf,fetch-uaa,fetch-res,fetch-authman" />
 	
 	<target name="check-fetch-su" unless="su.exists">
 		<available property="su.exists" file="../idaho-core/dist/StringUtils.jar"/>
@@ -75,6 +75,13 @@
 	</target>
 	<target name="fetch-res" depends="check-fetch-res" if="${res.exists}">
     	<copy file="../goldengate-server/dist/Components/GgServerRES.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-bru" unless="bru.exists">
+		<available property="bru.exists" file="../idaho-extensions/dist/BibRefUtils.jar"/>
+	</target>
+	<target name="fetch-bru" depends="check-fetch-bru" if="${bru.exists}">
+    	<copy file="../idaho-extensions/dist/BibRefUtils.jar" todir="${lib.home}" overwrite="true" verbose="false" />
 	</target>
 	
 	<target name="check-fetch-iclibs" unless="iclibs.exists">
