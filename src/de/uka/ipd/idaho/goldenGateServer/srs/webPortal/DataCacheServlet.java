@@ -219,7 +219,7 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 		
 		//	initialize cache root
 		String cacheRoot = config.getSetting("cacheFolder");
-		this.cacheRoot = ((cacheRoot == null) ? new File(new File(this.rootFolder, "caches"), "srsDataCache") : new File(cacheRoot));
+		this.cacheRoot = ((cacheRoot == null) ? new File(new File(this.webInfFolder, "caches"), "srsDataCache") : new File(cacheRoot));
 		if (!this.cacheRoot.exists())
 			this.cacheRoot.mkdirs();
 		

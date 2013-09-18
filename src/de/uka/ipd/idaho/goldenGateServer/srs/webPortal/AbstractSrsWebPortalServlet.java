@@ -58,7 +58,6 @@ public abstract class AbstractSrsWebPortalServlet extends GgServerClientServlet 
 	private static final String ANNOTATION_NESTING_ORDER_SETTING = "ANNOTATION_NESTING_ORDER";
 	
 	/** an XML conform parser used for passing data objects */
-//	protected Parser dataParser = Utils.getParser();
 	protected Parser dataParser = new Parser(new StandardGrammar());
 	
 	/** the SRS client */

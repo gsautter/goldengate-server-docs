@@ -207,7 +207,7 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements ReInitial
 		super.init(config);
 		
 		//	get where to cache the feeds
-		this.rssFeedCacheFolder = new File(new File(this.rootFolder, "caches"), "srsRssFeeds");
+		this.rssFeedCacheFolder = new File(new File(this.webInfFolder, "caches"), "srsRssFeeds");
 		if (!this.rssFeedCacheFolder.exists())
 			this.rssFeedCacheFolder.mkdir();
 		
