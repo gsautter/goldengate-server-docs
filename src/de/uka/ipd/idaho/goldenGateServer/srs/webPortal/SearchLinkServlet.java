@@ -38,11 +38,10 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import de.uka.ipd.idaho.easyIO.settings.Settings;
-import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet;
 
 /**
  * The intention of the SearchLinkServlet is to provide a simpler syntax for
- * links to search results, in particular shorter queries. It therefor allows
+ * links to search results, in particular shorter queries. It therefore allows
  * for mapping dedicated virtual search fields to fields in the SRS Web Portal's
  * search form, adding some fixed search parameters along the way. The HTML
  * pages produced by this servlet forward to the respective SRS Web Portal pages
@@ -61,38 +60,31 @@ import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitiali
  * </ul>
  * You can configure as may virtual search fields as you like, they only have to
  * be named differently. When using multiple virtual fields at a time, make sure
- * the respective parameter strings do not contradict eachother. If the latter
+ * the respective parameter strings do not contradict each other. If the latter
  * is the case, search results may turn out other than intended. Parameters that
  * are not mapped will be looped through to SRS unchanged.<br>
  * This servlet expects a SearchPortalServlet mapped to 'search' in the same web
- * appliction.
+ * application.
  * 
  * @author sautter
  */
-public class SearchLinkServlet extends AbstractSrsWebPortalServlet implements ReInitializableServlet, SearchPortalConstants {
+public class SearchLinkServlet extends AbstractSrsWebPortalServlet implements SearchPortalConstants {
 	
 	private Properties fieldNameMappings = new Properties();
 	private Properties fieldParameters = new Properties();
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#init(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.easyIO.web.HtmlServlet#reInit()
 	 */
-	protected void init(Settings config) {
-		super.init(config);
-		this.reInit(config);
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet#reInit(de.uka.ipd.idaho.easyIO.settings.Settings)
-	 */
-	public void reInit(Settings config) {
+	protected void reInit() throws ServletException {
+		super.reInit();
 		
 		//	clear registers
 		this.fieldNameMappings.clear();
 		this.fieldParameters.clear();
 		
 		//	get subset
-		Settings vfSets = config.getSubset("virtualField");
+		Settings vfSets = this.config.getSubset("virtualField");
 		
 		//	get virtual field names
 		String[] virtualFieldNames = vfSets.getSubsetPrefixes();

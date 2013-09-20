@@ -66,7 +66,6 @@ import javax.xml.transform.stream.StreamSource;
 import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
-import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentResultElement;
 import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
@@ -145,7 +144,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
  * 
  * @author sautter
  */
-public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReInitializableServlet, SearchPortalConstants {
+public class DataCacheServlet extends AbstractSrsWebPortalServlet implements SearchPortalConstants {
 	
 	private static final String MASTER_CACHE_UPDATE_ID = "masterCacheUpdate";
 	
@@ -212,13 +211,13 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#init(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#doInit()
 	 */
-	protected void init(Settings config) {
-		super.init(config);
+	protected void doInit() throws ServletException {
+		super.doInit();
 		
 		//	initialize cache root
-		String cacheRoot = config.getSetting("cacheFolder");
+		String cacheRoot = this.getSetting("cacheFolder");
 		this.cacheRoot = ((cacheRoot == null) ? new File(new File(this.webInfFolder, "caches"), "srsDataCache") : new File(cacheRoot));
 		if (!this.cacheRoot.exists())
 			this.cacheRoot.mkdirs();
@@ -233,9 +232,6 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 		}
 		this.lastSrsLookupTimestamp = this.masterCache.lastUpdateTimestamp;
 		
-		//	load custom caches
-		this.reInit(config);
-		
 		//	start update polling thread
 		this.updateFetcher = new UpdateFetcherThread();
 		this.updateFetcher.start();
@@ -244,16 +240,15 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet#reInit(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.easyIO.web.HtmlServlet#reInit()
 	 */
-	public void reInit(Settings config) {
+	protected void reInit() throws ServletException {
 		
 		//	clear registers
 		this.cachesByName.clear();
-//		this.transformerCache.clear();
 		
 		//	load custom cache definitions
-		Settings cacheSet = config.getSubset("CACHE");
+		Settings cacheSet = this.config.getSubset("CACHE");
 		String[] cacheNames = cacheSet.getKeys();
 		for (int c = 0; c < cacheNames.length; c++) {
 			String cacheXsltUrl = cacheSet.getSetting(cacheNames[c]);
@@ -268,7 +263,7 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 		
 		//	get cache update interval
 		try {
-			this.cacheUpdateInterval = (1000 * Long.parseLong(config.getSetting("cacheUpdateInterval", "-1")));
+			this.cacheUpdateInterval = (1000 * Long.parseLong(this.getSetting("cacheUpdateInterval", "-1")));
 			if (this.cacheUpdateInterval < 0)
 				this.cacheUpdateInterval = DEFAULT_CACHE_UPDATE_INTERVAL;
 		} catch (NumberFormatException nfe) {}
@@ -289,34 +284,6 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 			throw new IOException(e.getClass().getName() + " (" + e.getMessage() + ") while creating XSL Transformer from '" + xsltUrl + "'.");
 		}
 	}
-//	private HashMap transformerCache = new HashMap();
-//	private TransformerFactory transformerFactory = null;
-//	
-//	private Transformer getTransformer(String xsltUrl) throws IOException {
-//		if (xsltUrl == null) return null;
-//		
-//		if (this.transformerCache.containsKey(xsltUrl))
-//			return ((Transformer) this.transformerCache.get(xsltUrl));
-//		
-//		if (this.transformerFactory == null)
-//			this.transformerFactory = TransformerFactory.newInstance();
-//		
-//		try {
-//			InputStream tis;
-//			if (xsltUrl.startsWith("http://"))
-//				tis = new URL(xsltUrl).openStream();
-//			else tis = new FileInputStream(new File(this.rootFolder, xsltUrl));
-//			Transformer transformer = this.transformerFactory.newTransformer(new StreamSource(new InputStreamReader(new ByteOrderMarkFilterInputStream(tis), "UTF-8")));
-//			transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
-//			this.transformerCache.put(xsltUrl, transformer);
-//			tis.close();
-//			return transformer;
-//		}
-//		
-//		catch (Exception e) {
-//			throw new IOException(e.getClass().getName() + " (" + e.getMessage() + ") while creating XSL Transformer from '" + xsltUrl + "'.");
-//		}
-//	}
 	
 	private long computeCacheTimestamp(File cacheRoot) {
 		long cacheUpdateTimestamp = -1;
@@ -505,7 +472,6 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 		MutableAnnotation doc = this.srsClient.getXmlDocument(docId, false);
 		
 		//	create cache file
-//		AnnotationUtils.writeXML(doc, out, null, null, true);
 		AnnotationUtils.writeXML(doc, out);
 		this.masterCache.lastUpdateTimestamp = documentTimestamp;
 		
@@ -543,7 +509,6 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 		//	compute delta to master cache
 		File[] masterFirstLevel = this.masterCache.cacheFolder.listFiles(new FileFilter() {
 			public boolean accept(File file) {
-//				return (file.isDirectory() && (file.lastModified() > cache.lastUpdateTimestamp));
 				return file.isDirectory();
 			}
 		});
@@ -551,7 +516,6 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 			String flName = masterFirstLevel[fl].getName();
 			File[] masterSecondLevel = masterFirstLevel[fl].listFiles(new FileFilter() {
 				public boolean accept(File file) {
-//					return (file.isDirectory() && (file.lastModified() > cache.lastUpdateTimestamp));
 					return file.isDirectory();
 				}
 			});
@@ -559,7 +523,6 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 				String slName = masterSecondLevel[sl].getName();
 				File[] masterCacheFiles = masterSecondLevel[sl].listFiles(new FileFilter() {
 					public boolean accept(File file) {
-//						return (file.isFile() && file.getName().endsWith(".xml") && (file.lastModified() > cache.lastUpdateTimestamp));
 						return (file.isFile() && file.getName().endsWith(".xml"));
 					}
 				});
@@ -896,16 +859,11 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 				BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), request.getCharacterEncoding()));
 				
 				//	write response
-				bw.write("<html>");
-				bw.newLine();
-				bw.write("<body>");
-				bw.newLine();
-				bw.write("<tt>updating master cache ... this might take some time ...</tt>");
-				bw.newLine();
-				bw.write("</body>");
-				bw.newLine();
-				bw.write("</html>");
-				bw.newLine();
+				bw.write("<html>"); bw.newLine();
+				bw.write("<body>"); bw.newLine();
+				bw.write("<tt>updating master cache ... this might take some time ...</tt>"); bw.newLine();
+				bw.write("</body>"); bw.newLine();
+				bw.write("</html>"); bw.newLine();
 				bw.flush();
 				
 				//	do the update
@@ -919,16 +877,11 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 				BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), request.getCharacterEncoding()));
 				
 				//	write response
-				bw.write("<html>");
-				bw.newLine();
-				bw.write("<body>");
-				bw.newLine();
-				bw.write("<tt>updating '" + cacheName + "' ... this might take some time ...</tt>");
-				bw.newLine();
-				bw.write("</body>");
-				bw.newLine();
-				bw.write("</html>");
-				bw.newLine();
+				bw.write("<html>"); bw.newLine();
+				bw.write("<body>"); bw.newLine();
+				bw.write("<tt>updating '" + cacheName + "' ... this might take some time ...</tt>"); bw.newLine();
+				bw.write("</body>"); bw.newLine();
+				bw.write("</html>"); bw.newLine();
 				bw.flush();
 				
 				//	do the update
@@ -943,10 +896,8 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 			BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), request.getCharacterEncoding()));
 			
 			//	write response
-			bw.write("<html>");
-			bw.newLine();
-			bw.write("<body>");
-			bw.newLine();
+			bw.write("<html>"); bw.newLine();
+			bw.write("<body>"); bw.newLine();
 			
 			if (cache.zipping)
 				bw.write("<tt>re-creating zip-compressed dump of '" + cacheName + "' ... this might take some time ...</tt>");
@@ -955,10 +906,8 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements ReI
 			else bw.write("<tt>zip-compressed dump of '" + cacheName + "' is already in the process of being created</tt>");
 			bw.newLine();
 			
-			bw.write("</body>");
-			bw.newLine();
-			bw.write("</html>");
-			bw.newLine();
+			bw.write("</body>"); bw.newLine();
+			bw.write("</html>"); bw.newLine();
 			bw.flush();
 			
 			//	do update

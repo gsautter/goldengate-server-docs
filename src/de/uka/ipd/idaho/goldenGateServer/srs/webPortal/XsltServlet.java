@@ -47,7 +47,6 @@ import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.util.AnnotationInputStream;
-import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet;
 import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 
@@ -108,24 +107,18 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * 
  * @author sautter
  */
-public class XsltServlet extends AbstractSrsWebPortalServlet implements ReInitializableServlet, SearchPortalConstants {
+public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPortalConstants {
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#init(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.easyIO.web.HtmlServlet#reInit()
 	 */
-	protected void init(Settings config) {
-		super.init(config);
-		this.reInit(config);
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet#reInit(de.uka.ipd.idaho.easyIO.settings.Settings)
-	 */
-	public void reInit(Settings config) {
+	protected void reInit() throws ServletException {
+		super.reInit();
+		
 		this.xsltNamesToStylesheetUrls.clear();
 		this.cachedStylesheets.clear();
 		
-		Settings xsltSet = config.getSubset("XSLT");
+		Settings xsltSet = this.config.getSubset("XSLT");
 		String[] xsltNames = xsltSet.getKeys();
 		for (int x = 0; x < xsltNames.length; x++) {
 			String xsltUrl = xsltSet.getSetting(xsltNames[x]);

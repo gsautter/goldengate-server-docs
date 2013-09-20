@@ -60,7 +60,6 @@ import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader.ComponentInitializer;
-import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.CollectionStatistics;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.CollectionStatisticsElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentResult;
@@ -144,7 +143,7 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * 
  * @author sautter
  */
-public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements ReInitializableServlet, SearchPortalConstants {
+public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements SearchPortalConstants {
 	
 	private static Html html = new Html();
 	private static Parser htmlParser = new Parser(html);
@@ -1357,10 +1356,10 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 	private BufferedCollectionStatistics statistics;
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#init(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#doInit()
 	 */
-	protected void init(Settings config) {
-		super.init(config);
+	protected void doInit() throws ServletException {
+		super.doInit();
 		
 		//	initially load statistics
 		try {
@@ -1372,29 +1371,27 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	initialize layout engine
 		this.layout = this.getLayout(new File(this.dataFolder, SearchPortalLayout.LAYOUT_FOLDER_NAME), config.getSetting(LAYOUT_ENGINE_CLASS_NAME_SETTING));
-		
-		//	do repeatable initialization
-		this.reInit(config);
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet#reInit(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.easyIO.web.HtmlServlet#reInit()
 	 */
-	public void reInit(Settings config) {
+	protected void reInit() throws ServletException {
+		super.reInit();
 		
 		//	get application specific document labels
-		this.documentLabelSingular = config.getSetting("documentLabelSingular", this.documentLabelSingular);
-		this.documentLabelPlural = config.getSetting("documentLabelPlural", this.documentLabelPlural);
+		this.documentLabelSingular = this.getSetting("documentLabelSingular", this.documentLabelSingular);
+		this.documentLabelPlural = this.getSetting("documentLabelPlural", this.documentLabelPlural);
 		
 		//	get form titles
-		this.searchFormTitle = config.getSetting("searchFormTitle");
-		this.thesaurusFormTitle = config.getSetting("thesaurusFormTitle");
+		this.searchFormTitle = this.getSetting("searchFormTitle");
+		this.thesaurusFormTitle = this.getSetting("thesaurusFormTitle");
 		
 		//	load pattern for document title in result list
-		this.displayTitlePattern = AttributePattern.buildPattern(config.getSetting("displayTitlePattern", ""));
+		this.displayTitlePattern = AttributePattern.buildPattern(this.getSetting("displayTitlePattern", ""));
 		
 		//	check when to display search forms
-		this.includeSearchFormWithResult = config.containsKey("includeSearchFormWithResult");
+		this.includeSearchFormWithResult = "true".equals(this.getSetting("includeSearchFormWithResult", "false"));
 		
 		
 		//	clear registers
@@ -1408,7 +1405,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		
 		//	initialize result format aliases
-		Settings resultFormatAliases = config.getSubset("resultFormatAlias");
+		Settings resultFormatAliases = this.config.getSubset("resultFormatAlias");
 		String[] alias = resultFormatAliases.getKeys();
 		for (int a = 0; a < alias.length; a++) {
 			String aliasXsltUrl = resultFormatAliases.getSetting(alias[a]);
@@ -1416,12 +1413,10 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 				this.resultFormatAliasesToXsltURLs.setProperty(alias[a], aliasXsltUrl);
 		}
 		
-		
 		//	initialize layout engine
 		this.layout.init();
 		
-		
-		//	collet stylesheets to include in result pages
+		//	collect stylesheets to include in result pages
 		this.cssStylesheetsToInlcude = this.layout.getStylesheetsToInclude();
 		for (int c = 0; c < this.cssStylesheetsToInlcude.length; c++)
 			if (this.cssStylesheetsToInlcude[c].indexOf("://") == -1) {
@@ -1437,7 +1432,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			}
 		
 		
-		//	collet JavaScript files to include in result pages
+		//	collect JavaScript files to include in result pages
 		String[] layoutJavaScriptsToInclude = this.layout.getJavaScripsToInclude();
 		if (layoutJavaScriptsToInclude != null) {
 			for (int j = 0; j < layoutJavaScriptsToInclude.length; j++) {
@@ -1456,10 +1451,8 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			this.javaScriptsToInclude.addAll(Arrays.asList(layoutJavaScriptsToInclude));
 		}
 		
-		
 		//	load search result linkers
 		this.resultLinkers = this.getResultLinkers(new File(this.dataFolder, SearchResultLinker.RESULT_LINKER_FOLDER_NAME));
-		
 		
 		//	collect java scripts to load, and functions to execute on load and unload
 		for (int l = 0; l < this.resultLinkers.length; l++) {

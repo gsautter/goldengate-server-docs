@@ -35,7 +35,6 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSrsConstants;
@@ -66,17 +65,17 @@ public abstract class AbstractSrsWebPortalServlet extends GgServerClientServlet 
 	/**
 	 * This implementation establishes the connection to the backing GoldenGATE
 	 * SRS. Sub classes overwriting this method have to make the super call.
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet#init(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet#doInit()
 	 */
-	protected void init(Settings config) {
-		super.init(config);
+	protected void doInit() throws ServletException {
+		super.doInit();
 		
 		//	get SRS access point
 		this.srsClient = new GoldenGateSrsClient(this.serverConnection);
 		this.srsClient.setCacheFolder(new File(new File(this.webInfFolder, "caches"), "srsData"));
 		
 		//	configure GAMTA
-		String ano = config.getSetting(ANNOTATION_NESTING_ORDER_SETTING);
+		String ano = this.getSetting(ANNOTATION_NESTING_ORDER_SETTING);
 		if (ano != null)
 			Gamta.setAnnotationNestingOrder(ano);
 	}

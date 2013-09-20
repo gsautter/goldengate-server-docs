@@ -90,16 +90,6 @@ public class DocumentServlet extends GgServerClientServlet implements GoldenGate
 				}
 			}
 			
-//			DocumentRoot doc = this.getDocument(docId, version);
-//			response.setContentType("text/xml");
-//			response.setHeader("Cache-Control", "no-cache");
-//			BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
-//			AnnotationUtils.writeXML(doc, out, null, new HashSet() {
-//				public boolean contains(Object o) {
-//					return ((o != null) && (o instanceof String) && !((String) o).startsWith("_"));
-//				}
-//			}, true);
-//			out.flush();
 			DocumentReader dr = this.getDocumentAsStream(docId, version);
 			response.setContentType("text/xml");
 			response.setHeader("Cache-Control", "no-cache");
@@ -175,30 +165,4 @@ public class DocumentServlet extends GgServerClientServlet implements GoldenGate
 				con.close();
 		}
 	}
-//	private DocumentRoot getDocument(String documentId, int version) throws IOException {
-//		Connection con = null;
-//		try {
-//			con = this.serverConnection.getConnection();
-//			BufferedWriter bw = con.getWriter();
-//			
-//			bw.write(GET_DOCUMENT);
-//			bw.newLine();
-//			bw.write(DOCUMENT_SERVLET_SESSION_ID);
-//			bw.newLine();
-//			bw.write(documentId + ((version == 0) ? "" : ("." + version)));
-//			bw.newLine();
-//			bw.flush();
-//			
-//			BufferedReader br = con.getReader();
-//			String error = br.readLine();
-//			if (GET_DOCUMENT.equals(error))
-//				return GenericGamtaXML.readDocument(br);
-//			
-//			else throw new IOException(error);
-//		}
-//		finally {
-//			if (con != null)
-//				con.close();
-//		}
-//	}
 }

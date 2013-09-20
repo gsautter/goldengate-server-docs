@@ -1,0 +1,17 @@
+listTitlePattern = "@docPartTitle ' (pages ' @pageNumber '-' @lastPageNumber ') in ' @docAuthor ' ' @docDate ', ' @docTitle ', ' @docOrigin ', pages ' @parentPageNumber '-' @parentLastPageNumber";
+listFieldOrder = "externalIdentifier docName checkinUser checkinTime";
+listFields = "externalIdentifier docName docVersion checkinUser updateUser updateTime checkoutUser checkoutTime";
+
+listFieldLabel.externalIdentifier = "External ID";
+listFieldLabel.docName = "Document Name";
+listFieldLabel.docAuthor = "Author Name";
+listFieldLabel.docDate = "Year of Publication";
+listFieldLabel.docTitle = "Document Title";
+listFieldLabel.docKeywords = "Document Keywords";
+listFieldLabel.checkinUser = "Uploaded by";
+listFieldLabel.checkinTime = "Uploaded ..."
+listFieldLabel.updateUser = "Last Updated by"
+listFieldLabel.updateTime = "Last Updated ...";
+listFieldLabel.docVersion = "Version";
+listFieldLabel.checkoutUser = "Locked by";
+listFieldLabel.checkoutTime = "Locked ...";

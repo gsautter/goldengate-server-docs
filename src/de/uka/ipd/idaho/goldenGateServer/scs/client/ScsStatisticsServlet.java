@@ -34,18 +34,16 @@ import java.io.Writer;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.TreeMap;
-import java.util.Map.Entry;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.goldenGateServer.client.GgServerHtmlServlet;
-import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet;
 import de.uka.ipd.idaho.goldenGateServer.scs.GoldenGateScsConstants.Aggregate;
 import de.uka.ipd.idaho.goldenGateServer.scs.GoldenGateScsConstants.Field;
 import de.uka.ipd.idaho.goldenGateServer.scs.GoldenGateScsConstants.FieldSet;
@@ -62,25 +60,19 @@ import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
  * 
  * @author sautter
  */
-public class ScsStatisticsServlet extends GgServerHtmlServlet implements ReInitializableServlet {
+public class ScsStatisticsServlet extends GgServerHtmlServlet {
 	
 	private GoldenGateScsClient scsClient;
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerHtmlServlet#init(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet#doInit()
 	 */
-	protected void init(Settings config) {
-		super.init(config);
-		this.reInit(config);
+	protected void doInit() throws ServletException {
+		super.doInit();
 		
-		//	stablish backend connection
+		//	establish backend connection
 		this.scsClient = new GoldenGateScsClient(this.serverConnection);
 	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet#reInit(de.uka.ipd.idaho.easyIO.settings.Settings)
-	 */
-	public void reInit(Settings config) {}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerHtmlServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)

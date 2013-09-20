@@ -52,7 +52,6 @@ import javax.servlet.http.HttpServletResponse;
 
 import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
-import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentList;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentListElement;
 
@@ -94,7 +93,7 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentListElement;
  * 
  * @author sautter
  */
-public class RssServlet extends AbstractSrsWebPortalServlet implements ReInitializableServlet, SearchPortalConstants {
+public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPortalConstants {
 	
 	/**
 	 * Descriptor of an individual RSS feed. This class baers a series of
@@ -201,18 +200,15 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements ReInitial
 	private static final DateFormat SITEMAP_TIMESTAMP_DATE_FORMAT = new SimpleDateFormat(DEFAULT_SITEMAP_TIMESTAMP_DATE_FORMAT);
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#init(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#doInit()
 	 */
-	protected void init(Settings config) {
-		super.init(config);
+	protected void doInit() throws ServletException {
+		super.doInit();
 		
 		//	get where to cache the feeds
 		this.rssFeedCacheFolder = new File(new File(this.webInfFolder, "caches"), "srsRssFeeds");
 		if (!this.rssFeedCacheFolder.exists())
 			this.rssFeedCacheFolder.mkdir();
-		
-		//	load feed data
-		this.reInit(config);
 		
 		//	start feed generator
 		this.rssFeedGenerator = new FeedGenerator();
@@ -220,27 +216,28 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements ReInitial
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet.ReInitializableServlet#reInit(de.uka.ipd.idaho.easyIO.settings.Settings)
+	 * @see de.uka.ipd.idaho.easyIO.web.HtmlServlet#reInit()
 	 */
-	public void reInit(Settings config) {
+	protected void reInit() throws ServletException {
+		super.reInit();
 		
 		//	read generation interval
 		try {
-			this.generationInterval = Integer.parseInt(config.getSetting("rssGenerationInterval", ("" + this.generationInterval)));
+			this.generationInterval = Integer.parseInt(this.getSetting("rssGenerationInterval", ("" + this.generationInterval)));
 		} catch (NumberFormatException nfe) {}
 		
 		//	load defaults
-		String docsLink = config.getSetting("docsLink", DEFAULT_RSS_DOCS_LINK);
-		String webMasterMailAddress = config.getSetting("webMasterMailAddress");
-		String editorMailAddress = config.getSetting("editorMailAddress");
-		String descriptionPattern = config.getSetting("descriptionPattern", "");
+		String docsLink = this.getSetting("docsLink", DEFAULT_RSS_DOCS_LINK);
+		String webMasterMailAddress = this.getSetting("webMasterMailAddress");
+		String editorMailAddress = this.getSetting("editorMailAddress");
+		String descriptionPattern = this.getSetting("descriptionPattern", "");
 		
 		//	load feed definitions
-		String[] feedNames = config.getSubsetPrefixes();
+		String[] feedNames = this.config.getSubsetPrefixes();
 		ArrayList feedList = new ArrayList();
 		for (int f = 0; f < feedNames.length; f++) {
 			RssFeed feed = new RssFeed(feedNames[f]);
-			Settings feedSet = config.getSubset(feedNames[f]);
+			Settings feedSet = this.config.getSubset(feedNames[f]);
 			
 			feed.title = feedSet.getSetting("title");
 			
@@ -254,16 +251,16 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements ReInitial
 			feed.editorMailAddress = feedSet.getSetting("editorMailAddress", editorMailAddress);
 			
 			feed.docLinkUrlPrefix = feedSet.getSetting("docLinkUrlPrefix");
-			feed.descriptionPattern = AttributePattern.buildPattern(config.getSetting("descriptionPattern", descriptionPattern));
+			feed.descriptionPattern = AttributePattern.buildPattern(this.getSetting("descriptionPattern", descriptionPattern));
 			
 			if (feed.isValid())
 				feedList.add(feed);
 		}
 		this.rssFeeds = ((RssFeed[]) feedList.toArray(new RssFeed[feedList.size()]));
 		
-		//	initialize sitemap
-		String sitemapFile = config.getSetting("sitemapFile");
-		this.sitemapUrlPrefix = config.getSetting("sitemapUrlPrefix");
+		//	initialize sitemap (has to be in root folder for search engines to find it)
+		String sitemapFile = this.getSetting("sitemapFile");
+		this.sitemapUrlPrefix = this.getSetting("sitemapUrlPrefix");
 		if ((sitemapFile != null) && (this.sitemapUrlPrefix != null))
 			this.sitemapFile = new File(this.rootFolder, sitemapFile);
 		else this.sitemapFile = null;
