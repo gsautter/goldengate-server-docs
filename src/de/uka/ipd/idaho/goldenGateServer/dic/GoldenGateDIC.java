@@ -40,12 +40,13 @@ import de.uka.ipd.idaho.easyIO.SqlQueryResult;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader;
-import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader.ComponentInitializer;
+import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
+import de.uka.ipd.idaho.goldenGateServer.dic.DicDocumentImporter.ImportDocument;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 
 /**
@@ -69,12 +70,16 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 	
 	private static final int milliSecondsPerDay = (24 * 60 * 60 * 1000);
 	private static final int minRetryInterval = (10 * 60 * 1000);
+	private static final int minBetweenImportsInterval = (60 * 60 * 1000);
+	private static final int defaultImporterTimeout = (10 * 60 * 1000);
 	
 	private IoProvider io;
 	
 	private GoldenGateDIO dio;
 	
 	private TreeMap importers = new TreeMap();
+	
+	private int importerTimeout = defaultImporterTimeout;
 	
 	/**
 	 * Constructor passing 'DIC' as the letter code to super constructor
@@ -156,7 +161,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 		//	start timer thread
 		System.out.println("Starting import service ...");
 		synchronized (this.importers) {
-			this.importService = new ImporterThread();
+			this.importService = new ImportService();
 			this.importService.start();
 			try {
 				this.importers.wait();
@@ -194,9 +199,9 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 		this.io.close();
 	}
 	
-	private ImporterThread importService = null;
-	private class ImporterThread extends Thread {
-		private boolean keepRunning = true;
+	private ImportService importService = null;
+	private class ImportService extends Thread {
+		boolean keepRunning = true;
 		public void run() {
 			
 			//	wake up creator thread
@@ -208,105 +213,233 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 			while (this.keepRunning) {
 				
 				//	check if import waiting
-				DicDocumentImporter importDdi = null;
+				DicDocumentImporter importer = null;
 				long currentTime = System.currentTimeMillis();
 				
 				//	check if some importer due
 				synchronized (importers) {
-					long minLastImport = Long.MAX_VALUE;
+					long minLastImportStart = Long.MAX_VALUE;
 					
-					//	find 'most' due importer
-					for (Iterator iit = importers.values().iterator(); (importDdi == null) && iit.hasNext();) {
+					//	find 'most due' importer
+					for (Iterator iit = importers.values().iterator(); (importer == null) && iit.hasNext();) {
 						DicDocumentImporter ddi = ((DicDocumentImporter) iit.next());
-						if (currentTime < (ddi.getLastImport() + milliSecondsPerDay))
+						
+						//	we've already run an import in the last 24 hours
+						if (currentTime < (ddi.getLastImportStart() + milliSecondsPerDay))
 							continue;
 						
+						//	we've tried in vain less than 10 minutes ago
 						if (currentTime < (ddi.getLastImportAttempt() + minRetryInterval))
 							continue;
 						
-						if (ddi.getLastImport() > minLastImport)
+						//	last successful import was less than an hour ago
+						if (currentTime < (ddi.getLastImportComplete() + minBetweenImportsInterval))
 							continue;
 						
-						importDdi = ddi;
-						minLastImport = ddi.getLastImport();
+						//	we've got more pressing imports to deal with
+						if (ddi.getLastImportStart() > minLastImportStart)
+							continue;
+						
+						//	this importer looks about due
+						importer = ddi;
+						minLastImportStart = ddi.getLastImportStart();
 					}
 				}
 				
-				//	if so, fetch and enqueue updates
-				if (this.keepRunning && (importDdi != null)) try {
-					System.out.println("Importing from " + importDdi.getName());
+				//	we're being shut down
+				if (!this.keepRunning)
+					return;
+				
+				//	no imports due for now, come back in a minute
+				if (importer == null) {
+					try {
+						Thread.sleep(1000 * 60);
+					} catch (InterruptedException ie) {}
+					if (this.keepRunning)
+						continue;
+					else return;
+				}
+				
+				//	start slave importer thread
+				ImportThread it = new ImportThread(this, importer);
+				it.start();
+				System.out.println("Doing import from " + importer.getName());
+				
+				//	monitor running importer thread
+				while (this.keepRunning && it.isAlive()) {
 					
-					DicDocumentImporter.ImportedDocument[] ids = importDdi.doImport();
-					System.out.println(" - got " + ids.length + " documents to import");
+					//	sleep for 10 seconds
+					try {
+						Thread.sleep(1000 * 10);
+					} catch (InterruptedException ie) {}
 					
-					TreeSet imported = getImportedDocumentIDs(importDdi.getName());
-					System.out.println(" - got " + imported.size() + " documents imported before");
+					//	time since last import thread activity report exceeds timeout plus slave communication tolerance ==> kill import
+					if ((it.lastActivity + importerTimeout + (importerTimeout / 10)) < System.currentTimeMillis()) {
+						it.keepRunning = false;
+						System.out.println("Import in sub class call for over 10 minutes, now at:");
+						StackTraceElement[] itStes = it.getStackTrace();
+						for (int e = 0; e < itStes.length; e++)
+							System.out.println("  " + itStes[e].toString());
+						it.interrupt();
+						System.out.println("Import from " + importer.getName() + " abandoned due to timeout");
+						break;
+					}
 					
-					for (int d = 0; this.keepRunning && (d < ids.length); d++) {
-						System.out.println(" - importing " + ids[d].docId + " ...");
-						
-						if (imported.contains(ids[d].docId)) {
-							System.out.println("   - imported before, skipping");
-							continue;
-						}
-						
-						//	load document from importer cache
-						DocumentRoot doc = GenericGamtaXML.readDocument(ids[d].docFile);
-						doc.setAttribute(DOCUMENT_ID_ATTRIBUTE, ids[d].docId);
-						doc.setDocumentProperty(DOCUMENT_ID_ATTRIBUTE, ids[d].docId);
-						doc.setAttribute(GoldenGateDIO.DOCUMENT_NAME_ATTRIBUTE, ids[d].docName);
-						System.out.println("   - got document, storing:");
-						
-						//	store document in DIO
-						dio.uploadDocument(importDdi.getImportUserName(), doc, new EventLogger() {
-							public void writeLog(String logEntry) {
-								System.out.println("     - " + logEntry);
-							}
-						}, GoldenGateDIO.EXTERNAL_IDENTIFIER_MODE_IGNORE);
-						System.out.println("   - document stored");
-						
-						//	remember document imported
-						imported.add(ids[d].docId);
-						rememberDocumentImported(ids[d].docId, importDdi.getName());
-						System.out.println("   - import remembered");
-						
-						//	give a little time to the others
-						if (this.keepRunning) try {
-							Thread.sleep(1000);
-						} catch (InterruptedException ie) {}
+					//	we're being shut down, kill import & terminate
+					else if (!this.keepRunning) {
+						it.keepRunning = false;
+						it.interrupt();
+						System.out.println("Import from " + importer.getName() + " abandoned due to shutdown");
+						return;
 					}
 				}
-				
-//				catch (IOException ioe) {
-//					System.out.println("Error on getting updates from " + importDdi.getName() + " - " + ioe.getClass().getName() + " (" + ioe.getMessage() + ")");
-//					ioe.printStackTrace(System.out);
-//				}
-				
-				//	looks as if sometimes importer breaks down due to Exceptions other than IOExceptions ==> catch them all
-				catch (Exception e) {
-					System.out.println("Error on getting updates from " + importDdi.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
-					e.printStackTrace(System.out);
-				}
-				
-				//	give a little time to the others
-				if (this.keepRunning) try {
-					Thread.sleep(1000);
-				} catch (InterruptedException ie) {}
 			}
 		}
-		
 		void shutdown() {
-//			synchronized (importers) {
-//				this.keepRunning = false;
-//				importers.notify();
-//			}
 			this.keepRunning = false;
+			this.interrupt();
 			try {
 				this.join();
 			} catch (InterruptedException ie) {}
 		}
 	}
-
+	
+	private class ImportThread extends Thread {
+		final ImportService parent;
+		final DicDocumentImporter importer;
+		boolean keepRunning = true;
+		long lastActivity = System.currentTimeMillis();
+		ImportThread(ImportService parent, DicDocumentImporter importer) {
+			this.parent = parent;
+			this.importer = importer;
+		}
+		public void run() {
+			try {
+				System.out.println("Importing from " + this.importer.getName());
+				this.importer.setLastImportStart();
+				
+				//	fetch all new document IDs first
+				this.importer.setLastImportAttempt();
+				ImportDocument[] ids = this.importer.getImportDocuments();
+				this.lastActivity = System.currentTimeMillis();
+				System.out.println(" - got " + ids.length + " documents to import");
+				
+				//	fetch previously imported documents from database
+				TreeSet imported = getImportedDocumentIDs(this.importer.getName());
+				System.out.println(" - got " + imported.size() + " documents imported before");
+				
+				//	importer component fetch documents one by one
+				for (int d = 0; this.parent.keepRunning && this.keepRunning && (d < ids.length); d++) {
+					System.out.println(" - importing " + ids[d].docId + " ...");
+					
+					//	we'dealt with seen this one
+					if (imported.contains(ids[d].docId)) {
+						this.lastActivity = System.currentTimeMillis();
+						System.out.println("   - imported before, skipping");
+						continue;
+					}
+					
+					//	start document import
+					DocumentImportThread dit = new DocumentImportThread(this.importer, ids[d]);
+					dit.start();
+					this.lastActivity = System.currentTimeMillis();
+					System.out.println("   - getting document");
+					
+					//	monitor running importer thread
+					boolean downloadFailed = false;
+					while (this.keepRunning && this.parent.keepRunning && dit.isAlive()) {
+						
+						//	sleep for a seconds
+						try {
+							Thread.sleep(1000);
+						} catch (InterruptedException ie) {}
+						
+						//	time since last import thread activity report exceeds timeout ==> abandon document download, and re-initialize importer
+						if ((this.lastActivity + importerTimeout) < System.currentTimeMillis()) {
+							System.out.println("   - document download in sub class call for over 10 minutes, now at:");
+							StackTraceElement[] ditStes = dit.getStackTrace();
+							for (int e = 0; e < ditStes.length; e++)
+								System.out.println("  " + ditStes[e].toString());
+							dit.interrupt();
+							System.out.println("   - document download from " + this.importer.getName() + " abandoned due to timeout");
+							this.importer.exit();
+							this.importer.init();
+							d--;
+							downloadFailed = true;
+							System.out.println("   - importer " + this.importer.getName() + " re-initialized, staring over");
+							break;
+						}
+						
+						//	we're being shut down, kill import
+						else if (!this.keepRunning || !this.parent.keepRunning) {
+							dit.interrupt();
+							System.out.println("Import from " + importer.getName() + " abandoned due to shutdown");
+							return;
+						}
+					}
+					
+					//	download failed
+					if (downloadFailed)
+						continue;
+					
+					//	could not get document for some reason
+					if (dit.importDoc == null)
+						continue;
+					
+					//	load document from importer cache
+					DocumentRoot doc = GenericGamtaXML.readDocument(ids[d].docFile);
+					doc.setAttribute(DOCUMENT_ID_ATTRIBUTE, ids[d].docId);
+					doc.setDocumentProperty(DOCUMENT_ID_ATTRIBUTE, ids[d].docId);
+					doc.setAttribute(GoldenGateDIO.DOCUMENT_NAME_ATTRIBUTE, ids[d].docName);
+					System.out.println("   - got document, storing:");
+					
+					//	store document in DIO
+					dio.uploadDocument(this.importer.getImportUserName(), doc, new EventLogger() {
+						public void writeLog(String logEntry) {
+							System.out.println("     - " + logEntry);
+						}
+					}, GoldenGateDIO.EXTERNAL_IDENTIFIER_MODE_IGNORE);
+					System.out.println("   - document stored");
+					
+					//	remember document imported
+					imported.add(ids[d].docId);
+					rememberDocumentImported(ids[d].docId, this.importer.getName());
+					this.importer.setLastImportComplete();
+					System.out.println("   - import remembered");
+					
+					//	give a little time to the others
+					if (this.keepRunning && this.parent.keepRunning) try {
+						Thread.sleep(1000);
+					} catch (InterruptedException ie) {}
+				}
+			}
+			
+			//	looks as if sometimes importer breaks down due to Exceptions other than IOExceptions ==> catch them all
+			catch (Exception e) {
+				System.out.println("Error on getting updates from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
+				e.printStackTrace(System.out);
+			}
+		}
+	}
+	
+	private class DocumentImportThread extends Thread {
+		private DicDocumentImporter importer;
+		private ImportDocument importDoc;
+		DocumentImportThread(DicDocumentImporter importer, ImportDocument importDoc) {
+			this.importer = importer;
+			this.importDoc = importDoc;
+		}
+		public void run() {
+			try {
+				this.importDoc = this.importer.importDocument(this.importDoc);
+			}
+			catch (Exception e) {
+				System.out.println("Error on getting document from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
+				e.printStackTrace(System.out);
+			}
+		}
+	}
+	
 	/**
 	 * Check whether or not a document has been imported before.
 	 * @param docId the ID of the document to check
@@ -364,6 +497,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 		}
 	}
 	
+	private static final String SET_IMPORTER_TIMEOUT_COMMAND = "setImporterTimeout";
 	private static final String LIST_IMPORTERS_COMMAND = "list";
 	private static final String RELOAD_IMPORTERS_COMMAND = "reload";
 	private static final String IMPORT_COMMAND = "import";
@@ -374,6 +508,39 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 	public ComponentAction[] getActions() {
 		ArrayList cal = new ArrayList();
 		ComponentAction ca;
+		
+		//	set importer timeout (in minutes)
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return SET_IMPORTER_TIMEOUT_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						SET_IMPORTER_TIMEOUT_COMMAND + " <timeout>",
+						"Set the timeout for importing a single document:",
+						"- <timeout>: the timeout in minutes"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length == 1) {
+					try {
+						int timeout = (1000 * 60 * Integer.parseInt(arguments[0]));
+						if (timeout < 1)
+							System.out.println(" Invalid import timeout " + arguments[0]);
+						else {
+							importerTimeout = timeout;
+							System.out.println(" Import timeout set to " + arguments[0] + " minutes");
+						}
+					}
+					catch (NumberFormatException nfe) {
+						System.out.println(" Invalid import timeout " + arguments[0]);
+					}
+				}
+				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as the only argument.");
+			}
+		};
+		cal.add(ca);
 		
 		//	list importers
 		ca = new ComponentActionConsole() {

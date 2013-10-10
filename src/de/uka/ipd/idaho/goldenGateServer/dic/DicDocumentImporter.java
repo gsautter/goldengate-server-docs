@@ -49,13 +49,14 @@ import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants;
 public abstract class DicDocumentImporter implements LiteratureConstants {
 	
 	/**
-	 * Wrapper for an imported document file and the respective document ID.
+	 * Wrapper for an imported document ID, and later the respective document
+	 * file, plus sub class specific extensions.
 	 * 
 	 * @author sautter
 	 */
-	public static class ImportedDocument {
+	public static class ImportDocument {
 		
-		/** the file the document is stored in */
+		/** the file the document is stored / cached in */
 		public final File docFile;
 		
 		/**
@@ -75,7 +76,7 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 		 * @param docId the ID of the document
 		 * @param docName the name of the document
 		 */
-		public ImportedDocument(File docFile, String docId, String docName) {
+		public ImportDocument(File docFile, String docId, String docName) {
 			this.docFile = docFile;
 			this.docId = docId;
 			this.docName = ((docName == null) ? docId : docName);
@@ -155,46 +156,91 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	public abstract String getImportUserName();
 	
 	private static final int milliSecondsPerDay = (24 * 60 * 60 * 1000);
-	private long lastImport = (System.currentTimeMillis() - ((int) (Math.random() * milliSecondsPerDay))); // simply pretend last import was some random time within last 24 hours TODO figure out if this makes sense
-	long getLastImport() {
-		return this.lastImport;
+	private long lastImportStart = (System.currentTimeMillis() - ((int) (Math.random() * milliSecondsPerDay))); // simply pretend last import was some random time within last 24 hours TODO figure out if this makes sense
+	void setLastImportStart() {
+		this.lastImportStart = System.currentTimeMillis();
 	}
-	private long lastImportAttempt = this.lastImport;
+	long getLastImportStart() {
+		return this.lastImportStart;
+	}
+	private long lastImportAttempt = this.lastImportStart;
+	void setLastImportAttempt() {
+		this.lastImportAttempt = System.currentTimeMillis();
+	}
 	long getLastImportAttempt() {
 		return this.lastImportAttempt;
 	}
+	private long lastImportComplete = this.lastImportStart;
+	void setLastImportComplete() {
+		this.lastImportComplete = System.currentTimeMillis();
+		this.lastImportAttempt = this.lastImportComplete;
+	}
+	long getLastImportComplete() {
+		return this.lastImportComplete;
+	}
 	void resetLastImport() {
-		this.lastImport = 0;
 		this.lastImportAttempt = 0;
+		this.lastImportStart = 0;
+		this.lastImportComplete = 0;
 	}
 	
+//	/**
+//	 * Trigger document import. This method is invoked by the parent DIC to
+//	 * trigger the import. If import is successful, the last import timestamp is
+//	 * updated. In particular, this method first invokes importDocuments(), and
+//	 * then updates the timestamp.
+//	 * @return an array of descriptors for the freshly imported documents
+//	 * @throws IOException
+//	 */
+//	public final ImportDocument[] doImport() throws IOException {
+//		this.lastImportAttempt = System.currentTimeMillis();
+//		ImportDocument[] imported = this.importDocuments();
+//		this.lastImportComplete = System.currentTimeMillis();
+//		this.lastImportAttempt = this.lastImportComplete;
+//		return imported;
+//	}
+//	
+//	/**
+//	 * Import documents, i.e. download them to the importer's data path (or some
+//	 * folder below it) and return descriptor objects pointing to the documents.
+//	 * The parent DIC expects the documents to be in generic GAMTA document
+//	 * format. Importers are recommended, but not required to use the
+//	 * cacheDocument() method, which fulfills this requirement automatically.
+//	 * @return an array of descriptors for the freshly imported documents
+//	 * @throws IOException
+//	 */
+//	protected abstract ImportDocument[] importDocuments() throws IOException;
+//	
 	/**
-	 * Trigger document import. This method is invoked by the parent DIC to
-	 * trigger the import. If import is successful, the last import timestamp is
-	 * updated. In particular, this method first invokes importDocuments(), and
-	 * then updates the timestamp.
-	 * @return an array of descriptors for the freshly imported documents
+	 * Get the documents to import, i.e. fetch their identifiers, plus possible
+	 * importer specific data, e.g. URLs. Implementations of this method should
+	 * not download the documents proper, however, as downloading large numbers
+	 * of documents in a single method call leaves too little control to the
+	 * import coordinator. Download is intended to be implemented in the
+	 * <code>importDocument()</code> method. The runtime type of the document
+	 * descriptors handed to the latter method is the same as the one returned
+	 * by the respective implementation of this method.
+	 * @return an array of descriptors for the to-import documents
 	 * @throws IOException
 	 */
-	public final ImportedDocument[] doImport() throws IOException {
-		this.lastImportAttempt = System.currentTimeMillis();
-		ImportedDocument[] imported = this.importDocuments();
-		this.lastImport = System.currentTimeMillis();
-		this.lastImportAttempt = this.lastImport;
-		return imported;
-	}
+	protected abstract ImportDocument[] getImportDocuments() throws IOException;
 	
 	/**
-	 * Import documents, i.e. download them to the importer's data path (or some
-	 * folder below it) and return descriptor objects pointing to the documents.
+	 * Import the document associated with a given descriptor. Implementations
+	 * should download documents to the importer's data path (or some folder
+	 * below it) and return descriptor objects pointing to the documents.
 	 * The parent DIC expects the documents to be in generic GAMTA document
 	 * format. Importers are recommended, but not required to use the
-	 * cacheDocument() method, which fulfills this requirement automatically.
-	 * @return an array of descriptors for the freshly imported documents
+	 * <code>cacheDocument()</code> method, which fulfills this requirement
+	 * automatically. The runtime type of the document descriptors handed to
+	 * this method is the same as the one of the descriptors returned by the
+	 * <code>getImportDocuments()</code> method.
+	 * @param id the descriptor of the document to import
+	 * @return the argument descriptor
 	 * @throws IOException
 	 */
-	protected abstract ImportedDocument[] importDocuments() throws IOException;
-
+	protected abstract ImportDocument importDocument(ImportDocument id) throws IOException;
+	
 	/**
 	 * Store an imported document in the importer's cache folder to be later
 	 * handed over to the parent DIC. In particular, the file is stored as
@@ -206,7 +252,7 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	 * @return a descriptor for the document
 	 * @throws IOException
 	 */
-	protected ImportedDocument cacheDocument(DocumentRoot doc, String docId) throws IOException {
+	protected ImportDocument cacheDocument(DocumentRoot doc, String docId) throws IOException {
 		return this.cacheDocument(doc, docId, null);
 	}
 	
@@ -225,7 +271,7 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	 * @return a descriptor for the document
 	 * @throws IOException
 	 */
-	protected ImportedDocument cacheDocument(DocumentRoot doc, String docId, String docName) throws IOException {
+	protected ImportDocument cacheDocument(DocumentRoot doc, String docId, String docName) throws IOException {
 		if (docId == null)
 			docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE));
 		if (docId == null)
@@ -241,7 +287,7 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 		cacheOut.flush();
 		cacheOut.close();
 		
-		return new ImportedDocument(cacheFile, docId, docName);
+		return new ImportDocument(cacheFile, docId, docName);
 	}
 	
 	/**
