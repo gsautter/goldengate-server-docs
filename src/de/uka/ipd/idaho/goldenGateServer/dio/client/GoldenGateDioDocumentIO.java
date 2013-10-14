@@ -1382,7 +1382,6 @@ reduce document list loading effort:
 		
 		private static final String CACHE_STATUS_ATTRIBUTE = "Cache";
 		private DocumentListBuffer docList;
-//		private StringTupel[] listData;
 		private StringTupelTray[] listData;
 		
 		private JTable docTable = new JTable();
@@ -1391,7 +1390,6 @@ reduce document list loading effort:
 		private DocumentFilterPanel filterPanel;
 		
 		private DocumentData loadData = null;
-//		private Exception loadException = null;
 		
 		private String userName;
 		private boolean isAdmin;
@@ -1497,10 +1495,8 @@ reduce document list loading effort:
 		
 		private void updateListData(DocumentFilter filter) {
 			if (filter == null) {
-//				this.listData = new StringTupel[this.docList.size()];
 				this.listData = new StringTupelTray[this.docList.size()];
 				for (int d = 0; d < this.docList.size(); d++)
-//					this.listData[d] = this.docList.get(d);
 					this.listData[d] = new StringTupelTray(this.docList.get(d));
 				this.setTitle(this.title + " (" + this.docList.size() + " documents)");
 			}
@@ -1511,7 +1507,6 @@ reduce document list loading effort:
 					if (filter.passesFilter(docData))
 						listDataList.add(docData);
 				}
-//				this.listData = ((StringTupel[]) listDataList.toArray(new StringTupel[listDataList.size()]));
 				this.listData = new StringTupelTray[listDataList.size()];
 				for (int d = 0; d < listDataList.size(); d++)
 					this.listData[d] = new StringTupelTray((StringTupel) listDataList.get(d));
@@ -1522,14 +1517,6 @@ reduce document list loading effort:
 			if (cache != null) {
 				fieldNames.addElement(CACHE_STATUS_ATTRIBUTE);
 				for (int d = 0; d < this.listData.length; d++) {
-//					String docId = this.listData[d].getValue(DOCUMENT_ID_ATTRIBUTE);
-//					if (docId == null)
-//						continue;
-//					else if (cache.isExplicitCheckout(docId))
-//						this.listData[d].setValue(CACHE_STATUS_ATTRIBUTE, "Localized");
-//					else if (cache.containsDocument(docId))
-//						this.listData[d].setValue(CACHE_STATUS_ATTRIBUTE, "Cached");
-//					else this.listData[d].setValue(CACHE_STATUS_ATTRIBUTE, "");
 					String docId = this.listData[d].data.getValue(DOCUMENT_ID_ATTRIBUTE);
 					if (docId == null)
 						continue;
@@ -1562,7 +1549,6 @@ reduce document list loading effort:
 					for (int t = 0; t < listTitlePatternAttributes.size(); t++) {
 						fieldName = listTitlePatternAttributes.get(t);
 						for (int d = 0; d < this.listData.length; d++) {
-//							if (!"".equals(this.listData[d].getValue(fieldName, ""))) {
 							if (!"".equals(this.listData[d].data.getValue(fieldName, ""))) {
 								fieldEmpty = false;
 								d = this.listData.length;
@@ -1572,7 +1558,6 @@ reduce document list loading effort:
 					}
 				
 				else for (int d = 0; d < this.listData.length; d++) {
-//					if (!"".equals(this.listData[d].getValue(fieldName, ""))) {
 					if (!"".equals(this.listData[d].data.getValue(fieldName, ""))) {
 						fieldEmpty = false;
 						d = this.listData.length;
