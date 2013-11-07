@@ -364,6 +364,9 @@ public class GgServerDocumentGateway implements GoldenGateConstants {
 					
 					class GamtaDocumentFormat extends DocumentFormat {
 						GamtaDocumentFormat() {}
+						public boolean isExportFormat() {
+							return false;
+						}
 						public String getDefaultSaveFileExtension() {
 							return "gamta";
 						}

@@ -2314,6 +2314,13 @@ reduce document list loading effort:
 		}
 		
 		/* (non-Javadoc)
+		 * @see de.uka.ipd.idaho.goldenGate.plugins.DocumentSaveOperation#keepAsDefault()
+		 */
+		public boolean keepAsDefault() {
+			return true;
+		}
+		
+		/* (non-Javadoc)
 		 * @see de.uka.ipd.idaho.goldenGate.plugins.DocumentSaveOperation#getDocumentFormat()
 		 */
 		public DocumentFormat getDocumentFormat() {
@@ -2429,6 +2436,12 @@ reduce document list loading effort:
 		
 		GamtaDocumentFormat(ServerDocumentSaveOperation parent) {
 			this.parent = parent;
+		}
+		
+		/** @see de.uka.ipd.idaho.goldenGate.plugins.DocumentFormat#isExportFormat()
+		 */
+		public boolean isExportFormat() {
+			return false;
 		}
 		
 		/** @see de.uka.ipd.idaho.goldenGate.plugins.DocumentFormat#getDefaultSaveFileExtension()
