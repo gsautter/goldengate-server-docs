@@ -64,6 +64,35 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		System.out.println(exporterName + ": registered as instance number " + instanceCount + ".");
 	}
 	
+	private static UpdateEventHandler flushingEventHandler = null;
+	private static synchronized boolean setFlushingEventHandler(UpdateEventHandler ueh, boolean flushing) {
+		
+		//	we need to know who's calling
+		if (ueh == null)
+			return false;
+		
+		//	there's already someone flushing, allow only one at a time
+		if ((flushingEventHandler != null) && flushing)
+			return (flushingEventHandler == ueh); // success only if flushing handler announces itself a second time
+		
+		//	start flushing (set flushing handler
+		else if ((flushingEventHandler == null) && flushing) {
+			flushingEventHandler = ueh;
+			ueh.flushing = true;
+			return true;
+		}
+		
+		//	stop flushing (only allowed for flushing handler)
+		else if ((flushingEventHandler == ueh) && !flushing) {
+			flushingEventHandler = null;
+			ueh.flushing = false;
+			return true;
+		}
+		
+		//	nobody there to stop flushing, or not authorized to do so
+		else return false;
+	}
+	
 	private IoProvider io;
 	
 	/** the name of the index table */
@@ -135,7 +164,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	 * have to make the super invocation. This method invokes the
 	 * getIndexFields() method, so sub classes whose custom index fields depend
 	 * on reading any configuration parameters should read the latter before
-	 * making the super invokation.
+	 * making the super invocation.
 	 * @see de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent#initComponent()
 	 */
 	protected void initComponent() {
@@ -169,7 +198,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	 * This implementation produces the binding that establishes the connection
 	 * to the backing document source. Sub classes overwriting this method to
 	 * link up to specific document sources thus have to make the super
-	 * invokation, preferably at the end of their own implementation.
+	 * invocation, preferably at the end of their own implementation.
 	 * @see de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent#link()
 	 */
 	public void link() {
@@ -179,7 +208,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	/**
 	 * This implementation connects the binding to its backing document source.
 	 * Afterward, it starts the event handling thread. Sub classes overwriting
-	 * this method thus have to make the super invokation.
+	 * this method thus have to make the super invocation.
 	 * @see de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent#linkInit()
 	 */
 	public void linkInit() {
@@ -240,6 +269,12 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	private static final String UPDATE_DELETE_COMMAND = "updateDel";
 	
 	private static final String QUEUE_SIZE_COMMAND = "queueSize";
+	
+	private static final String FLUSH_QUEUE_COMMAND = "flushQueue";
+	
+	private static final String FLUSH_STOP_COMMAND = "flushStop";
+	
+	private static final String CLEAR_QUEUE_COMMAND = "clearQueue";
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponent#getActions()
@@ -399,6 +434,73 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				if (arguments.length != 0)
 					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 				else System.out.println(eventQueue.size() + " update events pending.");
+			}
+		};
+		cal.add(ca);
+		
+		//	put event handler in flushing mode
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return FLUSH_QUEUE_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						FLUSH_QUEUE_COMMAND,
+						"Work off all pending updates without waiting in between (use with care)."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0)
+					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else if (eventHandler != null)
+					eventHandler.setFlushing(true);
+			}
+		};
+		cal.add(ca);
+		
+		//	put event handler out of flushing mode
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return FLUSH_STOP_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						FLUSH_STOP_COMMAND,
+						"Swith from flushing mode back to normal (re-activate waiting)."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0)
+					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else if (eventHandler != null)
+					eventHandler.setFlushing(false);
+			}
+		};
+		cal.add(ca);
+		
+		//	put event handler out of flushing mode
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return CLEAR_QUEUE_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						CLEAR_QUEUE_COMMAND + " <mode>",
+						"Discard all pending update events",
+						"- <mode>: set to '-a' to also clear priority queue (optional)."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length < 2) {
+					synchronized (eventQueue) {
+						eventQueue.clear((arguments.length == 1) && "-a".equals(arguments[0]));
+					}
+					System.out.println("Update event queue cleared, " + eventQueue.size() + " update events remain pending.");
+				}
+				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', at most the mode argument.");
 			}
 		};
 		cal.add(ca);
@@ -660,8 +762,9 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		UpdateEvent dequeue() {
 			return ((UpdateEvent) ((this.highPriorityQueue.size() == 0) ? this.lowPriorityQueue : this.highPriorityQueue).removeFirst());
 		}
-		void clear() {
-			this.highPriorityQueue.clear();
+		void clear(boolean includeHighPriority) {
+			if (includeHighPriority)
+				this.highPriorityQueue.clear();
 			this.lowPriorityQueue.clear();
 		}
 		int size() {
@@ -683,22 +786,20 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	
 	private void enqueueEvent(UpdateEvent event) {
 		synchronized (this.eventQueue) {
-//			this.eventQueue.addLast(event); // enqueue event for asynchronous handling
 			this.eventQueue.enqueue(event); // enqueue event for asynchronous handling
 			this.eventQueue.notify(); // wake up event handler
 		}
 	}
 	
-//	private LinkedList eventQueue = new LinkedList();
 	private UpdateEventQueue eventQueue = new UpdateEventQueue();
 	
 	private UpdateEventHandler eventHandler;
 	
 	private static final boolean DEBUG_EXPORT = true;
-//	private static final boolean DEBUG_LINK_FILTER = (DEBUG_EXPORT && false);
 	
 	private class UpdateEventHandler extends Thread {
 		private boolean shutdown = false;
+		private boolean flushing = false;
 		public void run() {
 			
 			//	wake up starting thread
@@ -721,9 +822,12 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 						eventQueue.wait();
 					} catch (InterruptedException ie) {}
 					if (eventQueue.size() != 0)
-//						ue = ((UpdateEvent) eventQueue.removeFirst());
 						ue = eventQueue.dequeue();
 				}
+				
+				//	go out of flushing mode once queue is empty
+				if (this.flushing && (eventQueue.size() == 0))
+					setFlushingEventHandler(this, false); 
 				
 				//	keep track of resource use
 				long eventProcessingTime;
@@ -789,7 +893,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				}
 				
 				//	give the others a little time (and the export target as well), dependent on number of exporters and activity (time spent on actual exports)
-				try {
+				if (!this.flushing) try {
 					long sleepTime = (0 + 
 							250 + // base sleep
 							(50 * instanceCount) + // a little extra for every instance
@@ -811,15 +915,31 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		private void shutdown() {
 			synchronized (eventQueue) {
 				this.shutdown = true;
-				eventQueue.clear();
+				eventQueue.clear(true);
 				eventQueue.notify();
 				this.interrupt(); // end any post export waiting immediately
 			}
 		}
+		
+		void setFlushing(boolean flushing) {
+			if (flushing == this.flushing) {
+				if (flushing)
+					System.out.println("Already in flushing mode.");
+				else System.out.println("Not in flushing mode.");
+			}
+			else if (setFlushingEventHandler(this, flushing)) {
+				if (flushing)
+					System.out.println("Flushing mode activated.");
+				else System.out.println("Flushing mode deactivated.");
+			}
+			else if (flushing)
+				System.out.println("Could not activate flushing mode, only one flushing instance allowed at a time.");
+			else System.out.println("Could not interrupt flushing instance.");
+		}
 	}
 	
 	/**
-	 * Write an update to the undelying export destination.
+	 * Write an update to the underlying export destination.
 	 * @param doc the document to export
 	 * @param docAttributes the index field values of the document
 	 * @throws IOException
@@ -827,7 +947,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	protected abstract void doUpdate(QueriableAnnotation doc, Properties docAttributes) throws IOException;
 	
 	/**
-	 * Write a deletion to the undelying export destination.
+	 * Write a deletion to the underlying export destination.
 	 * @param docId the ID of the document that was deleted
 	 * @param docAttributes the index field values of the document
 	 * @throws IOException
