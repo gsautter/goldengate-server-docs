@@ -32,6 +32,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Properties;
 
@@ -66,7 +67,10 @@ import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
 public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements GoldenGateDioConstants {
 	
 	private static final String ORIGINAL_UPDATE_TIME_ATTRIBUTE = "originalUpdateTime";
+	
 	private static final String GET_DOCUMENT = "DRS_GET_DOCUMENT";
+	private static final String GET_DOCUMENT_LIST = "DRS_GET_DOCUMENT_LIST";
+	
 	private static final String defaultPassPhrase = "DRS provides remote access!";
 	
 	/** The GoldenGATE DIO to work with */
@@ -194,6 +198,10 @@ public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements 
 	
 	private static final String READ_PASS_PHRASES_COMMAND = "readPassPhrases";
 	private static final String DIFF_FROM_DRS_COMMAND = "diff";
+	private static final String SYNC_WITH_DRS_COMMAND = "sync";
+	
+	private AsynchronousConsoleAction diffAction;
+	private AsynchronousConsoleAction syncAction;
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponent#getActions()
@@ -255,7 +263,6 @@ public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements 
 				return GET_DOCUMENT;
 			}
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
-				
 				String passPhraseHash = input.readLine();
 				String docId = input.readLine();
 				
@@ -287,6 +294,22 @@ public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements 
 		};
 		cal.add(ca);
 		
+		//	request for document list
+		ca = new ComponentActionNetwork() {
+			public String getActionCommand() {
+				return GET_DOCUMENT_LIST;
+			}
+			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
+				DocumentList dl = dio.getDocumentListFull();
+				
+				output.write(GET_DOCUMENT_LIST);
+				output.newLine();
+				
+				dl.writeData(output);
+			}
+		};
+		cal.add(ca);
+		
 		//	re-read pass phrases
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
@@ -310,7 +333,7 @@ public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements 
 		cal.add(ca);
 		
 		//	diff events with remote DRS
-		ca = new AsynchronousConsoleAction(DIFF_FROM_DRS_COMMAND, "Run a full diff with a specific remote GoldenGATE DRS, i.e., compare the document lists and fetch missing updates", "update event", null, null) {
+		this.diffAction = new AsynchronousConsoleAction(DIFF_FROM_DRS_COMMAND, "Run a full diff with a specific remote GoldenGATE DRS, i.e., compare document update events and handle unhandled ones", "update event", null, null) {
 			protected String[] getArgumentNames() {
 				String[] args = {"remoteDomain"};
 				return args;
@@ -321,6 +344,10 @@ public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements 
 					return explanation;
 				}
 				else return super.getArgumentExplanation(argument);
+			}
+			protected void checkRunnable() {
+				if (syncAction.isRunning())
+					throw new RuntimeException("Document list sync running, diff cannot run in parallel");
 			}
 			protected String checkArguments(String[] arguments) {
 				if (arguments.length != 1)
@@ -369,7 +396,155 @@ public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements 
 				}
 			}
 		};
-		cal.add(ca);
+		cal.add(this.diffAction);
+		
+		//	sync documents with a remote DRS
+		this.syncAction = new AsynchronousConsoleAction(SYNC_WITH_DRS_COMMAND, "Run a full sync with a specific remote GoldenGATE DRS, i.e., compare the document lists and fetch missing updates", "document list", null, null) {
+			protected String[] getArgumentNames() {
+				String[] args = {"remoteDomain", "mode"};
+				return args;
+			}
+			protected String[] getArgumentExplanation(String argument) {
+				if ("remoteDomain".equals(argument)) {
+					String[] explanation = {"The alias of the remote GoldenGATE DRS to compare the document list with"};
+					return explanation;
+				}
+				else if ("mode".equals(argument)) {
+					String[] explanation = {"The sync mode: '-u' for 'update' (the default), '-d' for 'delete', or '-ud' for both"};
+					return explanation;
+				}
+				else return super.getArgumentExplanation(argument);
+			}
+			protected void checkRunnable() {
+				if (diffAction.isRunning())
+					throw new RuntimeException("Update event diff running, sync cannot run in parallel");
+			}
+			protected String checkArguments(String[] arguments) {
+				if ((arguments.length < 1) || (arguments.length > 2)) 
+					return ("Invalid arguments for '" + this.getActionCommand() + "', specify the alias of the DRS to sync with, and optionally the sync mode, as the only arguments.");
+				String address = res.getRemoteDomainAddress(arguments[0]);
+				if (address == null)
+					return ("No remote DRS found for name " + arguments[0]);
+				else if ((arguments.length == 2) && ("-u -d -ud".indexOf(arguments[1]) == -1))
+					return ("Invalid sync mode " + arguments[1]);
+				else return null;
+			}
+			protected void performAction(String[] arguments) throws Exception {
+				String remoteDomain = arguments[0];
+				boolean update = ((arguments.length == 1) || (arguments[1].indexOf("u") != -1));
+				boolean delete = ((arguments.length == 2) && (arguments[1].indexOf("d") != -1));
+				
+				//	get remote domain access data
+				String remoteAddress = res.getRemoteDomainAddress(remoteDomain);
+				int remotePort = res.getRemoteDomainPort(remoteDomain);
+				
+				//	get document list from remote domain, and index document records by ID
+				DocumentList remoteDl = getDocumentList(remoteAddress, remotePort);
+				HashMap remoteDlesById = new HashMap();
+				while (remoteDl.hasNextDocument()) {
+					DocumentListElement dle = remoteDl.getNextDocument();
+					remoteDlesById.put(((String) dle.getAttribute(DOCUMENT_ID_ATTRIBUTE)), dle);
+				}
+				
+				//	iterate over local document list, collecting IDs of documents to update or delete
+				HashSet updateDocIDs = new HashSet();
+				HashSet deleteDocIDs = new HashSet();
+				DocumentList localDl = dio.getDocumentListFull();
+				while (localDl.hasNextDocument()) {
+					DocumentListElement localDle = localDl.getNextDocument();
+					String docId = ((String) localDle.getAttribute(DOCUMENT_ID_ATTRIBUTE));
+					DocumentListElement remoteDle = ((DocumentListElement) remoteDlesById.remove(docId));
+					
+					//	this one doesn't even exist in the remote domain
+					if (remoteDle == null) {
+						if (delete)
+							deleteDocIDs.add(docId);
+						continue;
+					}
+					
+					//	extract update timestamps for comparison
+					long localUpdateTime;
+					long remoteUpdateTime;
+					try {
+						localUpdateTime = Long.parseLong((String) localDle.getAttribute(UPDATE_TIME_ATTRIBUTE));
+						remoteUpdateTime = Long.parseLong((String) remoteDle.getAttribute(UPDATE_TIME_ATTRIBUTE));
+					}
+					catch (Exception e) {
+						this.log(("Could not parse update timestamps for document '" + docId + "'"), e);
+						continue;
+					}
+					
+					//	remote version is newer than local one, even with a one second tolerance), mark for update
+					if (update && ((localUpdateTime + 1000) < remoteUpdateTime))
+						updateDocIDs.add(docId);
+				}
+				
+				//	add updates for new document not yet available locally
+				if (update)
+					updateDocIDs.addAll(remoteDlesById.keySet());
+				
+				//	do updates and deletions
+				int updateCount = updateDocIDs.size();
+				int deleteCount = deleteDocIDs.size();
+				this.enteringMainLoop("Got event list from " + remoteDomain + ", " + updateCount + " updates, " + deleteCount + " deletions");
+				while (this.continueAction() && ((updateDocIDs.size() + deleteDocIDs.size()) != 0)) {
+					
+					//	do deletions first ...
+					if (deleteDocIDs.size() != 0) {
+						String docId = ((String) deleteDocIDs.iterator().next());
+						deleteDocIDs.remove(docId);
+						System.out.println("GoldenGateDRS: forwarding deletion from " + remoteDomain + " (" + remoteAddress + ":" + remotePort + ") ...");
+						try {
+							
+							//	get update user, and reuse if starting with 'DRS.'
+							Properties docAttributes = dio.getDocumentAttributes(docId);
+							String updateUser = docAttributes.getProperty(UPDATE_USER_ATTRIBUTE);
+							if ((updateUser == null) || !updateUser.startsWith("DRS."))
+								updateUser = ("DRS." + remoteDomain);
+							
+							//	delete document
+							dio.deleteDocument(updateUser, docId, null);
+						}
+						catch (IOException ioe) {
+							System.out.println("GoldenGateDRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document " + docId + ".");
+							ioe.printStackTrace(System.out);
+						}
+					}
+					
+					//	... and updates second
+					else if (updateDocIDs.size() != 0) {
+						String docId = ((String) updateDocIDs.iterator().next());
+						updateDocIDs.remove(docId);
+						System.out.println("GoldenGateDRS: getting update from " + remoteDomain + " (" + remoteAddress + ":" + remotePort + ") ...");
+						try {
+							
+							//	get document
+							QueriableAnnotation doc = getDocument(docId, remoteAddress, remotePort, remoteDomain);
+							
+							//	get update user, and reuse if starting with 'DRS.'
+							String updateUser = ((String) doc.getAttribute(UPDATE_USER_ATTRIBUTE));
+							if ((updateUser == null) || !updateUser.startsWith("DRS."))
+								updateUser = ("DRS." + remoteDomain);
+								
+							//	if original update time not set, document comes from its home domain ==> use update time
+							if (!doc.hasAttribute(ORIGINAL_UPDATE_TIME_ATTRIBUTE))
+								doc.setAttribute(ORIGINAL_UPDATE_TIME_ATTRIBUTE, doc.getAttribute(UPDATE_TIME_ATTRIBUTE));
+							
+							//	store document
+							dio.updateDocument(updateUser, docId, doc, null);
+						}
+						catch (IOException ioe) {
+							System.out.println("GoldenGateDRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while updating document " + docId + ".");
+							ioe.printStackTrace(System.out);
+						}
+					}
+					
+					//	update status
+					this.loopRoundComplete("Handled " + (updateCount - updateDocIDs.size()) + " of " + updateCount + " updates, " + (deleteCount - deleteDocIDs.size()) + " of " + deleteCount + " deletions.");
+				}
+			}
+		};
+		cal.add(this.syncAction);
 		
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
 	}
@@ -403,12 +578,30 @@ public class GoldenGateDRS extends AbstractGoldenGateServerComponent implements 
 			String error = br.readLine();
 			if (GET_DOCUMENT.equals(error))
 				return GenericGamtaXML.readDocument(br);
-			
 			else throw new IOException(error);
 		}
 		finally {
 			if (con != null)
 				con.close();
+		}
+	}
+	
+	private DocumentList getDocumentList(String remoteAddress, int remotePort) throws IOException {
+		ServerConnection sc = ((remotePort == -1) ? ServerConnection.getServerConnection(remoteAddress) : ServerConnection.getServerConnection(remoteAddress, remotePort));
+		Connection con = sc.getConnection();
+		BufferedWriter bw = con.getWriter();
+		
+		bw.write(GET_DOCUMENT_LIST);
+		bw.newLine();
+		bw.flush();
+		
+		BufferedReader br = con.getReader();
+		String error = br.readLine();
+		if (GET_DOCUMENT_LIST.equals(error))
+			return DocumentList.readDocumentList(br);
+		else {
+			con.close();
+			throw new IOException(error);
 		}
 	}
 }
