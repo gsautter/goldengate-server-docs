@@ -404,7 +404,7 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 	private boolean ensureLoggedIn() {
 		
 		//	test if connection alive
-		if (this.authClient != null) {
+		if (this.authClient != null)
 			try {
 				//	test if connection alive
 				if (this.authClient.ensureLoggedIn())
@@ -423,7 +423,6 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 				this.authClient = null;
 				return false;
 			}
-		}
 		
 		
 		//	check if existing cache valid
@@ -437,7 +436,7 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 		}
 		
 		
-		//	got no valid connection at the moment
+		//	got no valid connection at the moment, try and get one
 		if (this.authClient == null)
 			this.authClient = this.authManager.getAuthenticatedClient();
 		
@@ -455,7 +454,7 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 		if (this.authClient == null)
 			return false;
 		
-		//	got valid connection
+		//	got valid connection, flush cache if we got one
 		else {
 			this.dioClient = new GoldenGateDioClient(this.authClient);
 			if (this.cache != null)
@@ -2408,21 +2407,26 @@ reduce document list loading effort:
 		 * @see de.uka.ipd.idaho.goldenGate.plugins.DocumentSaveOperation#documentClosed()
 		 */
 		public void documentClosed() {
+			if (this.documentId == null) {
+				System.out.println("GgDIO DocIO: Cannot release document, ID is null");
+				return;
+			}
+			if ((cache != null) && cache.isExplicitCheckout(this.documentId)) {
+				System.out.println("GgDIO DocIO: not releasing document '" + this.documentId + "', explicitly checked out.");
+				return;
+			}
+			if ((cache != null) && cache.isDirty(this.documentId)) {
+				System.out.println("GgDIO DocIO: not releasing document '" + this.documentId + "', changes not forwarded to server.");
+				JOptionPane.showMessageDialog(DialogPanel.getTopWindow(), ("You retain the lock for document '" + this.documentName + "'\nbecause your local cache holds updates not yet forwarded to GoldenGATE Server\nat " + authManager.getHost() + "\nWhen you open the document from the server the next time, the updates will be restored."), "Lock Retained for Cached Update", JOptionPane.INFORMATION_MESSAGE);
+				return;
+			}
 			try {
-				if (this.documentId != null) {// opened from DIO, or saved before
-					if ((cache != null) && cache.isExplicitCheckout(this.documentId))
-						System.out.println("GgDIO DocIO: not releasing document '" + this.documentId + "', explicitly checked out.");
-					
-					else {
-						System.out.println("GgDIO DocIO: releasing document '" + this.documentId + "'");
-						if (cache != null)
-							cache.unstoreDocument(this.documentId);
-						if (dioClient != null)
-							dioClient.releaseDocument(this.documentId);
-						System.out.println("GgDIO DocIO: document '" + this.documentId + "' released");
-					}
-				}
-				else System.out.println("GgDIO DocIO: Cannot release document, ID is null");
+				System.out.println("GgDIO DocIO: releasing document '" + this.documentId + "'");
+				if (cache != null)
+					cache.unstoreDocument(this.documentId);
+				if (dioClient != null)
+					dioClient.releaseDocument(this.documentId);
+				System.out.println("GgDIO DocIO: document '" + this.documentId + "' released");
 			}
 			catch (IOException ioe) {
 				System.out.println("DIODocumentSaveOperation: error releasing document '" + this.documentId + "': " + ioe.getMessage());
@@ -2655,19 +2659,21 @@ reduce document list loading effort:
 			
 			docMetaData.setValue(DOCUMENT_VERSION_ATTRIBUTE, docVersion);
 			
-			//	store document
 			try {
+				
+				//	store document
 				OutputStreamWriter out = new OutputStreamWriter(this.dataProvider.getOutputStream(this.cachePrefix + docId + ".gamta.xml"), ENCODING);
 				GenericGamtaXML.storeDocument(doc, out);
 				out.flush();
 				out.close();
 				
+				//	mark as dirty (remember there are cached changes not forwarded to server yet)
 				docMetaData.setValue(DIRTY, DIRTY);
 				this.cacheMetaData.put(docId, docMetaData);
 				this.metaDataStorageKeys.addContentIgnoreDuplicates(docMetaData.getKeys());
-				
 				this.storeMetaData();
 				
+				//	indicate success
 				return true;
 			}
 			catch (IOException ioe) {

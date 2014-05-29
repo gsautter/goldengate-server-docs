@@ -40,19 +40,19 @@ import java.util.Properties;
 import java.util.Set;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
-import de.uka.ipd.idaho.gamta.util.ReadOnlyDocument;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
+import de.uka.ipd.idaho.gamta.util.ReadOnlyDocument;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
-import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
+import de.uka.ipd.idaho.goldenGateServer.dst.GoldenGateServerDocConstants;
 
 /**
  * Interface holding constants for communicating with the GoldenGateDIO
  * 
  * @author sautter
  */
-public interface GoldenGateDioConstants extends GoldenGateServerConstants, LiteratureConstants {
+public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, LiteratureConstants {
 	
 	/** the dummy session ID for the document servlet to retrieve documents from a backing DIO */
 	public static final String DOCUMENT_SERVLET_SESSION_ID = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
@@ -96,32 +96,17 @@ public interface GoldenGateDioConstants extends GoldenGateServerConstants, Liter
 	public static final String DELETE_DOCUMENT_PERMISSION = "DIO.DeleteDocument";
 	
 	
-//	/** the attribute holding the name of a document */
-//	public static final String DOCUMENT_NAME_ATTRIBUTE = "docName";
-//	
 	/** the attribute holding keywords of a document */
 	public static final String DOCUMENT_KEYWORDS_ATTRIBUTE = "docKeywords";
 	
 	/** the attribute holding the name of a document */
 	public static final String DOCUMENT_VERSION_ATTRIBUTE = "docVersion";
 	
-	/** the attribute holding the name of the user who initially uploaded a document */
-	public static final String CHECKIN_USER_ATTRIBUTE = "checkinUser";
-	
-	/** the attribute holding the time when a document was initially uploaded */
-	public static final String CHECKIN_TIME_ATTRIBUTE = "checkinTime";
-	
 	/** the attribute holding the name of the user who has currently checked out a document for working */
 	public static final String CHECKOUT_USER_ATTRIBUTE = "checkoutUser";
 	
 	/** the attribute holding the time when a document was checked out */
 	public static final String CHECKOUT_TIME_ATTRIBUTE = "checkoutTime";
-	
-	/** the attribute holding the name of the user who last updated a document */
-	public static final String UPDATE_USER_ATTRIBUTE = "updateUser";
-	
-	/** the attribute holding the time when a document was last updated */
-	public static final String UPDATE_TIME_ATTRIBUTE = "updateTime";
 	
 	
 	/** the attribute holding external document identifiers, eg from some thrid-party meta data */
@@ -603,7 +588,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerConstants, Liter
 		}
 	};
 	/**
-	 * GoldenGATE DIO specific document staorage event, adding types for
+	 * GoldenGATE DIO specific document storage event, adding types for
 	 * checkout and release.
 	 * 
 	 * @author sautter

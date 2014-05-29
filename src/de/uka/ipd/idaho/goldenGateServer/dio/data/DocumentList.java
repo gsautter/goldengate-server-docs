@@ -519,7 +519,6 @@ public abstract class DocumentList implements GoldenGateDioConstants {
 	 * @throws IOException
 	 */
 	public static DocumentList readDocumentList(Reader in) throws IOException {
-//		final BufferedReader finalBr = ((in instanceof BufferedReader) ? ((BufferedReader) in) : new BufferedReader(in));
 		final int[] charsRead = {0};
 		final BufferedReader finalBr = new BufferedReader(new FilterReader(in) {
 			public int read() throws IOException {
@@ -625,12 +624,14 @@ public abstract class DocumentList implements GoldenGateDioConstants {
 				}
 			}
 			public DocumentListElement getNextDocument() {
-				if (!this.hasNextDocument()) return null;
+				if (!this.hasNextDocument())
+					return null;
+//				System.out.println("DioDocList: parsing next (" + this.docsRetrieved + ") from " + this.next);
 				String[] next = parseCsvLine(this.next, '"');
 				this.next = null;
 				DocumentListElement dle = new DocumentListElement();
 				for (int f = 0; f < this.listFieldNames.length; f++)
-					dle.setAttribute(this.listFieldNames[f], next[f]);
+					dle.setAttribute(this.listFieldNames[f], ((f < next.length) ? next[f] : ""));
 				this.docsRetrieved++;
 				return dle;
 			}
