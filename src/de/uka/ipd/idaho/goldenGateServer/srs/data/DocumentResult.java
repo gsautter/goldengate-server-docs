@@ -141,7 +141,6 @@ public abstract class DocumentResult extends SrsSearchResult {
 			buf.newLine();
 			
 			//	write document
-//			Utils.writeDocument(dre.document, buf);
 			GenericGamtaXML.storeDocument(dre.document, buf);
 			buf.newLine();
 			
@@ -241,7 +240,7 @@ public abstract class DocumentResult extends SrsSearchResult {
 				
 				//	end of result element, nothing to do
 				if (grammar.isEndTag(token)) {
-					//	TODO: clean up if empty block
+					//	TODO: clean up if block empty
 				}
 				
 				//	start tag (empty or not)
@@ -253,9 +252,9 @@ public abstract class DocumentResult extends SrsSearchResult {
 					try {
 						relevance = Double.parseDouble(tnas.getAttribute(RELEVANCE_ATTRIBUTE, "0.0"));
 					} catch (NumberFormatException e) {}
-					int docNr = 0;
+					long docNr = 0;
 					try {
-						docNr = Integer.parseInt(tnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0"));
+						docNr = Long.parseLong(tnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0"));
 					} catch (NumberFormatException e) {}
 					String docId = tnas.getAttribute(DOCUMENT_ID_ATTRIBUTE, "");
 					
@@ -320,7 +319,7 @@ public abstract class DocumentResult extends SrsSearchResult {
 						if (grammar.isSingularTag(token)) {
 							TreeNodeAttributeSet sreTnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 							String docNr = sreTnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
-							IndexResultElement subIre = new IndexResultElement(Integer.parseInt(docNr), tokenType, "");
+							IndexResultElement subIre = new IndexResultElement(Long.parseLong(docNr), tokenType, "");
 							String[] attributeNames = sreTnas.getAttributeNames();
 							for (int a = 0; a < attributeNames.length; a++) {
 								String attributeValue = sreTnas.getAttribute(attributeNames[a]);
@@ -336,7 +335,7 @@ public abstract class DocumentResult extends SrsSearchResult {
 							//	store element if data complete
 							if ((reSubResult != null) && (sreType != null) && (sreAttributes != null) && (sreValue != null)) {
 								String docNr = sreAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
-								IndexResultElement subIre = new IndexResultElement(Integer.parseInt(docNr), sreType, sreValue);
+								IndexResultElement subIre = new IndexResultElement(Long.parseLong(docNr), sreType, sreValue);
 								String[] attributeNames = sreAttributes.getAttributeNames();
 								for (int a = 0; a < attributeNames.length; a++) {
 									String attributeValue = sreAttributes.getAttribute(attributeNames[a]);
@@ -438,86 +437,10 @@ public abstract class DocumentResult extends SrsSearchResult {
 				public SrsSearchResultElement getNextElement() {
 					return DocumentResultBuilder.this.getNextElement();
 				}
-//				public SrsSearchResultElement readElement(String[] tokens) throws IOException {
-//					DocumentRoot doc = null;
-//					SgmlDocumentReader docReader = null;
-//					TreeNodeAttributeSet resultDocAttributes = null;
-//					
-//					DocumentResultElement dre = null;
-//					LinkedList documentDataStack = new LinkedList();
-//					
-//					for (int t = 0; t < tokens.length; t++) {
-//						String token = tokens[t];
-//						
-//						//	result tag, and no tags of document data yet or remaining open
-//						if (grammar.isTag(token) && RESULT_NODE_NAME.equals(grammar.getType(token)) && documentDataStack.isEmpty()) {
-//							if (grammar.isEndTag(token)) {
-//								if ((doc != null) && (docReader != null)) {
-//									
-//									docReader.close();
-//									double relevance = 0.0;
-//									try {
-//										relevance = Double.parseDouble(resultDocAttributes.getAttribute(RELEVANCE_ATTRIBUTE, "0.0"));
-//									} catch (NumberFormatException e) {}
-//									int docNr = 0;
-//									try {
-//										docNr = Integer.parseInt(resultDocAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0"));
-//									} catch (NumberFormatException e) {}
-//									String docId = resultDocAttributes.getAttribute(DOCUMENT_ID_ATTRIBUTE, "");
-//									
-//									doc.setAttribute(RELEVANCE_ATTRIBUTE, ("" + relevance));
-//									doc.setAttribute(DOCUMENT_ID_ATTRIBUTE, docId);
-//									String[] attributeNames = resultDocAttributes.getAttributeNames();
-//									for (int a = 0; a < attributeNames.length; a++) {
-//										String value = resultDocAttributes.getAttribute(attributeNames[a]);
-//										if (value != null) doc.setAttribute(attributeNames[a], value);
-//									}
-//									
-//									dre = new DocumentResultElement(docNr, docId, relevance, doc);
-//									attributeNames = doc.getAttributeNames();
-//									for (int a = 0; a < attributeNames.length; a++) {
-//										String value = resultDocAttributes.getAttribute(attributeNames[a]);
-//										if (value != null) {
-//											doc.setAttribute(attributeNames[a], value);
-//											dre.setAttribute(attributeNames[a], value);
-//										}
-//									}
-//									
-//									doc = null;
-//									docReader = null;
-//								}
-//							}
-//							else {
-//								resultDocAttributes = TreeNodeAttributeSet.getTagAttributes(token, grammar);
-//								doc = Gamta.newDocument(Gamta.INNER_PUNCTUATION_TOKENIZER);
-//								docReader = Utils.getDocumentReader(doc);
-//							}
-//						}
-//						
-//						//	we're in the middle of the document
-//						else if ((doc != null) && (docReader != null)) {
-//							
-//							//	keep track of nesting
-//							if (grammar.isEndTag(token) && !documentDataStack.isEmpty())
-//								documentDataStack.removeLast();
-//							else if (grammar.isTag(token) && !grammar.isSingularTag(token))
-//								documentDataStack.addLast("");
-//							
-//							//	add token to document
-//							docReader.storeToken(token, 0);
-//						}
-//					}
-//					
-//					//	return result element
-//					return dre;
-//				}
 				public SrsSearchResultElement readElement(final String[] tokens) throws IOException {
-//					DocumentRoot doc = null;
-//					SgmlDocumentReader docReader = null;
 					TreeNodeAttributeSet resultDocAttributes = null;
 					
 					DocumentResultElement dre = null;
-//					LinkedList documentDataStack = new LinkedList();
 					int docDataStart = -1;
 					
 					for (int t = 0; t < tokens.length; t++) {
@@ -562,9 +485,9 @@ public abstract class DocumentResult extends SrsSearchResult {
 									try {
 										relevance = Double.parseDouble(resultDocAttributes.getAttribute(RELEVANCE_ATTRIBUTE, "0.0"));
 									} catch (NumberFormatException e) {}
-									int docNr = 0;
+									long docNr = 0;
 									try {
-										docNr = Integer.parseInt(resultDocAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0"));
+										docNr = Long.parseLong(resultDocAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0"));
 									} catch (NumberFormatException e) {}
 									String docId = resultDocAttributes.getAttribute(DOCUMENT_ID_ATTRIBUTE, "");
 									
@@ -586,8 +509,6 @@ public abstract class DocumentResult extends SrsSearchResult {
 										}
 									}
 									
-//									doc = null;
-//									docReader = null;
 									docDataStart = -1;
 								}
 							}
@@ -596,19 +517,6 @@ public abstract class DocumentResult extends SrsSearchResult {
 								docDataStart = t+1;
 							}
 						}
-//						
-//						//	we're in the middle of the document
-//						else if (docDataStart != -1) {
-//							
-//							//	keep track of nesting
-//							if (grammar.isEndTag(token) && !documentDataStack.isEmpty())
-//								documentDataStack.removeLast();
-//							else if (grammar.isTag(token) && !grammar.isSingularTag(token))
-//								documentDataStack.addLast("");
-//							
-//							//	add token to document
-//							docReader.storeToken(token, 0);
-//						}
 					}
 					
 					//	return result element

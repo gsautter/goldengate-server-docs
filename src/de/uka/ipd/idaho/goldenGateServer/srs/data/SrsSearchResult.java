@@ -165,8 +165,8 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 	 * Obtain the attributes for the start tag of the XML representation of the
 	 * result. The returned Properties Object is only read, never written, so
 	 * instances of sub classes can use one single Properties object that they
-	 * return on all invokations of this method, rather than produce a new
-	 * object for each individual invokation. The returned Properties need not
+	 * return on all invocations of this method, rather than produce a new
+	 * object for each individual invocation. The returned Properties need not
 	 * contain the RESULT_INDEX_FIELDS_ATTRIBUTE, since this attribute is
 	 * produced from the resultAttributes field of the Result class.
 	 * @return a Properties holding the attributes for the start tag of the XML
@@ -280,7 +280,7 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 		public ResultBuilder(Reader in) throws IOException {
 			this.in = in;
 			
-			//	create extra thread parsing data from input bit by bit (as fead) and filling local data fields with it
+			//	create extra thread parsing data from input bit by bit (as feed) and filling local data fields with it
 			final Reader fromSource = new PipedReader(this.toParser);
 			this.parserThread = new Thread() {
 				public void run() {
@@ -436,6 +436,8 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 		public void close() throws IOException {
 			//	nothing to close, shutdown occurs automatically at end of backing data stream
 		}
+		
+		//	TODO use stack (as in Open String Pool) to catch 'results' nodes in data
 		
 		/* (non-Javadoc)
 		 * @see de.htmlXmlUtil.TokenReceiver#storeToken(java.lang.String, int)

@@ -46,6 +46,18 @@ public class BufferedCollectionStatistics extends BufferedResult {
 	/**	the total number of words in the document collection */
 	public final int wordCount;
 	
+	/** the timestamp since the time relative statistics are counted (as a numeric UTC timestamp or relative time string constant) */
+	public final String since;
+	
+	/**	the number of master documents in the document collection since a given time */
+	public final int masterDocCountSince;
+	
+	/**	the number of individually retrievable text units in the document collection since a given time */
+	public final int docCountSince;
+	
+	/**	the total number of words in the document collection since a given time */
+	public final int wordCountSince;
+	
 	private CollectionStatistics data;
 	
 	/**
@@ -57,6 +69,10 @@ public class BufferedCollectionStatistics extends BufferedResult {
 		this.masterDocCount = this.data.masterDocCount;
 		this.docCount = this.data.docCount;
 		this.wordCount = this.data.wordCount;
+		this.since = this.data.since;
+		this.masterDocCountSince = this.data.masterDocCountSince;
+		this.docCountSince = this.data.docCountSince;
+		this.wordCountSince = this.data.wordCountSince;
 	}
 	
 	/* (non-Javadoc)
@@ -64,7 +80,7 @@ public class BufferedCollectionStatistics extends BufferedResult {
 	 */
 	public CollectionStatistics getCollectionStatistics() {
 		final SrsSearchResult result = this.getResult();
-		return new CollectionStatistics(result.resultAttributes, this.data.masterDocCount, this.data.docCount, this.data.wordCount) {
+		return new CollectionStatistics(result.resultAttributes, this.data.masterDocCount, this.data.docCount, this.data.wordCount, this.data.since, this.data.masterDocCountSince, this.data.docCountSince, this.data.wordCountSince) {
 			public boolean hasNextElement() {
 				return result.hasNextElement();
 			}

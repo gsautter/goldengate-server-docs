@@ -32,8 +32,8 @@ import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 
 /**
- * Document splitter may pre process documents before they are entered into the
- * archive. This pre processing includes, but is not restricted to, splitting
+ * Document splitter may pre-process documents before they are entered into the
+ * archive. This pre-processing includes, but is not restricted to, splitting
  * the documents into smaller portions (e.g. extracting individual articles from
  * a newspaper).
  * 
@@ -70,9 +70,9 @@ public interface DocumentSplitter extends GoldenGateSrsPlugin {
 	public abstract QueriableAnnotation[] split(QueriableAnnotation doc, EventLogger logger);
 	
 	/**
-	 * Retrieve a nice name for the partial documents the splitter devides a
-	 * master document into, eg 'article', if this splitter divides newspaper
-	 * pages into indivirdual articles.
+	 * Retrieve a nice name for the partial documents the splitter divides a
+	 * master document into, e.g. 'article', if this splitter divides newspaper
+	 * pages into individual articles.
 	 * @return a nice name for the retrievable sub documents
 	 */
 	public abstract String getSplitResultLabel();

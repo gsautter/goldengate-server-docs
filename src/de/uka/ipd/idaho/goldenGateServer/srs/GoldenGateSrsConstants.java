@@ -41,7 +41,7 @@ import java.util.ArrayList;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.ReadOnlyDocument;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
-import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants;
+import de.uka.ipd.idaho.goldenGateServer.dst.GoldenGateServerDocConstants;
 import de.uka.ipd.idaho.htmlXmlUtil.Parser;
 import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
@@ -54,189 +54,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.grammars.StandardGrammar;
  * 
  * @author sautter
  */
-public interface GoldenGateSrsConstants extends GoldenGateServerConstants, LiteratureConstants {
-//	
-//	/**
-//	 * container for utility methods (which cannot be implemented in the
-//	 * surrounding interface directly)
-//	 */
-//	public static class Utils {
-//		
-//		private static Grammar documentGrammar = new StandardGrammar() {
-//			
-//			/** @see de.htmlXmlUtil.grammars.StandardGrammar#getCharCode(char)
-//			 */
-//			public String getCharCode(char c) {
-//				if (c == '<') return "&lt;";
-//				else if (c == '>') return "&gt;";
-//				else if (c == '&') return "&amp;";
-//				else if (c == '"') return "&quot;";
-//				else return super.getCharCode(c);
-//			}
-//			
-//			/** @see de.htmlXmlUtil.grammars.StandardGrammar#isCharCode(java.lang.String)
-//			 */
-//			public boolean isCharCode(String code) {
-//				return ("&amp;".equals(code) || "&lt;".equals(code) || "&gt;".equals(code) || "&quot;".equals(code));
-//			}
-//			
-//			/** @see de.htmlXmlUtil.grammars.Grammar#getCharLookahead()
-//			 */
-//			public int getCharLookahead() {
-//				return 6;
-//			}
-//		};
-//		
-//		private static Parser documentParser = new Parser(documentGrammar);
-//		
-//		private static StringVector paragraphTags = new StringVector();
-//		private static final String paragraphTagString = "br;hr;table";
-//		static {
-//			paragraphTags.parseAndAddElements(paragraphTagString, ";");
-//		}
-//		
-//		/**
-//		 * @return an SgmlDocumentReader configured to read a document from the
-//		 *         SRS
-//		 * @throws IOException
-//		 */
-//		public static SgmlDocumentReader getDocumentReader() throws IOException {
-//			return getDocumentReader(null);
-//		}
-//		
-//		/**
-//		 * @return an SgmlDocumentReader configured to read a document from the
-//		 *         SRS
-//		 * @throws IOException
-//		 */
-//		public static SgmlDocumentReader getDocumentReader(MutableAnnotation doc) throws IOException {
-//			return new SgmlDocumentReader(doc, documentGrammar, null, null, paragraphTags);
-//		}
-//		
-//		/**
-//		 * @return a Parser configured to process data from the SRS
-//		 */
-//		public static Parser getParser() {
-//			return new Parser(documentGrammar);
-//		}
-//
-//		/**
-//		 * read a document from a stream
-//		 * @param source the stream to read from
-//		 * @return the document read from the specified stream
-//		 * @throws IOException
-//		 */
-//		public static MutableAnnotation readDocument(InputStream source) throws IOException {
-//			return readDocument(new InputStreamReader(source, ENCODING));
-//		}
-//
-//		/**
-//		 * read a document from a Reader (Use of this method is intended for
-//		 * cases where the encoding has to be controlled externally, otherwise,
-//		 * InputStreams should be used)
-//		 * @param source the Reader to read from
-//		 * @return the document read from the specified stream
-//		 * @throws IOException
-//		 */
-//		public static MutableAnnotation readDocument(Reader source) throws IOException {
-//			SgmlDocumentReader dc = new SgmlDocumentReader(null, documentGrammar, null, null, paragraphTags);
-//			documentParser.stream(source, dc);
-//			dc.close();
-//			return dc.getDocument();
-//		}
-//
-//		/**
-//		 * write a document to an OutputStream
-//		 * @param data the document to write
-//		 * @param output the OutputStream to write to
-//		 * @throws IOException
-//		 */
-//		public static void writeDocument(QueriableAnnotation data, OutputStream output) throws IOException {
-//			writeDocument(data, new OutputStreamWriter(output, ENCODING));
-//		}
-//
-//		/**
-//		 * write a document to a Writer (Use of this method is intended for
-//		 * cases where the encoding has to be controlled externally, otherwise,
-//		 * OutputStreams should be used)
-//		 * @param data the document to write
-//		 * @param output the Writer to write to
-//		 * @throws IOException
-//		 */
-//		public static void writeDocument(QueriableAnnotation data, Writer output) throws IOException {
-//			
-//			BufferedWriter buf = ((output instanceof BufferedWriter) ? ((BufferedWriter) output) : new BufferedWriter(output));
-//			
-//			Annotation[] nestedAnnotations = data.getAnnotations();
-//			
-//			//	include generic document tag if document has attributes
-//			if ((nestedAnnotations.length != 0) && !DocumentRoot.DOCUMENT_TYPE.equals(nestedAnnotations[0].getType())) {
-//				String[] docAttributeNames = data.getAttributeNames();
-//				if (docAttributeNames.length != 0) {
-//					Annotation[] newNestedAnnotations = new Annotation[nestedAnnotations.length + 1];
-//					newNestedAnnotations[0] = data;
-//					System.arraycopy(nestedAnnotations, 0, newNestedAnnotations, 1, nestedAnnotations.length);
-//					nestedAnnotations = newNestedAnnotations;
-//				}
-//			}
-//			Stack stack = new Stack();
-//			int annotationPointer = 0;
-//			
-//			Token token = null;
-//			Token lastToken;
-//			
-//			for (int t = 0; t < data.size(); t++) {
-//				
-//				//	switch to next Token
-//				lastToken = token;
-//				token = data.tokenAt(t);
-//				
-//				//	add line break at end of paragraph
-//				boolean breakBeforeEndTag = true;
-//				if ((lastToken != null) && lastToken.hasAttribute(Token.PARAGRAPH_END_ATTRIBUTE)) {
-//					buf.write("<br/>");
-//					buf.newLine();
-//					breakBeforeEndTag = false;
-//				}
-//				
-//				//	write end tags for Annotations ending before current Token
-//				while ((stack.size() > 0) && ((((Annotation) stack.peek()).getStartIndex() + ((Annotation) stack.peek()).size()) <= t)) {
-//					Annotation annotation = ((Annotation) stack.pop());
-//					if (breakBeforeEndTag) {
-//						buf.newLine();
-//						breakBeforeEndTag = false;
-//					}
-//					buf.write(AnnotationUtils.produceEndTag(annotation));
-//					buf.newLine();
-//				}
-//				
-//				//	skip space character before unspaced punctuation (e.g. ',') or if explicitly told so
-//				if (((lastToken == null) || !lastToken.hasAttribute(Token.PARAGRAPH_END_ATTRIBUTE)) && (t != 0) && (data.getWhitespaceAfter(t-1).length() != 0)) buf.write(" ");
-//				
-//				//	write start tags for Annotations beginning at current Token
-//				while ((annotationPointer < nestedAnnotations.length) && (nestedAnnotations[annotationPointer].getStartIndex() == t)) {
-//					buf.write(AnnotationUtils.produceStartTag(nestedAnnotations[annotationPointer]));
-//					buf.newLine();
-//					stack.push(nestedAnnotations[annotationPointer]);
-//					annotationPointer++;
-//				}
-//				
-//				//	write current Token
-//				buf.write(AnnotationUtils.escapeForXml(token.getValue()));
-//			}
-//			
-//			//	write end tags for Annotations not closed so far
-//			while (stack.size() > 0) {
-//				Annotation annotation = ((Annotation) stack.pop());
-//				buf.newLine();
-//				buf.write(AnnotationUtils.produceEndTag(annotation));
-//			}
-//			
-//			if (buf != output)
-//				buf.flush();
-//		}
-//	}
-	
+public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, LiteratureConstants {
 	
 	/** the list documents command */
 	public static final String LIST_DOCUMENTS = "SRS_LIST_DOCUMENTS";
@@ -244,8 +62,9 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 	/** the command for obtaining search forms */
 	public static final String GET_SEARCH_FIELDS = "SRS_GET_SEARCH_FIELDS";
 
+	
 	/** the command for obtaining statistics on the document collection */
-	public static final String GET_STATISICS = "SRS_GET_STATISTICS";
+	public static final String GET_STATISTICS = "SRS_GET_STATISTICS";
 
 	/** the master doc count attribute of the statistics */
 	public static final String MASTER_DOCUMENT_COUNT_ATTRIBUTE = "MasterCount";
@@ -256,17 +75,42 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 	/** the word count attribute of the statistics */
 	public static final String WORD_COUNT_ATTRIBUTE = "WordCount";
 
+	/** the master doc count attribute of the statistics since a given time */
+	public static final String MASTER_DOCUMENT_COUNT_SINCE_ATTRIBUTE = "MasterCountSince";
+
+	/** the doc count attribute of the statistics since a given time */
+	public static final String DOCUMENT_COUNT_SINCE_ATTRIBUTE = "DocCountSince";
+
+	/** the word count attribute of the statistics since a given time */
+	public static final String WORD_COUNT_SINCE_ATTRIBUTE = "WordCountSince";
+	
+	/** the parameter for obtaining statistics on the document collection since a given time */
+	public static final String GET_STATISTICS_SINCE_PARAMETER = "since";
+	
+	/** constant for the GET_STATISICS_SINCE_PARAMETER to obtain the statistics for the last year */
+	public static final String GET_STATISTICS_LAST_YEAR = "year";
+	
+	/** constant for the GET_STATISICS_SINCE_PARAMETER to obtain the statistics for the last half year */
+	public static final String GET_STATISTICS_LAST_HALF_YEAR = "halfYear";
+	
+	/** constant for the GET_STATISICS_SINCE_PARAMETER to obtain the statistics for the last three months */
+	public static final String GET_STATISTICS_LAST_THREE_MONTHS = "threeMonths";
+	
+	/** constant for the GET_STATISICS_SINCE_PARAMETER to obtain the statistics for the last month */
+	public static final String GET_STATISTICS_LAST_MONTH = "month";
+	
+
 	/** the command for searching documents */
 	public static final String SEARCH_DOCUMENTS = "SRS_SEARCH_DOCUMENTS";
 
 	/**
-	 * the command for searching document metadata and relevance, plus essential
+	 * the command for searching document meta data and relevance, plus essential
 	 * details contributed by indexers
 	 */
 	public static final String SEARCH_DOCUMENT_DETAILS = "SRS_SEARCH_DOCUMENT_DETAILS";
 
 	/**
-	 * the command for searching document metadata, the relevance, the ID, the
+	 * the command for searching document meta data, the relevance, the ID, the
 	 * title, author, page number, and checkin user, but not the document itself
 	 */
 	public static final String SEARCH_DOCUMENT_DATA = "SRS_SEARCH_DOCUMENT_DATA";
@@ -289,13 +133,9 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 	/** the query parameter holding specific document IDs */
 	public static final String ID_QUERY_FIELD_NAME = "idQuery";
 
-//	/**
-//	 * the query parameter holding the ID of the index to obtain results from
-//	 * (the index to search for SEARCH_THESAURUS, the index to return results
-//	 * from for SEARCH_INDEX)
-//	 */
-//	public static final String INDEX_ID = "indexId";
-//
+	/** the query parameter holding specific document UUIDs */
+	public static final String UUID_QUERY_FIELD_NAME = "uuid";
+
 	/**
 	 * the query parameter holding the name of the index to obtain results from
 	 * (the index to search for SEARCH_THESAURUS, the index to return results
@@ -303,13 +143,6 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 	 */
 	public static final String INDEX_NAME = "indexName";
 	
-//	/**
-//	 * the query parameter holding (as a comma separated list) the IDs of the
-//	 * indices to obtain result details from (for SEARCH_DOCUMENT_DATA and
-//	 * SEARCH_INDEX)
-//	 */
-//	public static final String SUB_INDEX_ID = "subIndexId";
-//
 	/**
 	 * the query parameter holding (as a comma separated list) the names of the
 	 * indices to obtain result details from (for SEARCH_DOCUMENT_DATA and
@@ -373,81 +206,52 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 	 * This parameter has only an effect if the value if out of (0,1].
 	 */
 	public static final String MINIMUM_RELEVANCE_PARAMETER = "minRelevance";
-
-	/** the attribute or document property holding the name of a document */
-	public static final String DOCUMENT_NAME_ATTRIBUTE = "docName";
 	
-	/** the attribute holding the name of the user who uploaded a document */
-	public static final String CHECKIN_USER_ATTRIBUTE = "checkinUser";
-
-	/** the attribute holding the time when a document was uploaded */
-	public static final String CHECKIN_TIME_ATTRIBUTE = "checkinTime";
-
-	/** the attribute holding the name of the user who last updated a document */
-	public static final String UPDATE_USER_ATTRIBUTE = "updateUser";
-
-	/** the attribute holding the time when a document was last updated */
-	public static final String UPDATE_TIME_ATTRIBUTE = "updateTime";
-
-	/** the name of the XML element enclosing a group of search fields */
-	public static final String FIELDS_NODE_NAME = "fields";
-
-	/** the attribute holding the label for a group of search fields */
-	public static final String FIELDS_LABEL_ATTRIBUTE = "label";
+	
+	/** the name of the XML element enclosing all search field groups belonging to a GoldenGATE SRS */
+	public static final String SEARCH_FIELD_GROUPS_NODE_NAME = "searchFieldGroups";
 
 	/** the name of the XML element representing a search field */
 	public static final String FIELD_NODE_NAME = "field";
 
-	/** the attribute holding the name of a search field */
+	/** the attribute holding the name of a search field or group thereof */
 	public static final String FIELD_NAME_ATTRIBUTE = "name";
 
-	/** the attribute holding the label of a search field */
+	/** the attribute holding the label / nice name of a search field or group thereof */
 	public static final String FIELD_LABEL_ATTRIBUTE = "label";
 
+	/** the attribute holding the explanatory tooltip / title of a search field or group thereof */
+	public static final String FIELD_TOOLTIP_ATTRIBUTE = "tooltip";
+
 	/** the name of the XML element enclosing a group of search fields */
-	public static final String F_FIELD_GROUP_NODE_NAME = "fieldGroup";
+	public static final String SEARCH_FIELD_GROUP_NODE_NAME = "searchFieldGroup";
 
 	/** the name of the XML element representing a search field row */
-	public static final String F_FIELD_ROW_NODE_NAME = "fieldRow";
+	public static final String SEARCH_FIELD_ROW_NODE_NAME = "searchFieldRow";
 
 	/** the name of the XML element representing an individual search field */
-	public static final String F_FIELD_NODE_NAME = "field";
+	public static final String SEARCH_FIELD_NODE_NAME = "searchField";
 
 	/**
 	 * the name of the XML element representing an option in a select search
 	 * field
 	 */
-	public static final String F_OPTION_NODE_NAME = "option";
-
-//	/** the attribute holding the ID of a search field or search field group */
-//	public static final String F_INDEX_ID_ATTRIBUTE = "indexId";
-//
-	/** the attribute holding the name of a search field or search field group */
-	public static final String F_NAME_ATTRIBUTE = "name";
-
-	/**
-	 * the attribute holding the label for a search field group or row, or an
-	 * individual search field, or an option of a select field
-	 */
-	public static final String F_LABEL_ATTRIBUTE = "label";
+	public static final String SEARCH_FIELD_OPTION_NODE_NAME = "option";
 
 	/** the attribute holding the legend of a search field group */
-	public static final String F_LEGEND_ATTRIBUTE = "legend";
-
-	/** the attribute holding the legend of a search field group */
-	public static final String F_INDEX_ENTRY_LABEL_ATTRIBUTE = "indexEntryLabel";
+	public static final String FIELD_INDEX_ENTRY_LABEL_ATTRIBUTE = "indexEntryLabel";
 
 	/** the attribute holding the type of a search field */
-	public static final String F_TYPE_ATTRIBUTE = "type";
+	public static final String FIELD_TYPE_ATTRIBUTE = "type";
 
 	/** the attribute holding the size (in grid cells) of a search field */
-	public static final String F_SIZE_ATTRIBUTE = "size";
+	public static final String FIELD_SIZE_ATTRIBUTE = "size";
 
 	/**
 	 * the attribute holding the value of a search field, or an option of a
 	 * select field
 	 */
-	public static final String F_VALUE_ATTRIBUTE = "value";
+	public static final String FIELD_VALUE_ATTRIBUTE = "value";
 	
 	/**
 	 * Container for all of the search fields provided by a single indexer
@@ -459,19 +263,14 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		/** the name of the index this field group belongs to */
 		public final String indexName;
 
-		// /** the ID of the index this field group belongs to, namely the hash
-		// code of the indexer's class name */
-		// public final int indexId;
-//		private final int indexId;
-
 		/** the label (nice name) of the index this field group belongs to */
 		public final String label;
-
+		
 		/**
-		 * the legend of the field group, i.e. a brief textual explanation of
+		 * the tooltip of the field group, i.e. a brief textual explanation of
 		 * what the to search for with the fields of this group
 		 */
-		public final String legend;
+		public final String tooltip;
 
 		/**
 		 * the label (nice name) of the entries of the index this field group
@@ -481,16 +280,15 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		public final String indexEntryLabel;
 
 		/**
-		 * Constructor using the index name as the label, no index ID, and no
+		 * Constructor using the index name as the label, no tooltip, and no
 		 * entry label
 		 * @param indexName the name of the index this field group belongs to
-		 * @param legend the legend of the field group, i.e. a brief textual
+		 * @param tooltip the tooltip of the field group, i.e. a brief textual
 		 *            explanation of what the to search for with the fields of
 		 *            this group
 		 */
-		public SearchFieldGroup(String indexName, String legend) {
-//			this(indexName, 0, indexName, legend, null);
-			this(indexName, indexName, legend, null);
+		public SearchFieldGroup(String indexName, String tooltip) {
+			this(indexName, indexName, tooltip, null);
 		}
 
 		/**
@@ -498,13 +296,12 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param indexName the name of the index this field group belongs to
 		 * @param label the label (nice name) of the index this field group
 		 *            belongs to
-		 * @param legend the legend of the field group, i.e. a brief textual
+		 * @param tooltip the tooltip of the field group, i.e. a brief textual
 		 *            explanation of what the to search for with the fields of
 		 *            this group
 		 */
-		public SearchFieldGroup(String indexName, String label, String legend) {
-//			this(indexName, 0, label, legend, null);
-			this(indexName, label, legend, null);
+		public SearchFieldGroup(String indexName, String label, String tooltip) {
+			this(indexName, label, tooltip, null);
 		}
 
 		/**
@@ -512,42 +309,21 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param indexName the name of the index this field group belongs to
 		 * @param label the label (nice name) of the index this field group
 		 *            belongs to
-		 * @param legend the legend of the field group, i.e. a brief textual
+		 * @param tooltip the tooltip of the field group, i.e. a brief textual
 		 *            explanation of what the to search for with the fields of
 		 *            this group
 		 * @param entryLabel the label (nice name) of the entries of the index
 		 *            this field group belongs to (null indicates that the index
 		 *            entries cannot be the result of a search on their own)
 		 */
-		public SearchFieldGroup(String indexName, String label, String legend, String entryLabel) {
-//			this(indexName, 0, label, legend, entryLabel);
+		public SearchFieldGroup(String indexName, String label, String tooltip, String entryLabel) {
+			if ((indexName == null) || (indexName.trim().length() == 0))
+				throw new IllegalArgumentException("Invalid index name.");
 			this.indexName = indexName;
-			this.label = label;
-			this.legend = legend;
-			this.indexEntryLabel = entryLabel;
+			this.label = ((label == null) ? "" : label.trim());
+			this.tooltip = ((tooltip == null) ? "" : tooltip.trim());
+			this.indexEntryLabel = ((entryLabel == null) ? null : ((entryLabel.trim().length() == 0) ? null : entryLabel));
 		}
-		
-//		/**
-//		 * Constructor setting all properties sparately
-//		 * @param indexName the name of the index this field group belongs to
-//		 * @param indexId the ID of the index this field group belongs to,
-//		 *            namely the hash code of the indexer's class name
-//		 * @param label the label (nice name) of the index this field group
-//		 *            belongs to
-//		 * @param legend the legend of the field group, i.e. a brief textual
-//		 *            explanation of what the to search for with the fields of
-//		 *            this group
-//		 * @param entryLabel the label (nice name) of the entries of the index
-//		 *            this field group belongs to (null indicates that the index
-//		 *            entries cannot be the result of a search on their own)
-//		 */
-//		public SearchFieldGroup(String indexName, int indexId, String label, String legend, String entryLabel) {
-//			this.indexName = indexName;
-//			this.indexId = indexId;
-//			this.label = label;
-//			this.legend = legend;
-//			this.indexEntryLabel = entryLabel;
-//		}
 		
 		private ArrayList fieldRows = new ArrayList();
 		
@@ -615,10 +391,14 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 *         indexEntryLabel is null)
 		 */
 		public String getEntryLabelPlural() {
-			if (this.indexEntryLabel == null) return null;
-			else if (this.indexEntryLabel.endsWith("s") || this.indexEntryLabel.endsWith("x")) return this.indexEntryLabel;
-			else if (this.indexEntryLabel.matches("\\.+[aeiou]y")) return (this.indexEntryLabel + "s");
-			else if (this.indexEntryLabel.endsWith("y")) return (this.indexEntryLabel.substring(0, (this.indexEntryLabel.length() - 1)) + "ies");
+			if (this.indexEntryLabel == null)
+				return null;
+			else if (this.indexEntryLabel.endsWith("s") || this.indexEntryLabel.endsWith("x"))
+				return this.indexEntryLabel;
+			else if (this.indexEntryLabel.matches("\\.+[aeiou]y"))
+				return (this.indexEntryLabel + "s");
+			else if (this.indexEntryLabel.endsWith("y"))
+				return (this.indexEntryLabel.substring(0, (this.indexEntryLabel.length() - 1)) + "ies");
 			else return (this.indexEntryLabel + "s");
 		}
 
@@ -639,35 +419,30 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		public void writeXml(Writer w) throws IOException {
 			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
 			
-			if (this.getWidth() == 0) {
-				bw.write("<" + F_FIELD_GROUP_NODE_NAME + 
-						" " + F_NAME_ATTRIBUTE + "=\"" + this.indexName + "\"" +
-//						((this.indexId == 0) ? "" : (" " + F_INDEX_ID_ATTRIBUTE + "=\"" + this.indexId + "\"")) +
-						(((this.label == null) || (this.label.length() == 0)) ? "" : (" " + F_LABEL_ATTRIBUTE + "=\"" + this.label + "\"")) +
-						(((this.legend == null) || (this.legend.length() == 0)) ? "" : (" " + F_LEGEND_ATTRIBUTE + "=\"" + this.legend + "\"")) +
-						(((this.indexEntryLabel == null) || (this.indexEntryLabel.length() == 0)) ? "" : (" " + F_INDEX_ENTRY_LABEL_ATTRIBUTE + "=\"" + this.indexEntryLabel + "\"")) +
+			if (this.getWidth() == 0)
+				bw.write("<" + SEARCH_FIELD_GROUP_NODE_NAME + 
+						" " + FIELD_NAME_ATTRIBUTE + "=\"" + this.indexName + "\"" +
+						((this.label.length() == 0) ? "" : (" " + FIELD_LABEL_ATTRIBUTE + "=\"" + grammar.escape(this.label) + "\"")) +
+						((this.tooltip.length() == 0) ? "" : (" " + FIELD_TOOLTIP_ATTRIBUTE + "=\"" + grammar.escape(this.tooltip) + "\"")) +
+						((this.indexEntryLabel == null) ? "" : (" " + FIELD_INDEX_ENTRY_LABEL_ATTRIBUTE + "=\"" + grammar.escape(this.indexEntryLabel) + "\"")) +
 						"/>");
-				bw.newLine();
-				bw.flush();
-				
-			} else {
-				bw.write("<" + F_FIELD_GROUP_NODE_NAME + 
-						" " + F_NAME_ATTRIBUTE + "=\"" + this.indexName + "\"" +
-//						((this.indexId == 0) ? "" : (" " + F_INDEX_ID_ATTRIBUTE + "=\"" + this.indexId + "\"")) +
-						(((this.label == null) || (this.label.length() == 0)) ? "" : (" " + F_LABEL_ATTRIBUTE + "=\"" + this.label + "\"")) +
-						(((this.legend == null) || (this.legend.length() == 0)) ? "" : (" " + F_LEGEND_ATTRIBUTE + "=\"" + this.legend + "\"")) +
-						(((this.indexEntryLabel == null) || (this.indexEntryLabel.length() == 0)) ? "" : (" " + F_INDEX_ENTRY_LABEL_ATTRIBUTE + "=\"" + this.indexEntryLabel + "\"")) +
+			else {
+				bw.write("<" + SEARCH_FIELD_GROUP_NODE_NAME + 
+						" " + FIELD_NAME_ATTRIBUTE + "=\"" + this.indexName + "\"" +
+						((this.label.length() == 0) ? "" : (" " + FIELD_LABEL_ATTRIBUTE + "=\"" + grammar.escape(this.label) + "\"")) +
+						((this.tooltip.length() == 0) ? "" : (" " + FIELD_TOOLTIP_ATTRIBUTE + "=\"" + grammar.escape(this.tooltip) + "\"")) +
+						((this.indexEntryLabel == null) ? "" : (" " + FIELD_INDEX_ENTRY_LABEL_ATTRIBUTE + "=\"" + grammar.escape(this.indexEntryLabel) + "\"")) +
 						">");
 				bw.newLine();
-				
 				SearchFieldRow[] rows = this.getFieldRows();
 				for (int r = 0; r < rows.length; r++)
 					rows[r].writeXml(bw);
-				
-				bw.write("</" + F_FIELD_GROUP_NODE_NAME + ">");
-				bw.newLine();
-				bw.flush();
+				bw.write("</" + SEARCH_FIELD_GROUP_NODE_NAME + ">");
 			}
+			
+			bw.newLine();
+			if (w != bw)
+				bw.flush();
 		}
 		
 		/**
@@ -692,7 +467,7 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 */
 		public static SearchFieldGroup[] readFieldGroups(Reader r) throws IOException {
 			final ArrayList fieldGroups = new ArrayList();
-			fieldsParser.stream(r, new TokenReceiver() {
+			parser.stream(r, new TokenReceiver() {
 				
 				private SearchFieldGroup fieldGroup = null;
 				private SearchFieldRow fieldRow = null;
@@ -712,103 +487,69 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 					this.fieldGroup = null;
 				}
 				public void storeToken(String token, int treeDepth) throws IOException {
-					if (fieldsGrammar.isTag(token)) {
-						String tokenType = fieldsGrammar.getType(token); 
-						
-						if (F_FIELD_GROUP_NODE_NAME.equals(tokenType)) {
-							
-							if (fieldsGrammar.isEndTag(token)) {
-								if (this.fieldGroup != null) fieldGroups.add(this.fieldGroup);
-								this.fieldGroup = null;
-							}
-							else if (fieldsGrammar.isSingularTag(token)) {
-								TreeNodeAttributeSet tokenAttributes = TreeNodeAttributeSet.getTagAttributes(token, fieldsGrammar);
-								String indexName = tokenAttributes.getAttribute(F_NAME_ATTRIBUTE);
-								if (indexName != null) {
-//										int indexId = 0;
-//										try {
-//											indexId = Integer.parseInt(tokenAttributes.getAttribute(F_INDEX_ID_ATTRIBUTE, "0"));
-//										} catch (NumberFormatException e) {}
-									String label = tokenAttributes.getAttribute(F_LABEL_ATTRIBUTE, "");
-									String legend = tokenAttributes.getAttribute(F_LEGEND_ATTRIBUTE, "");
-									String entryLabel = tokenAttributes.getAttribute(F_INDEX_ENTRY_LABEL_ATTRIBUTE);
-//										fieldGroups.add(new SearchFieldGroup(indexName, indexId, label, legend, entryLabel));
-									fieldGroups.add(new SearchFieldGroup(indexName, label, legend, entryLabel));
-								}
-							}
-							else {
-								TreeNodeAttributeSet tokenAttributes = TreeNodeAttributeSet.getTagAttributes(token, fieldsGrammar);
-								String indexName = tokenAttributes.getAttribute(F_NAME_ATTRIBUTE);
-								if (indexName != null) {
-//										int indexId = 0;
-//										try {
-//											indexId = Integer.parseInt(tokenAttributes.getAttribute(F_INDEX_ID_ATTRIBUTE, "0"));
-//										} catch (NumberFormatException e) {}
-									String label = tokenAttributes.getAttribute(F_LABEL_ATTRIBUTE, "");
-									String legend = tokenAttributes.getAttribute(F_LEGEND_ATTRIBUTE, "");
-									String entryLabel = tokenAttributes.getAttribute(F_INDEX_ENTRY_LABEL_ATTRIBUTE);
-//										this.fieldGroup = new SearchFieldGroup(indexName, indexId, label, legend, entryLabel);
-									this.fieldGroup = new SearchFieldGroup(indexName, label, legend, entryLabel);
-								}
+					if (!grammar.isTag(token))
+						return;
+					
+					String tagType = grammar.getType(token); 
+					TreeNodeAttributeSet tagAttributes = (grammar.isEndTag(token) ? null : TreeNodeAttributeSet.getTagAttributes(token, grammar));
+					
+					if (SEARCH_FIELD_NODE_NAME.equals(tagType) && (this.fieldRow != null)) {
+						if (tagAttributes == null) {
+							if (this.field != null)
+								this.fieldRow.addField(this.field);
+							this.field = null;
+						}
+						else {
+							String name = tagAttributes.getAttribute(FIELD_NAME_ATTRIBUTE);
+							if (name != null) {
+								String label = tagAttributes.getAttribute(FIELD_LABEL_ATTRIBUTE, "");
+								String tooltip = tagAttributes.getAttribute(FIELD_TOOLTIP_ATTRIBUTE, "");
+								int size = 1;
+								try {
+									size = Integer.parseInt(tagAttributes.getAttribute(FIELD_SIZE_ATTRIBUTE, "1"));
+								} catch (NumberFormatException e) {}
+								String type = tagAttributes.getAttribute(FIELD_TYPE_ATTRIBUTE, SearchField.TEXT_TYPE);
+								String value = tagAttributes.getAttribute(FIELD_VALUE_ATTRIBUTE, "");
+								if (grammar.isSingularTag(token))
+									this.fieldRow.addField(new SearchField(name, label, tooltip, value, size, type));
+								else this.field = new SearchField(name, label, tooltip, value, size, type);
 							}
 						}
-						else if (F_FIELD_ROW_NODE_NAME.equals(tokenType)) {
-							
-							if (fieldsGrammar.isEndTag(token)) {
-								if ((this.fieldGroup != null) && (this.fieldRow != null)) this.fieldGroup.addFieldRow(this.fieldRow);
-								this.fieldRow = null;
-							}
-							else if (!fieldsGrammar.isSingularTag(token)) {
-								TreeNodeAttributeSet tokenAttributes = TreeNodeAttributeSet.getTagAttributes(token, fieldsGrammar);
-								this.fieldRow = new SearchFieldRow(tokenAttributes.getAttribute(F_LABEL_ATTRIBUTE, ""));
-							}
+					}
+					else if (SEARCH_FIELD_OPTION_NODE_NAME.equals(tagType) && (this.field != null) && (tagAttributes != null)) {
+						String value = tagAttributes.getAttribute(FIELD_VALUE_ATTRIBUTE);
+						if (value != null) {
+							String label = tagAttributes.getAttribute(FIELD_LABEL_ATTRIBUTE, value);
+							this.field.addOption(value, label);
 						}
-						else if (F_FIELD_NODE_NAME.equals(tokenType)) {
-							
-							if (fieldsGrammar.isEndTag(token)) {
-								if ((this.fieldRow != null) && (this.field != null)) this.fieldRow.addField(this.field);
-								this.field = null;
-							}
-							else if (fieldsGrammar.isSingularTag(token)) {
-								if (this.fieldRow != null) {
-									TreeNodeAttributeSet tokenAttributes = TreeNodeAttributeSet.getTagAttributes(token, fieldsGrammar);
-									String name = tokenAttributes.getAttribute(F_NAME_ATTRIBUTE);
-									if (name != null) {
-										String label = tokenAttributes.getAttribute(F_LABEL_ATTRIBUTE, "");
-										int size = 1;
-										try {
-											size = Integer.parseInt(tokenAttributes.getAttribute(F_SIZE_ATTRIBUTE, "1"));
-										} catch (NumberFormatException e) {}
-										String type = tokenAttributes.getAttribute(F_TYPE_ATTRIBUTE, SearchField.TEXT_TYPE);
-										String value = tokenAttributes.getAttribute(F_VALUE_ATTRIBUTE, "");
-										this.fieldRow.addField(new SearchField(name, label, value, size, type));
-									}
-								}
-							}
-							else {
-								TreeNodeAttributeSet tokenAttributes = TreeNodeAttributeSet.getTagAttributes(token, fieldsGrammar);
-								String name = tokenAttributes.getAttribute(F_NAME_ATTRIBUTE);
-								if (name != null) {
-									String label = tokenAttributes.getAttribute(F_LABEL_ATTRIBUTE, "");
-									int size = 1;
-									try {
-										size = Integer.parseInt(tokenAttributes.getAttribute(F_SIZE_ATTRIBUTE, "1"));
-									} catch (NumberFormatException e) {}
-									String type = tokenAttributes.getAttribute(F_TYPE_ATTRIBUTE, SearchField.TEXT_TYPE);
-									String value = tokenAttributes.getAttribute(F_VALUE_ATTRIBUTE, "");
-									this.field = new SearchField(name, label, value, size, type);
-								}
-							}
+					}
+					else if (SEARCH_FIELD_ROW_NODE_NAME.equals(tagType) && (this.fieldGroup != null)) {
+						if (tagAttributes == null) {
+							if (this.fieldRow != null)
+								this.fieldGroup.addFieldRow(this.fieldRow);
+							this.fieldRow = null;
 						}
-						else if (F_OPTION_NODE_NAME.equals(tokenType)) {
-							
-							if (!fieldsGrammar.isEndTag(token) && (this.field != null)) {
-								TreeNodeAttributeSet tokenAttributes = TreeNodeAttributeSet.getTagAttributes(token, fieldsGrammar);
-								String value = tokenAttributes.getAttribute(F_VALUE_ATTRIBUTE);
-								if (value != null) {
-									String label = tokenAttributes.getAttribute(F_LABEL_ATTRIBUTE, value);
-									this.field.addOption(label, value);
-								}
+						else if (!grammar.isSingularTag(token)) {
+							String label = tagAttributes.getAttribute(FIELD_LABEL_ATTRIBUTE, "");
+							String tooltip = tagAttributes.getAttribute(FIELD_TOOLTIP_ATTRIBUTE, "");
+							this.fieldRow = new SearchFieldRow(label, tooltip);
+						}
+					}
+					else if (SEARCH_FIELD_GROUP_NODE_NAME.equals(tagType)) {
+						if (tagAttributes == null) {
+							if (this.fieldGroup != null)
+								fieldGroups.add(this.fieldGroup);
+							this.fieldGroup = null;
+						}
+						else {
+							String indexName = tagAttributes.getAttribute(FIELD_NAME_ATTRIBUTE);
+							if (indexName != null) {
+								String label = tagAttributes.getAttribute(FIELD_LABEL_ATTRIBUTE, "");
+								String tooltip = tagAttributes.getAttribute(FIELD_TOOLTIP_ATTRIBUTE, "");
+								String entryLabel = tagAttributes.getAttribute(FIELD_INDEX_ENTRY_LABEL_ATTRIBUTE);
+								if (grammar.isSingularTag(token))
+									fieldGroups.add(new SearchFieldGroup(indexName, label, tooltip, entryLabel));
+								else this.fieldGroup = new SearchFieldGroup(indexName, label, tooltip, entryLabel);
 							}
 						}
 					}
@@ -818,8 +559,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 			return ((SearchFieldGroup[]) fieldGroups.toArray(new SearchFieldGroup[fieldGroups.size()]));
 		}
 		
-		private static final Grammar fieldsGrammar = new StandardGrammar();
-		private static final Parser fieldsParser = new Parser(fieldsGrammar);
+		static final Grammar grammar = new StandardGrammar();
+		static final Parser parser = new Parser(grammar);
 	}
 	
 	/**
@@ -834,29 +575,45 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 	 */
 	public static class SearchFieldRow {
 		
-		/**	the name of the index this field group belongs to */
+		/**	the label (nice name) of the field row */
 		public final String label;
+
+		/**
+		 * the tooltip of the field row, i.e. a brief textual explanation of
+		 * what the to search for with the fields of this row
+		 */
+		public final String tooltip;
 		
-		/** Constructor for an un-labelled field row (row label will be empty string)
+		/** Constructor for an un-labeled field row (row label will be empty string)
 		 */
 		public SearchFieldRow() {
-			this("");
+			this("", null);
 		}
 		
-		/** Constructor for a labelled field row
-		 * @param label
+		/** Constructor for a labeled field row
+		 * @param label the label (nice name) for the field row
 		 */
 		public SearchFieldRow(String label) {
-			this.label = ((label == null) ? "" : label);
+			this(label, null);
 		}
 		
+		/** Constructor for a labeled field row with a tooltip
+		 * @param label the label (nice name) for the field row
+		 * @param tooltip the tooltip (explanation text) for the field row
+		 */
+		public SearchFieldRow(String label, String tooltip) {
+			this.label = ((label == null) ? "" : label.trim());
+			this.tooltip = ((tooltip == null) ? "" : tooltip.trim());
+		}
+
 		private ArrayList fields = new ArrayList();
 		
 		/** add a search field to this field row
 		 * @param	field	the SearchField to add
 		 */
 		public void addField(SearchField field) {
-			if (field != null) this.fields.add(field);
+			if (field != null)
+				this.fields.add(field);
 		}
 		
 		/**	@return	the search fields of this field row
@@ -882,27 +639,26 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		public void writeXml(Writer w) throws IOException {
 			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
 			
-			if (this.getWidth() == 0) {
-				bw.write("<" + F_FIELD_ROW_NODE_NAME + 
-						(((this.label == null) || (this.label.length() == 0)) ? "" : (" " + F_LABEL_ATTRIBUTE + "=\"" + this.label + "\"")) +
+			if (this.getWidth() == 0)
+				bw.write("<" + SEARCH_FIELD_ROW_NODE_NAME + 
+						((this.label.length() == 0) ? "" : (" " + FIELD_LABEL_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.label) + "\"")) +
+						((this.tooltip.length() == 0) ? "" : (" " + FIELD_TOOLTIP_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.tooltip) + "\"")) +
 						"/>");
-				bw.newLine();
-				bw.flush();
-				
-			} else {
-				bw.write("<" + F_FIELD_ROW_NODE_NAME + 
-						(((this.label == null) || (this.label.length() == 0)) ? "" : (" " + F_LABEL_ATTRIBUTE + "=\"" + this.label + "\"")) +
+			else {
+				bw.write("<" + SEARCH_FIELD_ROW_NODE_NAME + 
+						((this.label.length() == 0) ? "" : (" " + FIELD_LABEL_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.label) + "\"")) +
+						((this.tooltip.length() == 0) ? "" : (" " + FIELD_TOOLTIP_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.tooltip) + "\"")) +
 						">");
 				bw.newLine();
-				
 				SearchField[] fields = this.getFields();
 				for (int f = 0; f < fields.length; f++)
 					fields[f].writeXml(bw);
-				
-				bw.write("</" + F_FIELD_ROW_NODE_NAME + ">");
-				bw.newLine();
-				bw.flush();
+				bw.write("</" + SEARCH_FIELD_ROW_NODE_NAME + ">");
 			}
+			
+			bw.newLine();
+			if (w != bw)
+				bw.flush();
 		}
 	}
 	
@@ -930,6 +686,12 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 
 		/** the label of the search field */
 		public final String label;
+
+		/**
+		 * the tooltip of the field, i.e. a brief textual explanation of
+		 * what the to search for with the field
+		 */
+		public final String tooltip;
 
 		/**
 		 * the value of the search field, in case of a boolean field any
@@ -960,8 +722,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param name
 		 * @param label
 		 */
-		public SearchField(String name, String label) {
-			this(name, label, "", 1, TEXT_TYPE);
+		public SearchField(String name, String label, String tooltip) {
+			this(name, label, tooltip, "", 1, TEXT_TYPE);
 		}
 
 		/**
@@ -970,8 +732,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param label
 		 * @param size
 		 */
-		public SearchField(String name, String label, int size) {
-			this(name, label, "", size, TEXT_TYPE);
+		public SearchField(String name, String label, String tooltip, int size) {
+			this(name, label, tooltip, "", size, TEXT_TYPE);
 		}
 
 		/**
@@ -981,8 +743,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param label
 		 * @param type
 		 */
-		public SearchField(String name, String label, String type) {
-			this(name, label, (BOOLEAN_TYPE.equals(type) ? ("" + true) : ""), 1, type);
+		public SearchField(String name, String label, String tooltip, String type) {
+			this(name, label, tooltip, (BOOLEAN_TYPE.equals(type) ? ("" + true) : ""), 1, type);
 		}
 
 		/**
@@ -993,8 +755,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param value
 		 * @param type
 		 */
-		public SearchField(String name, String label, String value, String type) {
-			this(name, label, value, 1, type);
+		public SearchField(String name, String label, String tooltip, String value, String type) {
+			this(name, label, tooltip, value, 1, type);
 		}
 
 		/**
@@ -1005,9 +767,12 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param size
 		 * @param type
 		 */
-		public SearchField(String name, String label, String value, int size, String type) {
+		public SearchField(String name, String label, String tooltip, String value, int size, String type) {
+			if ((name == null) || (name.trim().length() == 0))
+				throw new IllegalArgumentException("Invalid field name.");
 			this.name = name;
-			this.label = label;
+			this.label = ((label == null) ? "" : label.trim());
+			this.tooltip = ((tooltip == null) ? "" : tooltip.trim());
 			if (BOOLEAN_TYPE.equals(type)) {
 				this.size = 1;
 				this.type = type;
@@ -1017,12 +782,12 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 				this.size = ((size > 0) ? size : 1);
 				this.type = type;
 				this.options = new ArrayList();
-				this.value = value;
+				this.value = ((value == null) ? "" : value.trim());
 			}
 			else {
 				this.size = ((size > 0) ? size : 1);
 				this.type = TEXT_TYPE;
-				this.value = value;
+				this.value = ((value == null) ? "" : value.trim());
 			}
 		}
 		
@@ -1031,7 +796,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 *         otherwise
 		 */
 		public SearchFieldOption[] getOptions() {
-			if (this.options == null) return new SearchFieldOption[0];
+			if (this.options == null)
+				return new SearchFieldOption[0];
 			else return ((SearchFieldOption[]) this.options.toArray(new SearchFieldOption[this.options.size()]));
 		}
 
@@ -1040,7 +806,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param value
 		 */
 		public void addOption(String value) {
-			if (this.options != null) this.options.add(new SearchFieldOption(value));
+			if (this.options != null)
+				this.options.add(new SearchFieldOption(value));
 		}
 
 		/**
@@ -1048,10 +815,11 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 		 * @param label
 		 * @param value
 		 */
-		public void addOption(String label, String value) {
-			if (this.options != null) this.options.add(new SearchFieldOption(label, value));
+		public void addOption(String value, String label) {
+			if (this.options != null)
+				this.options.add(new SearchFieldOption(value, label));
 		}
-
+		
 		/**
 		 * write an XML description of this search field to a writer
 		 * @param w the writer to write to
@@ -1061,34 +829,33 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
 			SearchFieldOption[] options = this.getOptions();
 			
-			if (options.length == 0) {
-				bw.write("<" + F_FIELD_NODE_NAME + 
-						" " + F_NAME_ATTRIBUTE + "=\"" + this.name + "\"" +
-						(((this.label == null) || (this.label.length() == 0)) ? "" : (" " + F_LABEL_ATTRIBUTE + "=\"" + this.label + "\"")) +
-						(((this.value == null) || (this.value.length() == 0)) ? "" : (" " + F_VALUE_ATTRIBUTE + "=\"" + this.value + "\"")) +
-						((this.size == 1) ? "" : (" " + F_SIZE_ATTRIBUTE + "=\"" + this.size + "\"")) +
-						(BOOLEAN_TYPE.equals(this.type) ? (" " + F_TYPE_ATTRIBUTE + "=\"" + this.type + "\"") : "") + // write select field without options as text field
+			if ((options.length == 0) || !SELECT_TYPE.equals(this.type))
+				bw.write("<" + SEARCH_FIELD_NODE_NAME + 
+						" " + FIELD_NAME_ATTRIBUTE + "=\"" + this.name + "\"" +
+						((this.label.length() == 0) ? "" : (" " + FIELD_LABEL_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.label) + "\"")) +
+						((this.tooltip.length() == 0) ? "" : (" " + FIELD_TOOLTIP_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.tooltip) + "\"")) +
+						((this.value.length() == 0) ? "" : (" " + FIELD_VALUE_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.value) + "\"")) +
+						((this.size == 1) ? "" : (" " + FIELD_SIZE_ATTRIBUTE + "=\"" + this.size + "\"")) +
+						(BOOLEAN_TYPE.equals(this.type) ? (" " + FIELD_TYPE_ATTRIBUTE + "=\"" + this.type + "\"") : "") + // write select field without options as text field
 						"/>");
-				bw.newLine();
-				bw.flush();
-			}
 			else {
-				bw.write("<" + F_FIELD_NODE_NAME + 
-						" " + F_NAME_ATTRIBUTE + "=\"" + this.name + "\"" +
-						(((this.label == null) || (this.label.length() == 0)) ? "" : (" " + F_LABEL_ATTRIBUTE + "=\"" + this.label + "\"")) +
-						(((this.value == null) || (this.value.length() == 0)) ? "" : (" " + F_VALUE_ATTRIBUTE + "=\"" + this.value + "\"")) +
-						((this.size == 1) ? "" : (" " + F_SIZE_ATTRIBUTE + "=\"" + this.size + "\"")) +
-						" " + F_TYPE_ATTRIBUTE + "=\"" + SELECT_TYPE + "\"" +
+				bw.write("<" + SEARCH_FIELD_NODE_NAME + 
+						" " + FIELD_NAME_ATTRIBUTE + "=\"" + this.name + "\"" +
+						((this.label.length() == 0) ? "" : (" " + FIELD_LABEL_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.label) + "\"")) +
+						((this.tooltip.length() == 0) ? "" : (" " + FIELD_TOOLTIP_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.tooltip) + "\"")) +
+						((this.value.length() == 0) ? "" : (" " + FIELD_VALUE_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.value) + "\"")) +
+						((this.size == 1) ? "" : (" " + FIELD_SIZE_ATTRIBUTE + "=\"" + this.size + "\"")) +
+						(" " + FIELD_TYPE_ATTRIBUTE + "=\"" + this.type + "\"") + 
 						">");
 				bw.newLine();
-				
 				for (int o = 0; o < options.length; o++)
 					options[o].writeXml(bw);
-				
-				bw.write("</" + F_FIELD_NODE_NAME + ">");
-				bw.newLine();
-				bw.flush();
+				bw.write("</" + SEARCH_FIELD_NODE_NAME + ">");
 			}
+			
+			bw.newLine();
+			if (w != bw)
+				bw.flush();
 		}
 	}
 	
@@ -1099,41 +866,41 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 	 */
 	public static class SearchFieldOption {
 		
-		/**	the label of the option */
-		public final String label;
-		
 		/**	the value of the option */
 		public final String value;
+		
+		/**	the label of the option */
+		public final String label;
 
 		/** Constructor using value as label
 		 * @param value
 		 */
-		public SearchFieldOption(String value) {
-			this(value, value);
+		SearchFieldOption(String value) {
+			this(value, null);
 		}
 		
 		/** Constructor with custom label
-		 * @param label
 		 * @param value
+		 * @param label
 		 */
-		public SearchFieldOption(String label, String value) {
-			this.label = label;
+		SearchFieldOption(String value, String label) {
 			this.value = value;
+			this.label = ((label == null) ? value : label.trim());
 		}
 		
 		/**	write an XML description of this search field option to a writer
 		 * @param	out		the writer to write to
 		 * @throws IOException
 		 */
-		public void writeXml(Writer out) throws IOException {
-			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
-			
-			bw.write("<" + F_OPTION_NODE_NAME + 
-					" " + F_LABEL_ATTRIBUTE + "=\"" + this.label + "\"" +
-					" " + F_VALUE_ATTRIBUTE + "=\"" + this.value + "\"" +
+		public void writeXml(Writer w) throws IOException {
+			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
+			bw.write("<" + SEARCH_FIELD_OPTION_NODE_NAME + 
+					" " + FIELD_LABEL_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.label) + "\"" +
+					" " + FIELD_VALUE_ATTRIBUTE + "=\"" + SearchFieldGroup.grammar.escape(this.value) + "\"" +
 					"/>");
 			bw.newLine();
-			bw.flush();
+			if (w != bw)
+				bw.flush();
 		}
 	}
 	
@@ -1151,6 +918,20 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 
 	/** the attribute holding the relevance of a search result */
 	public static final String RELEVANCE_ATTRIBUTE = "relevance";
+
+	/**
+	 * The attribute holding the UUID of a retrievable document. This attribute
+	 * is designed to hold externally issued UUIDs of documents. ID resolution
+	 * works against both document ID and document UUID.
+	 */
+	public static final String DOCUMENT_UUID_ATTRIBUTE = "docUuid";
+
+	/**
+	 * The attribute holding the source of a UUID attached to a retrievable
+	 * document. This attribute is designed to hold the source of externally
+	 * issued UUIDs of documents.
+	 */
+	public static final String DOCUMENT_UUID_SOURCE_ATTRIBUTE = "docUuidSource";
 
 	/**
 	 * the attribute holding the ID of the master document a retrievable
@@ -1178,7 +959,7 @@ public interface GoldenGateSrsConstants extends GoldenGateServerConstants, Liter
 
 	/**
 	 * the name for the attribute holding the title of the master document a
-	 * retrievablw document was split from
+	 * retrievable document was split from
 	 */
 	public static final String MASTER_DOCUMENT_TITLE_ATTRIBUTE = "masterDocTitle";
 

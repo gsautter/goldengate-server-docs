@@ -615,7 +615,7 @@ public interface SearchPortalConstants extends GoldenGateSrsConstants {
 		
 		/**
 		 * Get the JavaScript commands to execute when the portal main page is
-		 * loaded ('onload' attribute of the html body tag). This default
+		 * loaded ('onload' listener of the HTML body tag). This default
 		 * implementation returns an empty array, sub classes are welcome to
 		 * overwrite it as needed.
 		 * @return the JavaScript commands to execute when the portal main page
@@ -627,7 +627,7 @@ public interface SearchPortalConstants extends GoldenGateSrsConstants {
 		
 		/**
 		 * Get the JavaScript commands to execute when the portal main page is
-		 * unloaded ('onunload' attribute of the html body tag). This default
+		 * unloaded ('onunload' listener of the HTML body tag). This default
 		 * implementation returns an empty array, sub classes are welcome to
 		 * overwrite it as needed.
 		 * @return the JavaScript commands to execute when the portal main page
@@ -640,9 +640,10 @@ public interface SearchPortalConstants extends GoldenGateSrsConstants {
 		/**
 		 * Obtain links for an individual Annotation. This method is used by
 		 * search portal layouts when writing document lists, result indexes,
-		 * and the body of individual documents. This default implementation
-		 * returns an empty array, sub classes are welcome to overwrite it as
-		 * needed.
+		 * and the body of individual documents. In case of the former two, the
+		 * argument will always be an index result element, and only in the
+		 * latter case a plain annotation. This default implementation returns
+		 * an empty array, sub classes are welcome to overwrite it as needed.
 		 * @param annotation the Annotation to link
 		 * @return a Link object representing the content of the link to add for
 		 *         the specified Annotation
@@ -654,11 +655,12 @@ public interface SearchPortalConstants extends GoldenGateSrsConstants {
 		/**
 		 * Obtain combined links for a set of annotations. This method is used
 		 * by search portal layouts when writing document lists or result
-		 * indexes. This default implementation returns an empty array, sub
-		 * classes are welcome to overwrite it as needed.
-		 * @param annotations the Annotations to link
-		 * @return a Link object representing the content of the combined link
-		 *         to add for the specified Annotations
+		 * indexes. The runtime class for the argument array's elements thus
+		 * always is <code>IndexResultElement</code>. This default
+		 * implementation returns an empty array, sub classes are welcome to
+		 * overwrite it as needed.
+		 * @param annotations the annotations to link
+		 * @return an array holding the links for the argument annotations
 		 */
 		public SearchResultLink[] getAnnotationSetLinks(Annotation[] annotations) {
 			return new SearchResultLink[0];
@@ -670,21 +672,19 @@ public interface SearchPortalConstants extends GoldenGateSrsConstants {
 		 * default implementation returns an empty array, sub classes are
 		 * welcome to overwrite it as needed.
 		 * @param doc the search result document to link
-		 * @return a Link object representing the content of the link to add for
-		 *         the specified document
+		 * @return an array holding the links for the argument document
 		 */
 		public SearchResultLink[] getDocumentLinks(MutableAnnotation doc) {
 			return new SearchResultLink[0];
 		}
 		
 		/**
-		 * Obtain links for a search result as a whole. This method is used by
-		 * search portal layouts when writing document lists. This default
-		 * implementation returns an empty array, sub classes are welcome to
-		 * overwrite it as needed.
+		 * Obtain links for a multi document search result as a whole. This
+		 * method is used by search portal layouts when writing document lists.
+		 * This default implementation returns an empty array, sub classes are
+		 * welcome to overwrite it as needed.
 		 * @param docs the search result documents to link
-		 * @return a Link object representing the content of the link to add for
-		 *         the specified documents
+		 * @return an array holding the links for the argument documents
 		 */
 		public SearchResultLink[] getSearchResultLinks(MutableAnnotation[] docs) {
 			return new SearchResultLink[0];

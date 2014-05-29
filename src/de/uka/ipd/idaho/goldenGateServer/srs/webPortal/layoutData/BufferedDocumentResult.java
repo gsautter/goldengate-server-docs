@@ -72,26 +72,19 @@ public class BufferedDocumentResult extends BufferedResult {
 	}
 	
 	static class BufferedDocumentResultElement extends DocumentResultElement {
-		
 		private BufferedIndexResult[] subResults;
-		
 		BufferedDocumentResultElement(DocumentResultElement dre) {
 			super(dre.docNr, dre.documentId, dre.relevance, dre.document);
 			this.copyAttributes(dre);
 			IndexResult[] subResults = dre.getSubResults();
-			System.out.println("BufferedDRE: got " + subResults.length + " sub results");
 			this.subResults = new BufferedIndexResult[subResults.length];
 			for (int s = 0; s < subResults.length; s++)
 				this.subResults[s] = new BufferedIndexResult(subResults[s]);
 		}
-		
-		/* (non-Javadoc)
-		 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResultElement#getSubResults()
-		 */
 		public IndexResult[] getSubResults() {
 			IndexResult[] subResults = new IndexResult[this.subResults.length];
 			for (int s = 0; s < this.subResults.length; s++)
-				subResults[s] = this.subResults[s].getIndexResult();
+				subResults[s] = this.subResults[s].getIndexResult(BufferedDocumentResultElement.this);
 			return subResults;
 		}
 	}

@@ -132,7 +132,7 @@ public abstract class BufferedResult {
 	}
 	
 	/**
-	 * Check whethere the buffered result is empty. This is the case if (a)
+	 * Check whether the buffered result is empty. This is the case if (a)
 	 * there are no elements in the buffer and (b) the backing result's
 	 * hasNextElement() method returns false.
 	 * @return true if the buffered result is empty, false otherwise

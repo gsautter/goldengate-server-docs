@@ -81,10 +81,22 @@ public class BufferedIndexResult extends BufferedResult {
 		};
 	}
 	
+	IndexResult getIndexResult(final IndexResultElement parent) {
+		final SrsSearchResult result = this.getResult();
+		return new IndexResult(result.resultAttributes, this.data.indexName, this.data.indexLabel) {
+			public boolean hasNextElement() {
+				return result.hasNextElement();
+			}
+			public SrsSearchResultElement getNextElement() {
+				IndexResultElement next = ((IndexResultElement) result.getNextElement());
+				next.setParent(parent);
+				return next;
+			}
+		};
+	}
+	
 	static class BufferedIndexResultElement extends IndexResultElement {
-		
 		private BufferedIndexResult[] subResults;
-		
 		BufferedIndexResultElement(IndexResultElement ire) {
 			super(ire.docNr, ire.getType(), ire.getValue());
 			this.copyAttributes(ire);
@@ -93,14 +105,10 @@ public class BufferedIndexResult extends BufferedResult {
 			for (int s = 0; s < subResults.length; s++)
 				this.subResults[s] = new BufferedIndexResult(subResults[s]);
 		}
-		
-		/* (non-Javadoc)
-		 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResultElement#getSubResults()
-		 */
 		public IndexResult[] getSubResults() {
 			IndexResult[] subResults = new IndexResult[this.subResults.length];
 			for (int s = 0; s < this.subResults.length; s++)
-				subResults[s] = this.subResults[s].getIndexResult();
+				subResults[s] = this.subResults[s].getIndexResult(BufferedIndexResultElement.this);
 			return subResults;
 		}
 	}

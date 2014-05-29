@@ -10,7 +10,7 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universität Karlsruhe (TH) / KIT nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
@@ -28,30 +28,12 @@
 package de.uka.ipd.idaho.goldenGateServer.srs;
 
 
-import de.uka.ipd.idaho.gamta.QueriableAnnotation;
-
 /**
- * Storage filters check if documents as a whole, or parts that have been split
- * from them, are suitable for being stored in the SRS document collection. This
- * may, for instance, be XML schema validation.
- * 
  * @author sautter
- * 
  */
-public interface StorageFilter extends GoldenGateSrsPlugin {
-	
-	/**	check if a document is suitable for being stored in the SRS archive
-	 * @param	doc		the document to check
-	 * @return an error messages, or null, if the document is OK
-	 * Note: if this method writes class or instance fields, it should be synchronized 
+public abstract class AbstractDocumentUuidFetcher extends AbstractGoldenGateSrsPlugin implements DocumentUuidFetcher {
+	/*
+	 * This class does not implement any abstract methods, but exists to
+	 * provide a convenient means of implementing a UUID fetcher.
 	 */
-	public abstract String filter(QueriableAnnotation doc);
-	
-	/**	from an array of documents (result of splitting) pick the ones suitable for being stored in the collection
-	 * @param	parts	the documents to filter
-	 * @param	doc		the master document the parts belong to
-	 * @return an array holding the parts that pass the filter
-	 * Note: if this method writes class or instance fields, it should be synchronized 
-	 */
-	public abstract QueriableAnnotation[] filter(QueriableAnnotation[] parts, QueriableAnnotation doc);
 }

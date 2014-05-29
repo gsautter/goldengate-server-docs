@@ -196,9 +196,13 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 					xsltUrls = ((xsltUrlString == null) ? null : xsltUrlString.trim().split("\\s++"));
 				}
 				
-				if (docId == null) docId = fullPath.get(1);
+				if (docId == null)
+					docId = fullPath.get(1);
 			}
 		}
+		
+		//	remove dashes from UUIDs
+		docId = docId.replaceAll("\\-", "").toUpperCase();
 		
 		//	set response content type (must be done before obtaining writer)
 		response.setContentType("text/xml; charset=" + ENCODING);

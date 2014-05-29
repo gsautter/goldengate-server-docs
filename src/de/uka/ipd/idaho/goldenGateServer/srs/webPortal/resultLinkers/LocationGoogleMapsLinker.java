@@ -47,6 +47,12 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  */
 public class LocationGoogleMapsLinker extends SearchResultLinker implements LocationConstants {
 	
+	/*	TODO build custom version of this, specialized to materials citations, distinguishing:
+	 * - coordinates from document vs. geo-referenced
+	 * - type status
+	 * - specimen count
+	*/
+	
 	private static final String[] unloadCalls = {
 		"closeGoogleMap();"
 	};

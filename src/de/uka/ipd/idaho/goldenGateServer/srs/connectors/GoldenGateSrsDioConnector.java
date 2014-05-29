@@ -84,15 +84,16 @@ public class GoldenGateSrsDioConnector extends AbstractGoldenGateServerComponent
 		//	check success
 		if (this.srs == null) throw new RuntimeException(GoldenGateSRS.class.getName());
 		
-		//	establich connection
+		//	establish connection
 		this.dio.addDocumentEventListener(new DioDocumentEventListener() {
+			
 			/* (non-Javadoc)
 			 * @see de.uka.ipd.idaho.goldenGateServer.dio.DioDocumentStorageListener#documentCheckedOut(de.uka.ipd.idaho.goldenGateServer.dst.DocumentStorageEvent)
 			 */
 			public void documentCheckedOut(DioDocumentEvent dse) {}
 			
 			/* (non-Javadoc)
-			 * @see de.goldenGateScf.dss.notification.DocumentStorageListener#documentUpdated(de.goldenGateScf.dss.notification.DocumentStorageEvent)
+			 * @see de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener#documentUpdated(de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent)
 			 */
 			public void documentUpdated(final DioDocumentEvent dse) {
 				if (dse.sourceClassName.equals(GoldenGateDIO.class.getName()))
@@ -110,7 +111,7 @@ public class GoldenGateSrsDioConnector extends AbstractGoldenGateServerComponent
 			}
 			
 			/* (non-Javadoc)
-			 * @see de.goldenGateScf.dss.notification.DocumentStorageListener#documentDeleted(de.goldenGateScf.dss.notification.DocumentStorageEvent)
+			 * @see de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener#documentDeleted(de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent)
 			 */
 			public void documentDeleted(final DioDocumentEvent dse) {
 				if (dse.sourceClassName.equals(GoldenGateDIO.class.getName()))

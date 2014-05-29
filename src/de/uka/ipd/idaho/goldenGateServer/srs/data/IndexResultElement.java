@@ -28,8 +28,10 @@
 package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
@@ -62,16 +64,18 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	private TokenSequence data;
 	
 	/** the document number this index entry refers to */
-	public final int docNr;
+	public final long docNr;
 	
-	private ArrayList subResults = new ArrayList();
+	private List subResults = null;
+	
+	private IndexResultElement parent = null;
 	
 	/** Constructor
 	 * @param	docNr	the document number this index entry refers to
 	 * @param	type	the type of the index entry
 	 * @param	data	the value of the index entry
 	 */
-	public IndexResultElement(int docNr, String type, String data) {
+	public IndexResultElement(long docNr, String type, String data) {
 		this.docNr = docNr;
 		this.type = type;
 		this.data = Gamta.INNER_PUNCTUATION_TOKENIZER.tokenize(data);
@@ -85,16 +89,16 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	}
 	
 	private String produceIdString() {
-		StringBuffer idStringAssembler = new StringBuffer(this.getValue());
+		StringBuffer idString = new StringBuffer(this.getValue());
 		String[] attributeNames = this.getAttributeNames();
 		Arrays.sort(attributeNames);
 		for (int a = 0; a < attributeNames.length; a++) {
+			idString.append(" ");
 			Object attributeValue = this.getAttribute(attributeNames[a]);
-			if (attributeValue == null)
-				idStringAssembler.append(" ");
-			else idStringAssembler.append(" " + attributeValue.toString());
+			if (attributeValue != null)
+				idString.append(attributeValue.toString());
 		}
-		return idStringAssembler.toString();
+		return idString.toString();
 	}
 	
 	/* (non-Javadoc)
@@ -142,6 +146,8 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	 * @param subResult the subordinate result to add
 	 */
 	public void addSubResult(IndexResult subResult) {
+		if (this.subResults == null)
+			this.subResults = new LinkedList();
 		this.subResults.add(subResult);
 	}
 	
@@ -151,7 +157,45 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	 *         no subordinate result
 	 */
 	public IndexResult[] getSubResults() {
-		return ((IndexResult[]) this.subResults.toArray(new IndexResult[this.subResults.size()]));
+		if (this.subResults == null)
+			return new IndexResult[0];
+		IndexResult[] subIrs = new IndexResult[this.subResults.size()];
+		int subIrIndex = 0;
+		for (Iterator srit = this.subResults.iterator(); srit.hasNext();) {
+			final IndexResult subIr = ((IndexResult) srit.next());
+			subIrs[subIrIndex++] = new IndexResult(subIr.resultAttributes, subIr.indexName, subIr.indexLabel) {
+				public boolean hasNextElement() {
+					return subIr.hasNextElement();
+				}
+				public SrsSearchResultElement getNextElement() {
+					IndexResultElement next = subIr.getNextIndexResultElement();
+					next.parent = IndexResultElement.this;
+					return next;
+				}
+			};
+		}
+		return subIrs;
+	}
+	
+	/**
+	 * Retrieve the parent index result element. If this index result element
+	 * belongs to a top level result rather than a sub result, this method
+	 * returns null. Otherwise, it returns the index result element to whose
+	 * sub result this index result element belongs.
+	 * @return the parent index result element
+	 */
+	public IndexResultElement getParent() {
+		return this.parent;
+	}
+	
+	/**
+	 * Set the parent element for index result elements that belong to a sub
+	 * result. This method only exists to facilitate deep copying, not for use
+	 * in client code.
+	 * @param parent the parent index result element
+	 */
+	public void setParent(IndexResultElement parent) {
+		this.parent = parent;
 	}
 	
 	/* (non-Javadoc)

@@ -38,6 +38,7 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResultElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.SrsSearchResultElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResultElement;
+import de.uka.ipd.idaho.stringUtils.StringUtils;
 
 /**
  * Convenience implementation of the indexer interface, leaving only the purpose
@@ -47,25 +48,18 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResultElement;
  */
 public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implements Indexer {
 	
-//	/**
-//	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getId()
-//	 */
-//	public String getId() {
-//		return ("" + this.getClass().getName().hashCode());
-//	}
-//
 	/**
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#markEssentialDetails(de.uka.ipd.idaho.gamta.MutableAnnotation)
 	 */
 	public void markEssentialDetails(MutableAnnotation doc) {
-		// do nothing by defaul
+		// do nothing by default
 	}
 
 	/**
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#markSearchables(de.uka.ipd.idaho.gamta.MutableAnnotation)
 	 */
 	public void markSearchables(MutableAnnotation doc) {
-		//	do nothing by defaul
+		//	do nothing by default
 	}
 	
 	/** @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#addSearchAttributes(de.uka.ipd.idaho.gamta.Annotation[])
@@ -83,7 +77,6 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 	 *         fieldName
 	 */
 	protected String getFullFieldName(String fieldName) {
-//		String prefix = this.getId() + ".";
 		String prefix = this.getIndexName() + ".";
 		return (fieldName.startsWith(prefix) ? fieldName : (prefix + fieldName));
 	}
@@ -95,44 +88,51 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 	 *         with the first letter converted to upper case
 	 */
 	protected String getFieldLabel(String fieldName) {
-		return Character.toUpperCase(fieldName.charAt(0)) + fieldName.substring(1);
+		return (Character.toUpperCase(fieldName.charAt(0)) + fieldName.substring(1));
 	}
 
 	/**
-	 * obtain the search field group for this indexer, using fully qualified
+	 * Obtain the search field group for this indexer, using fully qualified
 	 * field names, i.e. field names prefixed with the index name
 	 * @return a search field group describing the search fields for this index,
 	 *         plus their alignment in rows
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getSearchFieldGroup()
 	 */
 	public SearchFieldGroup getSearchFieldGroup() {
-//		int id = this.getClass().getName().hashCode();
-//		String idPrefix = (id + ".");
 		String name = this.getIndexName();
 		String namePrefix = (name + ".");
 		
 		SearchFieldGroup fieldGroup = this.getFieldGroup();
-//		SearchFieldGroup qualifiedFieldGroup = new SearchFieldGroup(fieldGroup.indexName, id, fieldGroup.label, fieldGroup.legend, fieldGroup.indexEntryLabel);
-		SearchFieldGroup qualifiedFieldGroup = new SearchFieldGroup(this.getIndexName(), fieldGroup.label, fieldGroup.legend, fieldGroup.indexEntryLabel);
+//		SearchFieldGroup qualifiedFieldGroup = new SearchFieldGroup(this.getIndexName(), fieldGroup.label, fieldGroup.legend, fieldGroup.indexEntryLabel);
+		SearchFieldGroup qualifiedFieldGroup = new SearchFieldGroup(this.getIndexName(), fieldGroup.label, fieldGroup.tooltip, fieldGroup.indexEntryLabel);
 		
 		SearchFieldRow[] fieldRows = fieldGroup.getFieldRows();
 		for (int r = 0; r < fieldRows.length; r++) {
-			SearchFieldRow qualifiedFieldRow = new SearchFieldRow(fieldRows[r].label);
+//			SearchFieldRow qualifiedFieldRow = new SearchFieldRow(fieldRows[r].label);
+			SearchFieldRow qualifiedFieldRow = new SearchFieldRow(fieldRows[r].label, fieldRows[r].tooltip);
 			
 			SearchField[] fields = fieldRows[r].getFields();
 			for (int f = 0; f < fields.length; f++) {
+//				SearchField qualifiedField = new SearchField(
+//							(fields[f].name.startsWith(namePrefix) ? fields[f].name : (namePrefix + fields[f].name)),
+//							fields[f].label,
+//							fields[f].value,
+//							fields[f].size,
+//							fields[f].type
+//						);
 				SearchField qualifiedField = new SearchField(
-							(fields[f].name.startsWith(namePrefix) ? fields[f].name : (namePrefix + fields[f].name)),
-							fields[f].label,
-							fields[f].value,
-							fields[f].size,
-							fields[f].type
-						);
+						(fields[f].name.startsWith(namePrefix) ? fields[f].name : (namePrefix + fields[f].name)),
+						fields[f].label,
+						fields[f].tooltip,
+						fields[f].value,
+						fields[f].size,
+						fields[f].type
+					);
 				
 				if (SearchField.SELECT_TYPE.equals(qualifiedField.type)) {
 					SearchFieldOption[] fieldOptions = fields[f].getOptions();
 					for (int o = 0; o < fieldOptions.length; o++)
-						qualifiedField.addOption(fieldOptions[o].label, fieldOptions[o].value);
+						qualifiedField.addOption(fieldOptions[o].value, fieldOptions[o].label);
 				}
 				
 				qualifiedFieldRow.addField(qualifiedField);
@@ -149,16 +149,7 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 	 *         plus their alignment in rows
 	 */
 	protected abstract SearchFieldGroup getFieldGroup();
-//
-//	/**
-//	 * Note: this default implementation does nothing by default, sub classes
-//	 * are welcome to overwrite it as needed
-//	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#addDocumentListExtensions(de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentList)
-//	 */
-//	public String[] addDocumentListExtensions(DocumentList docList) {
-//		return null;
-//	}
-
+	
 	/**
 	 * replace a language specific special characters in a string with their
 	 * US-ASCII base forms
@@ -167,95 +158,23 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 	 */
 	public static String prepareSearchString(String string) {
 		StringBuffer sb = new StringBuffer();
-		for (int c = 0; c < string.length(); c++) {
-			String s = string.substring(c, (c+1));
-			sb.append(charNormalizationMappings.getProperty(s, s));
-		}
+		for (int c = 0; c < string.length(); c++)
+			sb.append(charNormalizationMappings.getProperty(string.substring(c, (c+1)), StringUtils.getNormalForm(string.charAt(c))));
 		return sb.toString();
 	}
 	private static Properties charNormalizationMappings = new Properties();
 	static {
-		charNormalizationMappings.setProperty("À","A");
-		charNormalizationMappings.setProperty("Á","A");
-		charNormalizationMappings.setProperty("Â","A");
-		charNormalizationMappings.setProperty("Ã","A");
-		charNormalizationMappings.setProperty("Ä","Ae");
-		charNormalizationMappings.setProperty("Å","A");
-		charNormalizationMappings.setProperty("Æ","Ae");
-		
-		charNormalizationMappings.setProperty("Ç","C");
-		
-		charNormalizationMappings.setProperty("È","E");
-		charNormalizationMappings.setProperty("É","E");
-		charNormalizationMappings.setProperty("Ê","E");
-		charNormalizationMappings.setProperty("Ë","E");
-		
-		charNormalizationMappings.setProperty("Ì","I");
-		charNormalizationMappings.setProperty("Í","I");
-		charNormalizationMappings.setProperty("Î","I");
-		charNormalizationMappings.setProperty("Ï","I");
-		
-		charNormalizationMappings.setProperty("Ñ","N");
-		
-		charNormalizationMappings.setProperty("Ò","O");
-		charNormalizationMappings.setProperty("Ó","O");
-		charNormalizationMappings.setProperty("Ô","O");
-		charNormalizationMappings.setProperty("Õ","O");
-		charNormalizationMappings.setProperty("Ö","Oe");
-		charNormalizationMappings.setProperty("Œ","Oe");
-		charNormalizationMappings.setProperty("Ø","O");
-		
-		charNormalizationMappings.setProperty("Ù","U");
-		charNormalizationMappings.setProperty("Ú","U");
-		charNormalizationMappings.setProperty("Û","U");
-		charNormalizationMappings.setProperty("Ü","Ue");
-		
-		charNormalizationMappings.setProperty("Ý","Y");
-		
-		charNormalizationMappings.setProperty("à","a");
-		charNormalizationMappings.setProperty("á","a");
-		charNormalizationMappings.setProperty("â","a");
-		charNormalizationMappings.setProperty("ã","a");
-		charNormalizationMappings.setProperty("ä","ae");
-		charNormalizationMappings.setProperty("å","a");
-		charNormalizationMappings.setProperty("æ","ae");
-		
-		charNormalizationMappings.setProperty("ç","c");
-		
-		charNormalizationMappings.setProperty("è","e");
-		charNormalizationMappings.setProperty("é","e");
-		charNormalizationMappings.setProperty("ê","e");
-		charNormalizationMappings.setProperty("ë","e");
-		
-		charNormalizationMappings.setProperty("ì","i");
-		charNormalizationMappings.setProperty("í","i");
-		charNormalizationMappings.setProperty("î","i");
-		charNormalizationMappings.setProperty("ï","i");
-		
-		charNormalizationMappings.setProperty("ñ","n");
-		
-		charNormalizationMappings.setProperty("ò","o");
-		charNormalizationMappings.setProperty("ó","o");
-		charNormalizationMappings.setProperty("ô","o");
-		charNormalizationMappings.setProperty("õ","o");
-		charNormalizationMappings.setProperty("ö","oe");
-		charNormalizationMappings.setProperty("œ","oe");
-		charNormalizationMappings.setProperty("ø","o");
-		
-		charNormalizationMappings.setProperty("ù","u");
-		charNormalizationMappings.setProperty("ú","u");
-		charNormalizationMappings.setProperty("û","u");
-		charNormalizationMappings.setProperty("ü","ue");
-		
-		charNormalizationMappings.setProperty("ý","y");
-		charNormalizationMappings.setProperty("ÿ","y");
-		
 		charNormalizationMappings.setProperty("ß","ss");
-		
 		charNormalizationMappings.setProperty("–","-");
 		charNormalizationMappings.setProperty("—","-");
+		charNormalizationMappings.setProperty("\u2010","-");
+		charNormalizationMappings.setProperty("\u2011","-");
+		charNormalizationMappings.setProperty("\u2012","-");
+		charNormalizationMappings.setProperty("\u2013","-");
+		charNormalizationMappings.setProperty("\u2014","-");
+		charNormalizationMappings.setProperty("\u2015","-");
+		charNormalizationMappings.setProperty("\u2212","-");
 	}
-	
 	
 	/**
 	 * SQL database backed implementation of an index result, useful for
@@ -325,7 +244,7 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 		/**
 		 * Create an index result element from the data of a tupel in the
 		 * backing SqlQueryResult. The size of the array and the content and
-		 * order of the contained strings is directly dependend on the
+		 * order of the contained strings is directly dependent on the
 		 * SqlQueryResult handed to the constructor. This implementation expects
 		 * that the result attributes handed to the constructor correspond to
 		 * the second through last columns of the SqlQueryResult handed to the
@@ -333,18 +252,19 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 		 * column of the SqlQueryResult handed to the constructor, and the
 		 * column to use as the entries' value is the second column. If the data
 		 * does not meet these conditions for any reason, sub classes have to
-		 * overwrite this method in order to handele the data appropriately.
+		 * overwrite this method in order to handle the data appropriately.
 		 * @param elementData the data to decode
 		 * @return an index result element created from the specified data
 		 */
 		protected IndexResultElement decodeResultElement(String[] elementData) {
-			IndexResultElement ire = new IndexResultElement(Integer.parseInt(elementData[0]), this.entryType, ((elementData[1] == null) ? "" : elementData[1]));
+			IndexResultElement ire = new IndexResultElement(Long.parseLong(elementData[0]), this.entryType, ((elementData[1] == null) ? "" : elementData[1]));
 			if (elementData[1] != null)
 				ire.setAttribute(this.resultAttributes[0], elementData[1]);
 			
-			for (int a = 1; a < this.resultAttributes.length; a++)
+			for (int a = 1; a < this.resultAttributes.length; a++) {
 				if (elementData[a + 1] != null)
 					ire.setAttribute(this.resultAttributes[a], elementData[a + 1]);
+			}
 			
 			return ire;
 		}
@@ -397,12 +317,12 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 		/**
 		 * Create a thesaurus result element from the data of a tupel in the
 		 * backing SqlQueryResult. The size of the array and the content and
-		 * order of the contained strings is directly dependend on the
+		 * order of the contained strings is directly dependent on the
 		 * SqlQueryResult handed to the constructor. This implementation expects
 		 * that the result attributes handed to the constructor correspond to
 		 * the columns of the SqlQueryResult handed to the constructor. If the
 		 * data does not meet this condition for any reason, sub classes have to
-		 * overwrite this method in order to handele the data appropriately.
+		 * overwrite this method in order to handle the data appropriately.
 		 * @param elementData the data to decode
 		 * @return a thesaurus result element created from the specified data
 		 */

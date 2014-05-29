@@ -34,18 +34,30 @@ package de.uka.ipd.idaho.goldenGateServer.srs;
  * TODO document this class
  */
 public class QueryResultElement {
+//	
+//	/** the SRS internal number of the result document */
+//	public final int docNr;
 	
 	/** the SRS internal number of the result document */
-	public final int docNr;
+	public final long docNr;
 	
 	/** the relevance of the result document */
 	public final double relevance;
+//	
+//	/**	Constructor
+//	 * @param	docNr		the SRS internal number of the result document
+//	 * @param	relevance	the relevance of the result document
+//	 */
+//	public QueryResultElement(int docNr, double relevance) {
+//		this.docNr = docNr;
+//		this.relevance = relevance;
+//	}
 	
 	/**	Constructor
 	 * @param	docNr		the SRS internal number of the result document
 	 * @param	relevance	the relevance of the result document
 	 */
-	public QueryResultElement(int docNr, double relevance) {
+	public QueryResultElement(long docNr, double relevance) {
 		this.docNr = docNr;
 		this.relevance = relevance;
 	}

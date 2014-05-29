@@ -54,16 +54,37 @@ public abstract class CollectionStatistics extends SrsSearchResult {
 	/**	the total number of words in the document collection */
 	public final int wordCount;
 	
+	/** the timestamp since the time relative statistics are counted (as a numeric UTC timestamp or relative time string constant) */
+	public final String since;
+	
+	/**	the number of master documents in the document collection since a given time */
+	public final int masterDocCountSince;
+	
+	/**	the number of individually retrievable text units in the document collection since a given time */
+	public final int docCountSince;
+	
+	/**	the total number of words in the document collection since a given time */
+	public final int wordCountSince;
+	
 	/** Constructor
-	 * @param statisticsFieldNames
+	 * @param resultAttributes
+	 * @param masterDocCount
 	 * @param docCount
 	 * @param wordCount
+	 * @param since
+	 * @param masterDocCountSince
+	 * @param docCountSince
+	 * @param wordCountSince
 	 */
-	public CollectionStatistics(String[] statisticsFieldNames, int masterDocCount, int docCount, int wordCount) {
+	public CollectionStatistics(String[] statisticsFieldNames, int masterDocCount, int docCount, int wordCount, String since, int masterDocCountSince, int docCountSince, int wordCountSince) {
 		super(statisticsFieldNames);
 		this.masterDocCount = masterDocCount;
 		this.docCount = docCount;
 		this.wordCount = wordCount;
+		this.since = since;
+		this.masterDocCountSince = masterDocCountSince;
+		this.docCountSince = docCountSince;
+		this.wordCountSince = wordCountSince;
 	}
 	
 	/* (non-Javadoc)
@@ -105,6 +126,10 @@ public abstract class CollectionStatistics extends SrsSearchResult {
 			this.startTagAttributes.setProperty(MASTER_DOCUMENT_COUNT_ATTRIBUTE, ("" + this.masterDocCount));
 			this.startTagAttributes.setProperty(DOCUMENT_COUNT_ATTRIBUTE, ("" + this.docCount));
 			this.startTagAttributes.setProperty(WORD_COUNT_ATTRIBUTE, ("" + this.wordCount));
+			this.startTagAttributes.setProperty(GET_STATISTICS_SINCE_PARAMETER, this.since);
+			this.startTagAttributes.setProperty(MASTER_DOCUMENT_COUNT_SINCE_ATTRIBUTE, ("" + this.masterDocCountSince));
+			this.startTagAttributes.setProperty(DOCUMENT_COUNT_SINCE_ATTRIBUTE, ("" + this.docCountSince));
+			this.startTagAttributes.setProperty(WORD_COUNT_SINCE_ATTRIBUTE, ("" + this.wordCountSince));
 		}
 		return this.startTagAttributes;
 	}
@@ -174,7 +199,11 @@ public abstract class CollectionStatistics extends SrsSearchResult {
 			int masterDocCount = Integer.parseInt(attributes.getProperty(MASTER_DOCUMENT_COUNT_ATTRIBUTE, "0"));
 			int docCount = Integer.parseInt(attributes.getProperty(DOCUMENT_COUNT_ATTRIBUTE, "0"));
 			int wordCount = Integer.parseInt(attributes.getProperty(WORD_COUNT_ATTRIBUTE, "0"));
-			return new CollectionStatistics(resultAttributes, masterDocCount, docCount, wordCount) {
+			String since = attributes.getProperty(GET_STATISTICS_SINCE_PARAMETER, "-1");
+			int masterDocCountSince = Integer.parseInt(attributes.getProperty(MASTER_DOCUMENT_COUNT_SINCE_ATTRIBUTE, "0"));
+			int docCountSince = Integer.parseInt(attributes.getProperty(DOCUMENT_COUNT_SINCE_ATTRIBUTE, "0"));
+			int wordCountSince = Integer.parseInt(attributes.getProperty(WORD_COUNT_SINCE_ATTRIBUTE, "0"));
+			return new CollectionStatistics(resultAttributes, masterDocCount, docCount, wordCount, since, masterDocCountSince, docCountSince, wordCountSince) {
 				public boolean hasNextElement() {
 					return CollectionStatisticsBuilder.this.hasNextElement();
 				}

@@ -42,7 +42,14 @@ public class QueryResult {
 	
 	private static final Comparator idSortOrder = new Comparator() {
 		public int compare(Object o1, Object o2) {
-			return ((QueryResultElement) o1).docNr - ((QueryResultElement) o2).docNr;
+//			return ((QueryResultElement) o1).docNr - ((QueryResultElement) o2).docNr;
+			long docNr1 = ((QueryResultElement) o1).docNr;
+			long docNr2 = ((QueryResultElement) o2).docNr;
+			if (docNr1 == docNr2)
+				return 0;
+			else if (docNr1 < docNr2)
+				return -1;
+			else return 1;
 		}
 	};
 	
@@ -93,7 +100,8 @@ public class QueryResult {
 		this.maxSize = ((maxSize > 0) ? maxSize : 0);
 	}
 	
-	/**	add a QueryResultElement to this QueryResult
+	/**
+	 * Add a QueryResultElement to this QueryResult
 	 * 	Attention: if a maximum size was specified and the new QueryResultElement causes this QueryResult's size to exceed this limit, the least relevant QueryResultElement will be pruned
 	 */
 	public void addResultElement(QueryResultElement qre) {
@@ -108,7 +116,7 @@ public class QueryResult {
 			//	find the appropriate index ...
 			while (!done && (index > 0) && (index < this.elements.size())) {
 				
-				//	get relevance values of ResultElements directly neighboured to the current index position
+				//	get relevance values of ResultElements directly neighbored to the current index position
 				double before = ((QueryResultElement) this.elements.get(index-1)).relevance;
 				double after = ((QueryResultElement) this.elements.get(index)).relevance;
 				
@@ -143,10 +151,11 @@ public class QueryResult {
 		else this.elements.addElement(qre);
 		
 		//	ensure that the size limit is not exceeded
-		if ((this.maxSize > 0) && (this.elements.size() > this.maxSize)) this.removeLeastRelevantElement();
+		if ((this.maxSize > 0) && (this.elements.size() > this.maxSize))
+			this.removeLeastRelevantElement();
 	}
 	
-	/**	@return	the index-th QueryResultElement of this QueryResult, or null if the specifed index exceeds the number of contained ResultElements
+	/**	@return	the index-th QueryResultElement of this QueryResult, or null if the specified index exceeds the number of contained ResultElements
 	 */
 	public QueryResultElement getResult(int index) {
 		if ((index > -1) && (index < this.elements.size()))
@@ -169,7 +178,8 @@ public class QueryResult {
 		return res;
 	}
 	
-	/**	prune all ResultElements that's relevance is less than the specified threshold
+	/**
+	 * Prune all ResultElements that's relevance is less than the specified threshold.
 	 */
 	public void pruneByRelevance(double threshold) {
 		if ((threshold > 0) && (threshold <= 1)) {
@@ -182,7 +192,8 @@ public class QueryResult {
 		}
 	}
 	
-	/**	keep the sizeThreshold most relevant ResultElements of this QueryResult, prune the rest
+	/**
+	 * Keep the sizeThreshold most relevant ResultElements of this QueryResult, prune the rest.
 	 * @param	sizeThreshold	the size threshold
 	 */
 	public void pruneToSize(int sizeThreshold) {
@@ -202,38 +213,55 @@ public class QueryResult {
 		}
 	}
 	
-	/**	sort this QueryResult's ResultElements by their relevance
+	/**	
+	 * Sort this QueryResult's ResultElements by their relevance.
 	 * @param	descending	if set to true, the ResultElements will be sorted in descending order, ascending order otherwise
 	 */
 	public void sortByRelevance(boolean descending) {
+		if (this.isSortedByRelevance && (this.isSortedDescending == descending))
+			return;
 		
-		//	check if there's something to do
-		if (!this.isSortedByRelevance || (this.isSortedDescending != descending)) {
-			Collections.sort(this.elements, (descending ? Collections.reverseOrder(relevanceSortOrder) : relevanceSortOrder));
-			
-			this.isSortedByRelevance = true;
-			this.isSortedByID = false;
-			this.isSortedDescending = descending;
-		}
+		Collections.sort(this.elements, (descending ? Collections.reverseOrder(relevanceSortOrder) : relevanceSortOrder));
+		
+		this.isSortedByRelevance = true;
+		this.isSortedByID = false;
+		this.isSortedDescending = descending;
+//		//	check if there's something to do
+//		if (!this.isSortedByRelevance || (this.isSortedDescending != descending)) {
+//			Collections.sort(this.elements, (descending ? Collections.reverseOrder(relevanceSortOrder) : relevanceSortOrder));
+//			
+//			this.isSortedByRelevance = true;
+//			this.isSortedByID = false;
+//			this.isSortedDescending = descending;
+//		}
 	}
 	
-	/**	sort this QueryResult's ResultElements by the ID of the documents they represent
+	/**	
+	 * Sort this QueryResult's ResultElements by the ID of the documents they represent.
 	 * @param	descending	if set to true, the ResultElements will be sorted in descending order, ascending order otherwise
 	 * This method is intended to be used before joining or merging two QueryResults
 	 */
 	public void sortByID(boolean descending) {
+		if (this.isSortedByID && (this.isSortedDescending == descending))
+			return;
 		
-		//	check if there's something to do
-		if (!this.isSortedByID || (this.isSortedDescending != descending)) {
-			Collections.sort(this.elements, (descending ? Collections.reverseOrder(idSortOrder) : idSortOrder));
-			
-			this.isSortedByID = true;
-			this.isSortedByRelevance = false;
-			this.isSortedDescending = descending;
-		}
+		Collections.sort(this.elements, (descending ? Collections.reverseOrder(idSortOrder) : idSortOrder));
+		
+		this.isSortedByID = true;
+		this.isSortedByRelevance = false;
+		this.isSortedDescending = descending;
+//		//	check if there's something to do
+//		if (!this.isSortedByID || (this.isSortedDescending != descending)) {
+//			Collections.sort(this.elements, (descending ? Collections.reverseOrder(idSortOrder) : idSortOrder));
+//			
+//			this.isSortedByID = true;
+//			this.isSortedByRelevance = false;
+//			this.isSortedDescending = descending;
+//		}
 	}
 	
-	/** merge a QueryResult with this one
+	/**
+	 * Merge a QueryResult with this one.
 	 * @param 	qr						the QueryResult to be merged with this one
 	 * @param 	relevanceCombination	the mode to combine relevance values
 	 * @param 	maxSize					the maximum size of the result
@@ -243,7 +271,8 @@ public class QueryResult {
 		return merge(this, qr, relevanceCombination, maxSize);
 	}
 	
-	/** join a QueryResult with this one
+	/**
+	 * Join a QueryResult with this one.
 	 * @param 	qr						the QueryResult to be joined with this one
 	 * @param 	relevanceCombination	the mode to combine relevance values
 	 * @param 	maxSize					the maximum size of the result
@@ -345,7 +374,8 @@ public class QueryResult {
 			}
 			
 			//	... and remove it
-			if (minRelevanceIndex != -1) this.elements.removeElementAt(minRelevanceIndex);
+			if (minRelevanceIndex != -1)
+				this.elements.removeElementAt(minRelevanceIndex);
 		}
 	}
 	
@@ -361,7 +391,8 @@ public class QueryResult {
 		return ret.toString();
 	}
 	
-	/**	join two query result, keeping only the elements contained in both of them
+	/**
+	 * Merge two query result, keeping only the elements contained in both of them.
 	 * @param 	queryResult1			the first QueryResult to be merged
 	 * @param 	queryResult2			the second QueryResult to be merged
 	 * @param 	relevanceCombination	the mode to combine the relevance values
@@ -371,9 +402,12 @@ public class QueryResult {
 	public static QueryResult merge(QueryResult queryResult1, QueryResult queryResult2, int relevanceCombination, int maxSize) {
 		
 		//	check parameters
-		if ((queryResult1 == null) && (queryResult2 == null)) return null;
-		if (queryResult1 == null) return queryResult2;
-		if (queryResult2 == null) return queryResult1;
+		if ((queryResult1 == null) && (queryResult2 == null))
+			return null;
+		if (queryResult1 == null)
+			return queryResult2;
+		if (queryResult2 == null)
+			return queryResult1;
 		
 		//	produce result
 		QueryResult result = new QueryResult(maxSize, (queryResult2.keepSorted || queryResult1.keepSorted));
@@ -384,16 +418,24 @@ public class QueryResult {
 		
 		//	check if merge computation necessary
 		if (queryResult1.size() == 0) {
-			if (relevanceCombination == USE_MIN) return queryResult1;
-			else if (relevanceCombination == MULTIPLY) return queryResult1;
-			else if (relevanceCombination == USE_MAX) return queryResult2;
-			else if (relevanceCombination == INVERSE_MULTIPLY) return queryResult2;
+			if (relevanceCombination == USE_MIN)
+				return queryResult1;
+			else if (relevanceCombination == MULTIPLY)
+				return queryResult1;
+			else if (relevanceCombination == USE_MAX)
+				return queryResult2;
+			else if (relevanceCombination == INVERSE_MULTIPLY)
+				return queryResult2;
 		}
 		if (queryResult2.size() == 0) {
-			if (relevanceCombination == USE_MIN) return queryResult2;
-			else if (relevanceCombination == MULTIPLY) return queryResult2;
-			else if (relevanceCombination == USE_MAX) return queryResult1;
-			else if (relevanceCombination == INVERSE_MULTIPLY) return queryResult1;
+			if (relevanceCombination == USE_MIN)
+				return queryResult2;
+			else if (relevanceCombination == MULTIPLY)
+				return queryResult2;
+			else if (relevanceCombination == USE_MAX)
+				return queryResult1;
+			else if (relevanceCombination == INVERSE_MULTIPLY)
+				return queryResult1;
 		}
 		
 		//	get contant arrays
@@ -408,7 +450,8 @@ public class QueryResult {
 		int index2 = 0;
 		
 		while ((index1 < qre1.length) || (index2 < qre2.length)) {
-			int c;
+//			int c;
+			long c;
 			if ((index1 < qre1.length) && (index2 < qre2.length))
 				c = qre1[index1].docNr - qre2[index2].docNr;
 			else if (index1 < qre1.length)
@@ -454,7 +497,8 @@ public class QueryResult {
 		return 0;
 	}
 	
-	/**	join two query result, keeping only the elements contained in both of them
+	/**
+	 * Join two query result, keeping only the elements contained in both of them.
 	 * @param 	queryResult1			the first QueryResult to be joined
 	 * @param 	queryResult2			the second QueryResult to be joined
 	 * @param 	relevanceCombination	the mode to combine the relevance values
@@ -463,9 +507,12 @@ public class QueryResult {
 	 */
 	public static QueryResult join(QueryResult queryResult1, QueryResult queryResult2, int relevanceCombination, int maxSize) {
 		
-		if ((queryResult1 == null) && (queryResult2 == null)) return null;
-		if (queryResult1 == null) return new QueryResult(maxSize, (queryResult2.keepSorted));
-		if (queryResult2 == null) return new QueryResult(maxSize, (queryResult1.keepSorted));
+		if ((queryResult1 == null) && (queryResult2 == null))
+			return null;
+		if (queryResult1 == null)
+			return new QueryResult(maxSize, (queryResult2.keepSorted));
+		if (queryResult2 == null)
+			return new QueryResult(maxSize, (queryResult1.keepSorted));
 		
 		QueryResult result = new QueryResult(maxSize, (queryResult2.keepSorted || queryResult1.keepSorted));
 		result.mergeCount = queryResult1.mergeCount + queryResult2.mergeCount;
@@ -480,7 +527,8 @@ public class QueryResult {
 		int index2 = 0;
 		
 		while ((index1 < qre1.length) && (index2 < qre2.length)) {
-			int c = qre1[index1].docNr - qre2[index2].docNr;
+//			int c = qre1[index1].docNr - qre2[index2].docNr;
+			long c = qre1[index1].docNr - qre2[index2].docNr;
 			
 			//	ResultElements with matching IDs, join them
 			if (c == 0) {

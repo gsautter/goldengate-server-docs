@@ -41,13 +41,14 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Stack;
@@ -201,12 +202,12 @@ public class XsltSearchPortalLayout extends SearchPortalLayout {
 			
 			//	extract annotation types that are referenced in stylesheet templates
 			this.documentResultElements = getUsedElementNames(new FileInputStream(new File(this.dataPath, "document.xslt")), true);
-			if (this.documentResultElements.contains("*"))
-				this.documentResultElements = new HashSet() {
-					public boolean contains(Object obj) {
-						return true;
-					}
-				};
+//			if (this.documentResultElements.contains("*"))
+//				this.documentResultElements = new HashSet() {
+//					public boolean contains(Object obj) {
+//						return true;
+//					}
+//				};
 		}
 		catch (Exception e) {
 			this.documentTransformer = null;
@@ -274,8 +275,15 @@ xsl:with-param select="expression"
 	private static final Grammar xmlGrammar = new StandardGrammar();
 	private static final Parser xmlParser = new Parser(xmlGrammar);
 	private static final Pattern qNamePattern = Pattern.compile("(((([a-zA-Z][a-zA-Z0-9\\_\\-]+)|\\*)\\:)?[a-zA-Z\\_\\-][a-zA-Z0-9\\_\\-]+\\*?)", Pattern.CASE_INSENSITIVE);
-	private static final Set getUsedElementNames(InputStream in, boolean close) throws IOException {
-		final Set usedElementNames = new HashSet();
+	private static class AnnotationTagFilterSet extends HashSet {
+		final HashSet include = new HashSet();
+		final HashSet exclude = new HashSet();
+		public boolean contains(Object obj) {
+			return (this.include.contains(obj) || (this.include.contains("*") && !this.exclude.contains(obj)));
+		}
+	}
+	private static final AnnotationTagFilterSet getUsedElementNames(InputStream in, boolean close) throws IOException {
+		final AnnotationTagFilterSet usedElementNames = new AnnotationTagFilterSet();
 		xmlParser.stream(in, new TokenReceiver() {
 			public void storeToken(String token, int treeDepth) throws IOException {
 				if (xmlGrammar.isTag(token)) {
@@ -295,10 +303,17 @@ xsl:with-param select="expression"
 							String qName = qNameMatcher.group(0);
 							if (((qNameMatcher.start(0) != 0) && ("@'\"".indexOf(expressionAttributeValue.charAt(qNameMatcher.start(0)-1)) != -1)) || ((qNameMatcher.end(0) < expressionAttributeValue.length()) && (("('\"".indexOf(expressionAttributeValue.charAt(qNameMatcher.end(0))) != -1) || expressionAttributeValue.startsWith("::", qNameMatcher.end(0)))))
 								return;
-							usedElementNames.add(qName.toLowerCase());
+							usedElementNames.include.add(qName.toLowerCase());
 							if (qName.indexOf('*') != -1)
-								usedElementNames.add("*");
+								usedElementNames.include.add("*");
 						}
+					}
+				}
+				else if (xmlGrammar.isComment(token)) {
+					token = token.substring(xmlGrammar.getCommentStartMarker().length(), (token.length() - xmlGrammar.getCommentEndMarker().length())).trim();
+					if (token.startsWith("IGNORE_INPUT_ELEMENTS:")) {
+						String[] ignoreElementNames = token.substring("IGNORE_INPUT_ELEMENTS:".length()).trim().split("\\s+");
+						usedElementNames.exclude.add(Arrays.asList(ignoreElementNames));
 					}
 				}
 			}
@@ -308,6 +323,40 @@ xsl:with-param select="expression"
 			in.close();
 		return usedElementNames;
 	}
+//	private static final Set getUsedElementNames(InputStream in, boolean close) throws IOException {
+//		final Set usedElementNames = new HashSet();
+//		xmlParser.stream(in, new TokenReceiver() {
+//			public void storeToken(String token, int treeDepth) throws IOException {
+//				if (xmlGrammar.isTag(token)) {
+//					if (xmlGrammar.isEndTag(token))
+//						return;
+//					String type = xmlGrammar.getType(token).toLowerCase();
+//					if (type.startsWith("xsl:")) {
+//						String expressionAttributeName = expressionAttributeNames.getProperty(type);
+//						if (expressionAttributeName == null)
+//							return;
+//						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, xmlGrammar);
+//						String expressionAttributeValue = tnas.getAttribute(expressionAttributeName);
+//						if (expressionAttributeValue == null)
+//							return;
+//						Matcher qNameMatcher = qNamePattern.matcher(expressionAttributeValue);
+//						while (qNameMatcher.find()) {
+//							String qName = qNameMatcher.group(0);
+//							if (((qNameMatcher.start(0) != 0) && ("@'\"".indexOf(expressionAttributeValue.charAt(qNameMatcher.start(0)-1)) != -1)) || ((qNameMatcher.end(0) < expressionAttributeValue.length()) && (("('\"".indexOf(expressionAttributeValue.charAt(qNameMatcher.end(0))) != -1) || expressionAttributeValue.startsWith("::", qNameMatcher.end(0)))))
+//								return;
+//							usedElementNames.add(qName.toLowerCase());
+//							if (qName.indexOf('*') != -1)
+//								usedElementNames.add("*");
+//						}
+//					}
+//				}
+//			}
+//			public void close() throws IOException {}
+//		});
+//		if (close)
+//			in.close();
+//		return usedElementNames;
+//	}
 	
 	private Set documentResultElements = null;
 	private Transformer documentResultTransformer = null;
@@ -365,7 +414,7 @@ xsl:with-param select="expression"
 		if (transformer == null)
 			throw transformerError;
 		
-		final ArrayList exceptions = new ArrayList();
+		final List exceptions = new LinkedList();
 		
 		//	wrap token receiver to decode XML entities in attribute values
 		final TokenReceiver unescapingTrWrapper = new TokenReceiver() {
@@ -555,7 +604,8 @@ xsl:with-param select="expression"
 				// open fieldset and write field group legend
 				tr.storeToken("<fieldset>", 0);
 				tr.storeToken("<legend>", 0);
-				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+//				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
 				tr.storeToken("</legend>", 0);
 				
 				//	open table for field group
@@ -596,7 +646,7 @@ xsl:with-param select="expression"
 						String fieldId = ("input" + fields[f].name.replaceAll("\\.", ""));
 						
 						//	add label
-						tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\">"), 0);
+						tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						tr.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
 						tr.storeToken("</label>", 0);
 						
@@ -605,24 +655,24 @@ xsl:with-param select="expression"
 						
 						//	write actual field
 						if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + ">"), 0);
+							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + "" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
-							tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\">"), 0);
+							tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 							
 							String preSelected = fieldValues.getProperty(fields[f].name);
 							if (preSelected == null) preSelected = fields[f].value;
 							
 							SearchFieldOption[] fieldOptions = fields[f].getOptions();
 							for (int o = 0; o < fieldOptions.length; o++) {
-								tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"true\"" : "") + ">"), 0);
+								tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"selected\"" : "") + ">"), 0);
 								tr.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
 								tr.storeToken("</option>", 0);
 							}
 							
 							tr.storeToken("</select>", 0);
 						}
-						else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
+						else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						//	close table cell
 						tr.storeToken("</td>", 0);
@@ -688,7 +738,7 @@ xsl:with-param select="expression"
 				
 				//	write actual field
 				if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-					tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + ">"), 0);
+					tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + ">"), 0);
 				
 				else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
 					tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\">"), 0);
@@ -698,7 +748,7 @@ xsl:with-param select="expression"
 					
 					SearchFieldOption[] fieldOptions = fields[f].getOptions();
 					for (int o = 0; o < fieldOptions.length; o++) {
-						tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"true\"" : "") + ">"), 0);
+						tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"selected\"" : "") + ">"), 0);
 						tr.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
 						tr.storeToken("</option>", 0);
 					}
@@ -809,14 +859,14 @@ xsl:with-param select="expression"
 	}
 	
 	private void writeDocumentList(BufferedDocumentResult documents, BufferedWriter out, String moreResultsLink) throws IOException {
-		ArrayList dreList = new ArrayList();
+		List dreList = new LinkedList();
 		for (DocumentResult dr = documents.getDocumentResult(); dr.hasNextElement();)
 			dreList.add(dr.getNextDocumentResultElement());
 		DocumentResultElement[] dres = ((DocumentResultElement[]) dreList.toArray(new DocumentResultElement[dreList.size()]));
 		HashMap dreSubResultByDre = new HashMap();
 		
 		//	add result level links to external sources
-		ArrayList resultLinks = new ArrayList();
+		List resultLinks = new LinkedList();
 		
 		//	get and sort result links
 		SearchResultLinker[] linkers = this.parent.getResultLinkers();
@@ -827,46 +877,44 @@ xsl:with-param select="expression"
 					if ((links[k] != null) && ((links[k].href != null) || (links[k].onclick != null)))
 						resultLinks.add(links[k]);
 				}
-			}
-			catch (Exception e) {
-				System.out.println("Exception adding external link (" + linkers[l].getName() + "): " + e.getClass().getName() + " - " + e.getMessage());
-				e.printStackTrace(System.out);
-			}
+		}
+		catch (Exception e) {
+			System.out.println("Exception adding external link (" + linkers[l].getName() + "): " + e.getClass().getName() + " - " + e.getMessage());
+			e.printStackTrace(System.out);
+		}
 		
-		//	get sub results
+		//	buffer sub results
 		for (int d = 0; d < dres.length; d++) {
 			IndexResult[] subResults = dres[d].getSubResults();
 			BufferedIndexResult[] dreSubResults = new BufferedIndexResult[subResults.length];
-			dreSubResultByDre.put(dres[d], dreSubResults);
 			for (int s = 0; s < subResults.length; s++) {
 				dreSubResults[s] = new BufferedIndexResult(subResults[s]);
 				dreSubResults[s].sort();
 			}
+			dreSubResultByDre.put(dres[d], dreSubResults);
 		}
 		
 		//	collect links for individual annotations and collect sub results by type
 		HashMap resultElementLinksByAnnotationId = new HashMap();
 		HashMap subIresByType = new LinkedHashMap();
 		for (int d = 0; d < dres.length; d++) {
-			ArrayList dreLinks = new ArrayList();
+			List dreLinks = new LinkedList();
+			
+			//	links for element
 			for (int l = 0; l < linkers.length; l++) try {
-				
-				//	link for element
 				SearchResultLink[] links = linkers[l].getAnnotationLinks(dres[d]);
 				if (links != null)
 					for (int k = 0; k < links.length; k++) {
-						if ((links[k] != null) && ((links[k].href != null) || (links[k].onclick != null))) {
-							if (links[k].iconUrl != null) dreLinks.add(links[k]);
-							else if (links[k].label != null) dreLinks.add(links[k]);
-						}
+						if ((links[k] != null) && ((links[k].href != null) || (links[k].onclick != null)) && ((links[k].iconUrl != null) || (links[k].label != null)))
+							dreLinks.add(links[k]);
 					}
-				}
-				catch (Exception ex) {
-					System.out.println("Exception adding external link (" + linkers[l].getName() + "): " + ex.getClass().getName() + " - " + ex.getMessage());
-					ex.printStackTrace(System.out);
-				}
+			}
+			catch (Exception ex) {
+				System.out.println("Exception adding external link (" + linkers[l].getName() + "): " + ex.getClass().getName() + " - " + ex.getMessage());
+				ex.printStackTrace(System.out);
+			}
 			
-			//	link for sub results
+			//	links for sub results
 			BufferedIndexResult[] dreSubResults = ((BufferedIndexResult[]) dreSubResultByDre.get(dres[d]));
 			for (int s = 0; (dreSubResults != null) && (s < dreSubResults.length); s++) {
 				IndexResult subIr = dreSubResults[s].getIndexResult();
@@ -875,13 +923,13 @@ xsl:with-param select="expression"
 				if (subIr.hasNextElement()) {
 					IndexResultElement subIre = subIr.getNextIndexResultElement();
 					
-					//	collect sub resuls per document
-					ArrayList subIreList = new ArrayList();
+					//	collect sub results per document
+					List subIreList = new LinkedList();
 					
-					//	collect sub result elements by type for result level links
-					ArrayList subIreTypeList = ((ArrayList) subIresByType.get(subIre.getType()));
+					//	collect sub result elements by type for result level links 
+					List subIreTypeList = ((LinkedList) subIresByType.get(subIre.getType()));
 					if (subIreTypeList == null) {
-						subIreTypeList = new ArrayList();
+						subIreTypeList = new LinkedList();
 						subIresByType.put(subIre.getType(), subIreTypeList);
 					}
 					
@@ -891,7 +939,7 @@ xsl:with-param select="expression"
 						subIreTypeList.add(subIre);
 						
 						//	collect links for individual sub results
-						ArrayList subIreLinkList = new ArrayList();
+						List subIreLinkList = new LinkedList();
 						for (int l = 0; l < linkers.length; l++) try {
 							
 							//	link for element
@@ -922,10 +970,8 @@ xsl:with-param select="expression"
 						SearchResultLink[] links = linkers[l].getAnnotationSetLinks(subIres);
 						if (links != null)
 							for (int k = 0; k < links.length; k++) {
-								if ((links[k] != null) && ((links[k].href != null) || (links[k].onclick != null))) {
-									if (links[k].iconUrl != null) dreLinks.add(links[k]);
-									else if (links[k].label != null) dreLinks.add(links[k]);
-								}
+								if ((links[k] != null) && ((links[k].href != null) || (links[k].onclick != null)) && ((links[k].iconUrl != null) || (links[k].label != null)))
+									dreLinks.add(links[k]);
 							}
 						}
 						catch (Exception ex) {
@@ -941,7 +987,7 @@ xsl:with-param select="expression"
 		
 		//	get result level links for sub results
 		for (Iterator srit = subIresByType.values().iterator(); srit.hasNext();) {
-			ArrayList subIreList = ((ArrayList) srit.next());
+			List subIreList = ((List) srit.next());
 			Annotation[] subIres = ((Annotation[]) subIreList.toArray(new Annotation[subIreList.size()]));
 			for (int l = 0; l < linkers.length; l++) try {
 				SearchResultLink[] links = linkers[l].getAnnotationSetLinks(subIres);
@@ -1240,7 +1286,7 @@ xsl:with-param select="expression"
 		else {
 			
 			//	collect data
-			ArrayList ireList = new ArrayList();
+			List ireList = new LinkedList();
 			for (IndexResult ir = index.getIndexResult(); ir.hasNextElement();)
 				ireList.add(ir.getNextIndexResultElement());
 			IndexResultElement[] ires = ((IndexResultElement[]) ireList.toArray(new IndexResultElement[ireList.size()]));
@@ -1258,7 +1304,7 @@ xsl:with-param select="expression"
 			out.newLine();
 			
 			//	add result level links to external sources
-			ArrayList resultLinks = new ArrayList();
+			List resultLinks = new LinkedList();
 			
 			//	get and sort result links
 			SearchResultLinker[] linkers = this.parent.getResultLinkers();
@@ -1289,7 +1335,7 @@ xsl:with-param select="expression"
 			HashMap resultElementLinksByAnnotationId = new HashMap();
 			HashMap subIresByType = new HashMap();
 			for (int i = 0; i < ires.length; i++) {
-				ArrayList ireLinks = new ArrayList();
+				List ireLinks = new LinkedList();
 				for (int l = 0; l < linkers.length; l++) try {
 					
 					//	link for element
@@ -1315,13 +1361,13 @@ xsl:with-param select="expression"
 					if (subIr.hasNextElement()) {
 						IndexResultElement subIre = subIr.getNextIndexResultElement();
 						
-						//	collect sub resuls per document
-						ArrayList subIreList = new ArrayList();
+						//	collect sub results per document
+						List subIreList = new LinkedList();
 						
 						//	collect sub result elements by type for result level links
-						ArrayList subIreTypeList = ((ArrayList) subIresByType.get(subIre.getType()));
+						List subIreTypeList = ((LinkedList) subIresByType.get(subIre.getType()));
 						if (subIreTypeList == null) {
-							subIreTypeList = new ArrayList();
+							subIreTypeList = new LinkedList();
 							subIresByType.put(subIre.getType(), subIreTypeList);
 						}
 						
@@ -1331,7 +1377,7 @@ xsl:with-param select="expression"
 							subIreTypeList.add(subIre);
 							
 							//	collect links for individual sub results
-							ArrayList subIreLinkList = new ArrayList();
+							List subIreLinkList = new LinkedList();
 							for (int l = 0; l < linkers.length; l++) try {
 								
 								//	link for element
@@ -1381,7 +1427,7 @@ xsl:with-param select="expression"
 			
 			//	get result level links for sub results
 			for (Iterator srit = subIresByType.values().iterator(); srit.hasNext();) {
-				ArrayList subIreList = ((ArrayList) srit.next());
+				List subIreList = ((List) srit.next());
 				Annotation[] subIres = ((Annotation[]) subIreList.toArray(new Annotation[subIreList.size()]));
 				for (int l = 0; l < linkers.length; l++) try {
 					SearchResultLink[] links = linkers[l].getAnnotationSetLinks(subIres);
@@ -1555,9 +1601,6 @@ xsl:with-param select="expression"
 	}
 	
 	private void writeResultDocument(MutableAnnotation doc, BufferedWriter out) throws IOException {
-		
-		BufferedWriter buf = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
-		
 		Annotation[] annotations = doc.getAnnotations();
 		
 		//	include generic document tag
@@ -1590,8 +1633,8 @@ xsl:with-param select="expression"
 			//	add line break at end of paragraph
 			boolean breakBeforeEndTag = true;
 			if ((lastToken != null) && lastToken.hasAttribute(Token.PARAGRAPH_END_ATTRIBUTE)) {
-				buf.write("<br/>");
-				buf.newLine();
+				out.write("<br/>");
+				out.newLine();
 				breakBeforeEndTag = false;
 			}
 			
@@ -1599,22 +1642,23 @@ xsl:with-param select="expression"
 			while ((stack.size() > 0) && ((((Annotation) stack.peek()).getStartIndex() + ((Annotation) stack.peek()).size()) <= t)) {
 				Annotation annotation = ((Annotation) stack.pop());
 				if (breakBeforeEndTag) {
-					buf.newLine();
+					out.newLine();
 					breakBeforeEndTag = false;
 				}
-				buf.write(AnnotationUtils.produceEndTag(annotation));
-				buf.newLine();
+				out.write(AnnotationUtils.produceEndTag(annotation));
+				out.newLine();
 			}
 			
 			//	skip space character before unspaced punctuation (e.g. ',') or if explicitly told so
-			if (((lastToken == null) || !lastToken.hasAttribute(Token.PARAGRAPH_END_ATTRIBUTE)) && (t != 0) && (doc.getWhitespaceAfter(t-1).length() != 0)) buf.write(" ");
+			if (((lastToken == null) || !lastToken.hasAttribute(Token.PARAGRAPH_END_ATTRIBUTE)) && (t != 0) && (doc.getWhitespaceAfter(t-1).length() != 0))
+				out.write(" ");
 			
 			//	write start tags for Annotations beginning at current Token
 			while ((annotationPointer < annotations.length) && (annotations[annotationPointer].getStartIndex() == t)) {
 				Annotation annotation = annotations[annotationPointer++];
 				if (DocumentRoot.DOCUMENT_TYPE.equals(annotation.getType()) || this.documentResultElements.contains(annotation.getType().toLowerCase())) {
-					buf.write(AnnotationUtils.produceStartTag(annotation));
-					buf.newLine();
+					out.write(AnnotationUtils.produceStartTag(annotation));
+					out.newLine();
 					
 					//	write external links
 					for (int l = 0; l < linkers.length; l++) {
@@ -1625,12 +1669,11 @@ xsl:with-param select="expression"
 						
 						else links = linkers[l].getAnnotationLinks(annotation);
 						
-						if (links != null) {
+						if (links != null)
 							for (int k = 0; k < links.length; k++) {
-								buf.write(links[k].toXml());
-								buf.newLine();
+								out.write(links[k].toXml());
+								out.newLine();
 							}
-						}
 					}
 					
 					stack.push(annotation);
@@ -1638,16 +1681,15 @@ xsl:with-param select="expression"
 			}
 			
 			//	write current Token
-			buf.write(AnnotationUtils.escapeForXml(token.getValue()));
+			out.write(AnnotationUtils.escapeForXml(token.getValue()));
 		}
 		
 		//	write end tags for Annotations not closed so far
 		while (stack.size() > 0) {
 			Annotation annotation = ((Annotation) stack.pop());
-			buf.newLine();
-			buf.write(AnnotationUtils.produceEndTag(annotation));
+			out.newLine();
+			out.write(AnnotationUtils.produceEndTag(annotation));
 		}
-		buf.flush();
 		out.newLine();
 		out.flush();
 	}
@@ -1705,7 +1747,8 @@ xsl:with-param select="expression"
 				//	open fieldset and write field group legend
 				tr.storeToken("<fieldset>", 0);
 				tr.storeToken("<legend>", 0);
-				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+//				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
 				tr.storeToken("</legend>", 0);
 				
 				//	open table for field group
@@ -1746,7 +1789,7 @@ xsl:with-param select="expression"
 						String fieldId = ("input" + fields[f].name.replaceAll("\\.", ""));
 						
 						//	add label
-						tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\">"), 0);
+						tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						tr.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
 						tr.storeToken("</label>", 0);
 						
@@ -1755,10 +1798,10 @@ xsl:with-param select="expression"
 						
 						//	write actual field
 						if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + ">"), 0);
+							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + "" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
-							tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\">"), 0);
+							tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 							
 							String preSelected = fieldValues.getProperty(fields[f].name);
 							if (preSelected == null) preSelected = fields[f].value;
@@ -1772,8 +1815,7 @@ xsl:with-param select="expression"
 							
 							tr.storeToken("</select>", 0);
 						}
-						else
-							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
+						else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						//	close table cell
 						tr.storeToken("</td>", 0);
@@ -1854,8 +1896,7 @@ xsl:with-param select="expression"
 							
 							tr.storeToken("</select>", 0);
 						}
-						else
-							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
+						else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
 						
 						//	add spacer
 						tr.storeToken("&nbsp;", 0);
@@ -2023,6 +2064,10 @@ xsl:with-param select="expression"
 				" " + MASTER_DOCUMENT_COUNT_ATTRIBUTE + "=\"" + statistics.masterDocCount + "\"" +
 				" " + DOCUMENT_COUNT_ATTRIBUTE + "=\"" + statistics.docCount + "\"" +
 				" " + WORD_COUNT_ATTRIBUTE + "=\"" + statistics.wordCount + "\"" +
+				" " + GET_STATISTICS_SINCE_PARAMETER + "=\"" + statistics.since + "\"" +
+				" " + MASTER_DOCUMENT_COUNT_SINCE_ATTRIBUTE + "=\"" + statistics.masterDocCountSince + "\"" +
+				" " + DOCUMENT_COUNT_SINCE_ATTRIBUTE + "=\"" + statistics.docCountSince + "\"" +
+				" " + WORD_COUNT_SINCE_ATTRIBUTE + "=\"" + statistics.wordCountSince + "\"" +
 		">");
 		out.newLine();
 		

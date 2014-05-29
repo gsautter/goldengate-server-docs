@@ -45,6 +45,9 @@ import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.WeakHashMap;
 
@@ -78,7 +81,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		cachingInstances.put(srsc, "");
 		cacheFolders.add(srsc.cacheFolder);
 		
-		//	start maintainance thread if not already running
+		//	start maintenance thread if not already running
 		if (cacheDataFetcher == null) {
 			cacheDataFetcher = srsc;
 			cacheCleaner = new Thread() {
@@ -133,8 +136,15 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 					GoldenGateSrsClient cachingInstance = ((GoldenGateSrsClient) ciit.next());
 					if (cachingInstance.sfgCacheTimestamp < lastUpdate)
 						cachingInstance.sfgCache = null;
-					if (cachingInstance.csCacheTimestamp < lastUpdate)
-						cachingInstance.csCache = null;
+					synchronized (cachingInstance.csCache) {
+						HashSet csCacheKeys = new LinkedHashSet(cachingInstance.csCache.keySet());
+						for (Iterator csceit = csCacheKeys.iterator(); csceit.hasNext();) {
+							Long csCacheKey = ((Long) csceit.next());
+							CsCacheEntry cce = ((CsCacheEntry) cachingInstance.csCache.get(csCacheKey));
+							if (cce.retrieved < lastUpdate)
+								cachingInstance.csCache.remove(csCacheKey);
+						}
+					}
 				}
 				
 				//	invalidate all cache files older than last update
@@ -1667,52 +1677,128 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	}
 	
 	/**
-	 * Obtain the collection ststistics from the SRS.
+	 * Obtain the collection statistics from the SRS.
 	 * @return the statistics of the document collection in the underlying SRS,
 	 *         including top contributors
 	 * @throws IOException
 	 */
 	public CollectionStatistics getStatistics() throws IOException {
-		return this.getStatistics(true);
+		return this.getStatistics(-1, null, true);
 	}
 	
 	/**
-	 * Obtain the collection ststistics from the SRS.
+	 * Obtain the collection statistics from the SRS.
+	 * @param since the relative time constant since which to get the statistics
+	 * @return the statistics of the document collection in the underlying SRS,
+	 *         including top contributors
+	 * @throws IOException
+	 */
+	public CollectionStatistics getStatistics(String since) throws IOException {
+		return this.getStatistics(-1, since, true);
+	}
+	
+	/**
+	 * Obtain the collection statistics from the SRS.
+	 * @param since the time since which to get the statistics (UTC milliseconds)
+	 * @return the statistics of the document collection in the underlying SRS,
+	 *         including top contributors
+	 * @throws IOException
+	 */
+	public CollectionStatistics getStatistics(long since) throws IOException {
+		return this.getStatistics(since, null, true);
+	}
+	
+	/**
+	 * Obtain the collection statistics from the SRS.
 	 * @param allowCache allow returning cached result if available?
 	 * @return the statistics of the document collection in the underlying SRS,
 	 *         including top contributors
 	 * @throws IOException
 	 */
 	public CollectionStatistics getStatistics(boolean allowCache) throws IOException {
+		return this.getStatistics(-1, null, allowCache);
+	}
+	
+	/**
+	 * Obtain the collection statistics from the SRS.
+	 * @param since the relative time constant since which to get the statistics
+	 * @param allowCache allow returning cached result if available?
+	 * @return the statistics of the document collection in the underlying SRS,
+	 *         including top contributors
+	 * @throws IOException
+	 */
+	public CollectionStatistics getStatistics(String since, boolean allowCache) throws IOException {
+		return this.getStatistics(-1, since, allowCache);
+	}
+	
+	/**
+	 * Obtain the collection statistics from the SRS.
+	 * @param since the time since which to get the statistics (UTC milliseconds)
+	 * @param allowCache allow returning cached result if available?
+	 * @return the statistics of the document collection in the underlying SRS,
+	 *         including top contributors
+	 * @throws IOException
+	 */
+	public CollectionStatistics getStatistics(long since, boolean allowCache) throws IOException {
+		return this.getStatistics(since, null, allowCache);
+	}
+	
+	private CollectionStatistics getStatistics(long since, String sinceString, boolean allowCache) throws IOException {
+		
+		//	adjust parameters
+		if (sinceString == null)
+			sinceString = ("" + since);
+		else if (since < 0) {
+			if (GET_STATISTICS_LAST_YEAR.equals(sinceString))
+				since = (System.currentTimeMillis() - (1000 * 60 * 60 * 24 * 365));
+			else if (GET_STATISTICS_LAST_HALF_YEAR.equals(sinceString))
+				since = (System.currentTimeMillis() - (1000 * 60 * 60 * 24 * 183));
+			else if (GET_STATISTICS_LAST_THREE_MONTHS.equals(sinceString))
+				since = (System.currentTimeMillis() - (1000 * 60 * 60 * 24 * 91));
+			else if (GET_STATISTICS_LAST_MONTH.equals(sinceString))
+				since = (System.currentTimeMillis() - (1000 * 60 * 60 * 24 * 30));
+		}
 		
 		//	do cache lookup
-		if (allowCache && (this.csCache != null))
-			return CollectionStatistics.readCollectionStatistics(new StringReader(this.csCache));
+		if (allowCache) {
+			final Long csCacheKey = new Long(since / (1000 * 60 * 10));
+			synchronized (this.csCache) {
+				CsCacheEntry cce = ((CsCacheEntry) this.csCache.get(csCacheKey));
+				if (cce != null)
+					return CollectionStatistics.readCollectionStatistics(new StringReader(cce.data));
+			}
+		}
 		
 		//	cache miss, do server lookup
 		final Connection con = this.serverConnection.getConnection();
 		BufferedWriter bw = con.getWriter();
 		
-		bw.write(GET_STATISICS);
+		bw.write(GET_STATISTICS);
+		bw.newLine();
+		bw.write(sinceString);
 		bw.newLine();
 		bw.flush();
 		
 		final BufferedReader br = con.getReader();
 		String error = br.readLine();
-		if (GET_STATISICS.equals(error)) {
+		if (GET_STATISTICS.equals(error)) {
 			Reader csReader;
 			
 			//	cache disabled, read directly
-			if (this.cacheFolder == null) csReader = new ConnectionGuardReader(br, con);
+			if (this.cacheFolder == null)
+				csReader = new ConnectionGuardReader(br, con);
 			
 			//	cache enabled, stream data to cache simultaneously
 			else {
 				final long csTimestamp = System.currentTimeMillis();
+				final Long csCacheKey = new Long(since / (1000 * 60 * 10));
 				final StringWriter csWriter = new StringWriter() {
 					public void close() throws IOException {
 						super.close();
-						csCache = this.toString();
-						csCacheTimestamp = csTimestamp;
+						CsCacheEntry cce = new CsCacheEntry(this.toString(), csTimestamp);
+						synchronized (csCache) {
+							csCache.put(csCacheKey, cce);
+						}
 					}
 				};
 				csReader = new CacheWritingReader(new ConnectionGuardReader(br, con), csWriter);
@@ -1724,6 +1810,18 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 			throw new IOException(error);
 		}
 	}
-	private String csCache = null;
-	private long csCacheTimestamp = 0;
+	
+	private LinkedHashMap csCache = new LinkedHashMap(16, 0.9f, true) {
+		protected boolean removeEldestEntry(Entry eldest) {
+			return this.size() > 64;
+		}
+	};
+	private static class CsCacheEntry {
+		final String data;
+		final long retrieved;
+		CsCacheEntry(String data, long retrieved) {
+			this.data = data;
+			this.retrieved = retrieved;
+		}
+	}
 }

@@ -100,8 +100,8 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * 'SearchResultLinkers' sub folder of the web-app's context path. They will be
  * loaded as this servlet is loaded.</li>
  * <li>For customizing the layout of search results prepared for human reading,
- * you can plug a custom layout engin into the search portal. Such a plugin
- * layout has to extend the abstract <b>SearchPortalLayout</b> class. Th e
+ * you can plug a custom layout engine into the search portal. Such a plugin
+ * layout has to extend the abstract <b>SearchPortalLayout</b> class. The
  * respective implementations have to be deposited in a jar file inside the
  * 'SearchPortalLayouts' sub folder of the web-app's context path. You have to
  * specify the desired class' fully qualified name as the value of the
@@ -122,16 +122,16 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * you can change it to 'article', for instance.</li>
  * <li><b>documentLabelPlural</b>: a custom plural for of the
  * 'documentLabelSingular' parameter</li>
- * <li><b>searchFormTitle</b>: a custom titel for the document search form</li>
- * <li><b>thesaurusFormTitle</b>: a custom titel for the thesaurus search form</li>
+ * <li><b>searchFormTitle</b>: a custom title for the document search form</li>
+ * <li><b>thesaurusFormTitle</b>: a custom title for the thesaurus search form</li>
  * <li><b>includeSearchFormWithResult</b>: display the search form on result
  * pages?</li>
  * <li><b>displayTitlePattern</b>: a pattern for creating the display title of
- * documents from the documents' attributed, eg titel, author, year of
+ * documents from the documents' attributed, eg title, author, year of
  * publication, etc.</li>
  * <li><b>resultFormatAlias</b>: with this prefix, you can mark custom result
  * format names that will use XSLT to create the display pages of search
- * results. The settiong 'resultFormatAlias.&lt;alias&gt;' with the value
+ * results. The setting 'resultFormatAlias.&lt;alias&gt;' with the value
  * &lt;myXsltUrl&gt; will cause the servlet to transform the search result XML
  * through the styleshet found at &lt;myXsltUrl&gt; if the 'resultFormat'
  * request parameter (see below) is set to &lt;alias&gt;.</li>
@@ -174,8 +174,6 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 	
 	private boolean includeSearchFormWithResult = false;
 	
-	private HashSet cachedStylesheets = new HashSet();
-	
 	/** @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
 	protected void doPost(final HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
@@ -189,30 +187,30 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		String requestSearchMode = request.getParameter(SEARCH_MODE_PARAMETER);
 		paramCollector.removeAll(SEARCH_MODE_PARAMETER);
 		
-		//	get invokation path (alternative to search mode)
-		String invokationPath = request.getServletPath();
+		//	get invocation path (alternative to search mode)
+		String invocationPath = request.getServletPath();
 		
 		//	modify search mode
-		if (invokationPath != null) {
+		if (invocationPath != null) {
 			
 			//	cut leading slash
-			if (invokationPath.startsWith("/"))
-				invokationPath = invokationPath.substring(1);
+			if (invocationPath.startsWith("/"))
+				invocationPath = invocationPath.substring(1);
 			
 			//	request for HTML document
-			if ("html".equals(invokationPath))
+			if ("html".equals(invocationPath))
 				requestSearchMode = HTML_DOCUMENT_SEARCH_MODE;
 			
 			//	request for XML document
-			else if ("xml".equals(invokationPath))
+			else if ("xml".equals(invocationPath))
 				requestSearchMode = XML_DOCUMENT_SEARCH_MODE;
 			
 			//	thesaurus search
-			else if (THESAURUS_SEARCH_MODE.equals(invokationPath))
+			else if (THESAURUS_SEARCH_MODE.equals(invocationPath))
 				requestSearchMode = THESAURUS_SEARCH_MODE;
 			
 			//	request for statistics
-			else if (STATISTICS_MODE.equals(invokationPath))
+			else if (STATISTICS_MODE.equals(invocationPath))
 				requestSearchMode = STATISTICS_MODE;
 		}
 		
@@ -295,7 +293,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	no sub index name at all, do document search if index name is null or 0
 		else if ((requestSubIndexNames == null) || (requestSubIndexNames.length == 0)) {
-			indexName = requestIndexName;
+			indexName = this.mapIndexName(requestIndexName);
 			subIndexName = null;
 			searchMode = (((indexName == null) || ("0".equals(indexName) && !INDEX_SEARCH_MODE.equals(requestSearchMode))) ? DOCUMENT_SEARCH_MODE : INDEX_SEARCH_MODE);
 		}
@@ -303,23 +301,26 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		//	request with sub index names
 		else {
 			StringVector sv = new StringVector();
-			sv.addContent(requestSubIndexNames);
+			for (int s = 0; s < requestSubIndexNames.length; s++)
+				sv.addElementIgnoreDuplicates(this.mapIndexName(requestSubIndexNames[s]));
 			sv.removeAll("0");
 			sv.removeAll("documents");
 			sv.removeAll("docs");
-			if (requestIndexName != null)
+			if (requestIndexName != null) {
 				sv.removeAll(requestIndexName);
+				sv.removeAll(this.mapIndexName(requestIndexName));
+			}
 			
 			//	no sub index name distinct from index name
 			if (sv.isEmpty()) {
-				indexName = requestIndexName;
+				indexName = this.mapIndexName(requestIndexName);
 				subIndexName = null;
 				searchMode = (((indexName == null) || ("0".equals(indexName) && !INDEX_SEARCH_MODE.equals(requestSearchMode))) ? DOCUMENT_SEARCH_MODE : INDEX_SEARCH_MODE);
 			}
 			
 			//	sub index specified, do index search
 			else {
-				indexName = requestIndexName;
+				indexName = this.mapIndexName(requestIndexName);
 				subIndexName = sv.concatStrings("\n");
 				searchMode = (((indexName == null) || ("0".equals(indexName) && !INDEX_SEARCH_MODE.equals(requestSearchMode))) ? DOCUMENT_SEARCH_MODE : INDEX_SEARCH_MODE);
 			}
@@ -328,9 +329,9 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		//	get minimum size for sub result
 		String requestSubResultMinSize = request.getParameter(SUB_RESULT_MIN_SIZE);
 		final String subResultMinSize;
-		if (subIndexName == null) {
+		if (subIndexName == null)
 			subResultMinSize = null;
-		} else subResultMinSize = requestSubResultMinSize;
+		else subResultMinSize = requestSubResultMinSize;
 		paramCollector.removeAll(SUB_RESULT_MIN_SIZE);
 		
 		//	check is searchables to mark
@@ -341,7 +342,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		if (XML_DOCUMENT_SEARCH_MODE.equals(searchMode) || XML_RESULT_FORMAT.equals(resultFormat))
 			response.setContentType("text/xml; charset=" + ENCODING);
 		
-		else if (THESAURUS_SEARCH_MODE.equals(searchMode) && CSV_RESULT_FORMAT.equals(resultFormat))
+		else if ((THESAURUS_SEARCH_MODE.equals(searchMode) || STATISTICS_MODE.equals(searchMode)) && CSV_RESULT_FORMAT.equals(resultFormat))
 			response.setContentType("text/plain; charset=" + ENCODING);
 		
 		else response.setContentType("text/html; charset=" + ENCODING);
@@ -350,25 +351,32 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		Properties searchParameters = new Properties();
 		for (int p = 0; p < paramCollector.size(); p++) {
 			String name = paramCollector.get(p);
+			String mName = this.mapSearchFieldName(name);
 			String[] values = request.getParameterValues(name);
 			if ((values != null) && (values.length != 0)) {
-				if (values.length == 1)
+				if (values.length == 1) {
 					searchParameters.setProperty(name, values[0]);
+					searchParameters.setProperty(mName, values[0]);
+				}
 				else {
 					StringVector valueBuilder = new StringVector();
 					valueBuilder.addContent(values);
 					searchParameters.setProperty(name, valueBuilder.concatStrings("\n"));
+					searchParameters.setProperty(mName, valueBuilder.concatStrings("\n"));
 				}
 			}
 		}
 		
 		//	prepare for pre-setting form fields
-		final Properties fieldValues = new Properties();
+		Properties fieldValues = new Properties();
 		for (int p = 0; p < paramCollector.size(); p++) {
 			String name = paramCollector.get(p);
+			String mName = this.mapSearchFieldName(name);
 			String value = request.getParameter(name);
-			if ((value != null) && (value.trim().length() != 0))
+			if ((value != null) && (value.trim().length() != 0)) {
 				fieldValues.setProperty(name, value);
+				fieldValues.setProperty(mName, value);
+			}
 		}
 		
 		//	get output writer
@@ -398,7 +406,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	thesaurus search with non-html result
 		else if (STATISTICS_MODE.equals(searchMode))
-			this.doStatistics(CSV_RESULT_FORMAT.equals(resultFormat), xslTransformer, out, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+			this.doStatistics(CSV_RESULT_FORMAT.equals(resultFormat), xslTransformer, out, searchParameters.getProperty(GET_STATISTICS_SINCE_PARAMETER, this.getSetting("statisticsDefaultSince", GET_STATISTICS_LAST_YEAR)), !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 		
 		//	index search with non-html result
 		else if (indexName != null) {
@@ -432,62 +440,60 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 	}
 	
 	private void doGetDocument(HttpServletRequest request, Transformer xslTransformer, BufferedWriter out) throws IOException {
-		String idQuery = null;
+		String docId = null;
 		
 		//	read document ID from parameter
-		String[] docIds = request.getParameterValues(ID_QUERY_FIELD_NAME);
-		if ((docIds != null) && (docIds.length == 1)) idQuery = docIds[0];
+		String[] docIdParams = request.getParameterValues(ID_QUERY_FIELD_NAME);
+		if ((docIdParams != null) && (docIdParams.length == 1))
+			docId = docIdParams[0];
 		
-		//	read invokation path path info (alternative to idQuery parameter in this mode)
-		else {
-			String pathIdQuery = request.getPathInfo();
-			
-			//	got document ID in path
-			if (pathIdQuery != null) {
-				
-				//	cut leading slash
-				if (pathIdQuery.startsWith("/"))
-					pathIdQuery = pathIdQuery.substring(1);
-				
-				//	set search parameter
-				idQuery = pathIdQuery;
-			}
-			
-			//	finally, check query string
-			else {
-				String requestQueryString = request.getQueryString();
-				
-				//	got document ID in query position
-				if ((requestQueryString != null) && (requestQueryString.length() != 0) && (requestQueryString.indexOf('=') == -1))
-					idQuery = requestQueryString;
+		//	read document ID from parameter
+		String[] docUuidParams = request.getParameterValues(UUID_QUERY_FIELD_NAME);
+		if ((docUuidParams != null) && (docUuidParams.length == 1))
+			docId = docUuidParams[0];
+		
+		//	read invocation path info (alternative to idQuery parameter in this mode)
+		if (docId == null) {
+			String pathInfo = request.getPathInfo();
+			if (pathInfo != null) {
+				while (pathInfo.startsWith("/"))
+					pathInfo = pathInfo.substring(1);
+				docId = pathInfo;
 			}
 		}
 		
-		
-		if (idQuery == null)
+		//	finally, check query string
+		if (docId == null) {
+			String queryString = request.getQueryString();
+			if ((queryString != null) && (queryString.length() != 0) && (queryString.indexOf('=') == -1))
+				docId = queryString;
+		}
+
+		//	no document ID found, report error
+		if (docId == null) {
 			out.write("Invalid request format, submit one document ID at a time in this mode.");
-		
-		else {
-			
-			//	cut file extension
-			if (idQuery.indexOf('.') != -1)
-				idQuery = idQuery.substring(0, idQuery.indexOf('.'));
-			
-			try {
-				MutableAnnotation doc = this.srsClient.getXmlDocument(idQuery, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
-				
-				//	write document (plain or transformed)
-				Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
-				AnnotationUtils.writeXML(doc, w);
-				w.flush();
-				w.close();
-			}
-			catch (IOException e) {
-				out.write("Error loading document '" + idQuery + "': " + e.getMessage());
-			}
+			out.newLine();
+			return;
 		}
 		
-		out.newLine();
+		//	cut file extension
+//		if (docId.indexOf('.') != -1)
+//			docId = docId.substring(0, docId.indexOf('.'));
+		if (docId.lastIndexOf('.') > docId.lastIndexOf(':'))
+			docId = docId.substring(0, docId.indexOf('.', docId.lastIndexOf(':')));
+		
+		//	get and output document (plain or transformed)
+		try {
+			MutableAnnotation doc = this.srsClient.getXmlDocument(docId, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+			Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
+			AnnotationUtils.writeXML(doc, w);
+			w.flush();
+			w.close();
+		}
+		catch (IOException e) {
+			out.write("Error loading document '" + docId + "': " + e.getMessage());
+		}
+		
 	}
 	
 	private void doSearchThesaurus(Properties searchParameters, boolean csv, Transformer xslTransformer, BufferedWriter out, boolean allowCache) throws IOException {
@@ -495,6 +501,12 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	write thesaurus result in CSV format
 		if (csv) {
+			for (int a = 0; a < thesaurusResult.resultAttributes.length; a++) {
+				if (a != 0)
+					out.write(",");
+				out.write("\"" + thesaurusResult.resultAttributes[a] + "\"");
+			}
+			out.newLine();
 			while (thesaurusResult.hasNextElement()) {
 				ThesaurusResultElement tre = thesaurusResult.getNextThesaurusResultElement();
 				out.write(tre.toCsvString('"', thesaurusResult.resultAttributes));
@@ -502,10 +514,8 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			}
 		}
 		
-		//	write thesaurus result as XML
+		//	write thesaurus result as XML (plain or transformed)
 		else {
-			
-			//	write result (plain or transformed)
 			Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
 			thesaurusResult.writeXml(w);
 			w.flush();
@@ -513,11 +523,17 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		}
 	}
 	
-	private void doStatistics(boolean csv, Transformer xslTransformer, BufferedWriter out, boolean allowCache) throws IOException {
-		CollectionStatistics statistics = this.srsClient.getStatistics(allowCache);
+	private void doStatistics(boolean csv, Transformer xslTransformer, BufferedWriter out, String since, boolean allowCache) throws IOException {
+		CollectionStatistics statistics = this.srsClient.getStatistics(since, allowCache);
 		
 		//	write statistics in CSV format
 		if (csv) {
+			for (int a = 0; a < statistics.resultAttributes.length; a++) {
+				if (a != 0)
+					out.write(",");
+				out.write("\"" + statistics.resultAttributes[a] + "\"");
+			}
+			out.newLine();
 			while (statistics.hasNextElement()) {
 				CollectionStatisticsElement cse = statistics.getNextCollectionStatisticsElement();
 				out.write(cse.toCsvString('"', statistics.resultAttributes));
@@ -525,10 +541,8 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			}
 		}
 		
-		//	write statistics as XML
+		//	write statistics as XML (plain or transformed)
 		else {
-			
-			//	write result (plain or transformed)
 			Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
 			statistics.writeXml(w);
 			w.flush();
@@ -565,7 +579,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			out.newLine();
 		}
 		
-		//	return plain xml documents
+		//	return plain XML documents
 		else {
 			
 			//	open results
@@ -641,14 +655,21 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	for statistics, use fix values
 		if (STATISTICS_MODE.equals(searchMode)) {
-			this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(allowCache));
+			String since = searchParameters.getProperty(GET_STATISTICS_SINCE_PARAMETER, this.getSetting("statisticsDefaultSince", GET_STATISTICS_LAST_YEAR));
+			try {
+				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(Long.parseLong(since), allowCache));
+			}
+			catch (NumberFormatException nfe) {
+				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(since, allowCache));
+			}
+//			this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(allowCache));
 			tr = new HtmlSearchResultWriter(request, response, (this.includeSearchFormWithResult ? fieldGroups : null), (this.includeSearchFormWithResult ? fieldGroupException : null), fieldValues, this.statistics, "Collection Statistics");
 		}
 		
 		//	get document ID if single document to display
 		else if (HTML_DOCUMENT_SEARCH_MODE.equals(searchMode)) {
 			
-			//	read invokation path path info (alternative to idQuery parameter in this mode)
+			//	read invocation path path info (alternative to idQuery parameter in this mode)
 			if (!searchParameters.containsKey(ID_QUERY_FIELD_NAME)) {
 				String pathIdQuery = request.getPathInfo();
 				
@@ -660,8 +681,10 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 						pathIdQuery = pathIdQuery.substring(1);
 					
 					//	cut file extension
-					if (pathIdQuery.indexOf('.') != -1)
-						pathIdQuery = pathIdQuery.substring(0, pathIdQuery.indexOf('.'));
+//					if (pathIdQuery.lastIndexOf('.') != -1)
+//						pathIdQuery = pathIdQuery.substring(0, pathIdQuery.lastIndexOf('.'));
+					if (pathIdQuery.lastIndexOf('.') > pathIdQuery.lastIndexOf(':'))
+						pathIdQuery = pathIdQuery.substring(0, pathIdQuery.indexOf('.', pathIdQuery.lastIndexOf(':')));
 					
 					//	set search parameter
 					searchParameters.setProperty(ID_QUERY_FIELD_NAME, pathIdQuery);
@@ -675,8 +698,10 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 					if ((requestQueryString != null) && (requestQueryString.length() != 0) && (requestQueryString.indexOf('=') == -1)) {
 						
 						//	cut file extension
-						if (requestQueryString.indexOf('.') != -1)
-							requestQueryString = requestQueryString.substring(0, requestQueryString.indexOf('.'));
+//						if (requestQueryString.lastIndexOf('.') != -1)
+//							requestQueryString = requestQueryString.substring(0, requestQueryString.lastIndexOf('.'));
+						if (requestQueryString.lastIndexOf('.') > requestQueryString.lastIndexOf(':'))
+							requestQueryString = requestQueryString.substring(0, requestQueryString.indexOf('.', requestQueryString.lastIndexOf(':')));
 						
 						//	set search parameter
 						searchParameters.setProperty(ID_QUERY_FIELD_NAME, requestQueryString);
@@ -739,39 +764,40 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 				//	collect actual field values (labels for boolean fields, and option labels for select fields)
 				StringBuffer titleBuilder = new StringBuffer();
 				for (int g = 0; g < sfg.length; g++) {
-					if (titleIndexNames.contains(sfg[g].indexName)) {
-						SearchField[] fields = sfg[g].getFields();
-						StringVector values = new StringVector();
+					if (!titleIndexNames.contains(sfg[g].indexName))
+						continue;
+					
+					SearchField[] fields = sfg[g].getFields();
+					StringVector values = new StringVector();
+					
+					//	get field values from query
+					for (int f = 0; f < fields.length; f++) {
+						String qfv = fieldValues.getProperty(fields[f].name);
+						if ((qfv == null) || (qfv.length() == 0))
+							continue;
 						
-						//	get field values from query
-						for (int f = 0; f < fields.length; f++) {
-							String qfv = fieldValues.getProperty(fields[f].name);
-							if ((qfv != null) && (qfv.length() != 0)) {
-								
-								//	text field, use actual entry
-								if (SearchField.TEXT_TYPE.equals(fields[f].type))
-									values.addElement(qfv);
-								
-								//	boolean field, use label
-								else if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-									values.addElement(fields[f].label);
-								
-								//	select field, use label of selected option
-								else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
-									SearchFieldOption[] sfo = fields[f].getOptions();
-									for (int o = 0; o < sfo.length; o++) {
-										if (qfv.equals(sfo[o].value))
-											values.addElement(sfo[o].label);
-									}
-								}
+						//	text field, use actual entry
+						if (SearchField.TEXT_TYPE.equals(fields[f].type))
+							values.addElement(qfv);
+						
+						//	boolean field, use label
+						else if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
+							values.addElement(fields[f].label);
+						
+						//	select field, use label of selected option
+						else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
+							SearchFieldOption[] sfo = fields[f].getOptions();
+							for (int o = 0; o < sfo.length; o++) {
+								if (qfv.equals(sfo[o].value))
+									values.addElement(sfo[o].label);
 							}
 						}
-						
-						//	add values to title
-						if (values.size() != 0) {
-							titleBuilder.append((titleBuilder.length() == 0) ? "" : " / ");
-							titleBuilder.append(values.concatStrings(", "));
-						}
+					}
+					
+					//	add values to title
+					if (values.size() != 0) {
+						titleBuilder.append((titleBuilder.length() == 0) ? "" : " / ");
+						titleBuilder.append(values.concatStrings(", "));
 					}
 				}
 				
@@ -1322,25 +1348,25 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		SearchFieldRow rts = new SearchFieldRow();
 		
 		//	field for main result type
-		SearchField rt = new SearchField(INDEX_NAME, "Result Type", "0", SearchField.SELECT_TYPE);
-		rt.addOption((this.documentLabelPlural.substring(0, 1).toUpperCase() + this.documentLabelPlural.substring(1).toLowerCase()), "0");
+		SearchField rt = new SearchField(INDEX_NAME, "Result Type", "Index entries to search", "0", SearchField.SELECT_TYPE);
+		rt.addOption("0", (this.documentLabelPlural.substring(0, 1).toUpperCase() + this.documentLabelPlural.substring(1).toLowerCase()));
 		for (int g = 0; g < fieldGroups.length; g++) {
 			if (fieldGroups[g].indexEntryLabel != null)
-				rt.addOption(fieldGroups[g].getEntryLabelPlural(), fieldGroups[g].indexName);
+				rt.addOption(fieldGroups[g].indexName, fieldGroups[g].getEntryLabelPlural());
 		}
 		rts.addField(rt);
 		
 		//	field for sub result type
-		SearchField srt = new SearchField(SUB_INDEX_NAME, "Sub Type", "0", SearchField.SELECT_TYPE);
-		srt.addOption("None", "0");
+		SearchField srt = new SearchField(SUB_INDEX_NAME, "Sub Type", "Index entries to add to main results", "0", SearchField.SELECT_TYPE);
+		srt.addOption("0", "None");
 		for (int g = 0; g < fieldGroups.length; g++) {
 			if (fieldGroups[g].indexEntryLabel != null)
-				srt.addOption(fieldGroups[g].getEntryLabelPlural(), fieldGroups[g].indexName);
+				srt.addOption(fieldGroups[g].indexName, fieldGroups[g].getEntryLabelPlural());
 		}
 		rts.addField(srt);
 		
 		//	field for sub result type
-		SearchField srms = new SearchField(SUB_RESULT_MIN_SIZE, "Min Size", "0", SearchField.SELECT_TYPE);
+		SearchField srms = new SearchField(SUB_RESULT_MIN_SIZE, "Min Size", "Minimum number of sub results for index entries to find", "0", SearchField.SELECT_TYPE);
 		srms.addOption("0");
 		srms.addOption("1");
 		srms.addOption("2");
@@ -1352,8 +1378,31 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 	}
 	
 	private Properties resultFormatAliasesToXsltURLs = new Properties();
+	private HashSet cachedStylesheets = new HashSet();
 	
-	private BufferedCollectionStatistics statistics;
+	private BufferedCollectionStatistics statistics = null;
+	
+	private Properties searchFieldNameMappings = new Properties();
+	private Properties searchFieldNameGroupMappings = new Properties();
+	private Properties indexNameMappings = new Properties();
+	
+	private String mapSearchFieldName(String sfn) {
+		if (sfn == null)
+			return null;
+		String mSfn = this.searchFieldNameMappings.getProperty(sfn);
+		if (mSfn != null)
+			return mSfn;
+		if (sfn.indexOf('.') != -1) {
+			String mSfnPrefix = this.searchFieldNameGroupMappings.getProperty(sfn.substring(0, sfn.indexOf('.')));
+			if (mSfnPrefix != null)
+				return (mSfnPrefix + sfn.substring(sfn.indexOf('.')));
+		}
+		return sfn;
+	}
+	
+	private String mapIndexName(String in) {
+		return ((in == null) ? null : this.indexNameMappings.getProperty(in, in));
+	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#doInit()
@@ -1370,7 +1419,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		}
 		
 		//	initialize layout engine
-		this.layout = this.getLayout(new File(this.dataFolder, SearchPortalLayout.LAYOUT_FOLDER_NAME), config.getSetting(LAYOUT_ENGINE_CLASS_NAME_SETTING));
+		this.layout = this.getLayout(new File(this.dataFolder, SearchPortalLayout.LAYOUT_FOLDER_NAME), this.getSetting(LAYOUT_ENGINE_CLASS_NAME_SETTING));
 	}
 	
 	/* (non-Javadoc)
@@ -1396,6 +1445,9 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	clear registers
 		this.resultFormatAliasesToXsltURLs.clear();
+		this.searchFieldNameGroupMappings.clear();
+		this.searchFieldNameMappings.clear();
+		this.indexNameMappings.clear();
 		this.javaScriptsToInclude.clear();
 		this.functionsToCallOnLoad.clear();
 		
@@ -1406,11 +1458,28 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	initialize result format aliases
 		Settings resultFormatAliases = this.config.getSubset("resultFormatAlias");
-		String[] alias = resultFormatAliases.getKeys();
-		for (int a = 0; a < alias.length; a++) {
-			String aliasXsltUrl = resultFormatAliases.getSetting(alias[a]);
+		String[] aliases = resultFormatAliases.getKeys();
+		for (int a = 0; a < aliases.length; a++) {
+			String aliasXsltUrl = resultFormatAliases.getSetting(aliases[a]);
 			if (aliasXsltUrl != null)
-				this.resultFormatAliasesToXsltURLs.setProperty(alias[a], aliasXsltUrl);
+				this.resultFormatAliasesToXsltURLs.setProperty(aliases[a], aliasXsltUrl);
+		}
+		
+		//	initialize search field name mappings and index name mappings
+		Settings searchFieldNameMappings = this.config.getSubset("searchFieldNameMapping");
+		for (int m = 0; m < (searchFieldNameMappings.size() * 2); m++) {
+			String sfnm = searchFieldNameMappings.getSetting("" + m);
+			if (sfnm == null)
+				continue;
+			if (sfnm.indexOf("==>") == -1)
+				continue;
+			String sfn = sfnm.substring(0, sfnm.indexOf("==>")).trim();
+			String msfn = sfnm.substring(sfnm.indexOf("==>") + "==>".length()).trim();
+			if (sfn.endsWith(".*") && msfn.endsWith(".*")) {
+				this.searchFieldNameGroupMappings.setProperty(sfn.substring(0, (sfn.length() - ".*".length())), msfn.substring(0, (msfn.length() - ".*".length())));
+				this.indexNameMappings.setProperty(sfn.substring(0, (sfn.length() - ".*".length())), msfn.substring(0, (msfn.length() - ".*".length())));
+			}
+			else this.searchFieldNameMappings.setProperty(sfn, msfn);
 		}
 		
 		//	initialize layout engine

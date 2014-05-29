@@ -165,7 +165,8 @@ public class DefaultSearchPortalLayout extends SearchPortalLayout {
 			// open fieldset and write field group legend
 			tr.storeToken("<fieldset>", 0);
 			tr.storeToken("<legend>", 0);
-			tr.storeToken(prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+//			tr.storeToken(prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+			tr.storeToken(prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
 			tr.storeToken("</legend>", 0);
 			
 			//	open table for field group
@@ -191,14 +192,14 @@ public class DefaultSearchPortalLayout extends SearchPortalLayout {
 					
 					//	write actual field
 					if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-						tr.storeToken(("<input type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + ">"), 0);
+						tr.storeToken(("<input type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + ">"), 0);
 					
 					else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
 						tr.storeToken(("<select name=\"" + fields[f].name + "\">"), 0);
 						
 						SearchFieldOption[] fieldOptions = fields[f].getOptions();
 						for (int o = 0; o < fieldOptions.length; o++) {
-							tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(fieldValues.getProperty(fields[f].name)) ? " selected=\"true\"" : "") + ">"), 0);
+							tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(fieldValues.getProperty(fields[f].name)) ? " selected=\"selected\"" : "") + ">"), 0);
 							tr.storeToken(prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
 							tr.storeToken("</option>", 0);
 						}
@@ -242,14 +243,14 @@ public class DefaultSearchPortalLayout extends SearchPortalLayout {
 				
 				//	write actual field
 				if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-					tr.storeToken(("<input type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + ">"), 0);
+					tr.storeToken(("<input type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + ">"), 0);
 				
 				else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
 					tr.storeToken(("<select name=\"" + fields[f].name + "\">"), 0);
 					
 					SearchFieldOption[] fieldOptions = fields[f].getOptions();
 					for (int o = 0; o < fieldOptions.length; o++) {
-						tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(fieldValues.getProperty(fields[f].name)) ? " selected=\"true\"" : "") + ">"), 0);
+						tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(fieldValues.getProperty(fields[f].name)) ? " selected=\"selected\"" : "") + ">"), 0);
 						tr.storeToken(prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
 						tr.storeToken("</option>", 0);
 					}
@@ -2480,7 +2481,8 @@ public class DefaultSearchPortalLayout extends SearchPortalLayout {
 			//	open fieldset and write field group legend
 			tr.storeToken("<fieldset>", 0);
 			tr.storeToken("<legend>", 0);
-			tr.storeToken(prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+//			tr.storeToken(prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
+			tr.storeToken(prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
 			tr.storeToken("</legend>", 0);
 			
 			//	open table for field group

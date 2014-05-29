@@ -41,7 +41,7 @@ public class CsvResultElement extends SrsSearchResultElement {
 	/**
 	 * Convert the data in this result element to a line for a CSV file.
 	 * @param valueDelimiter the character to use as the value delimiter (will
-	 *            be escaped with itself if occuring in value)
+	 *            be escaped with itself if occurring in value)
 	 * @param keys an array containing the keys whose values to include
 	 * @return a String concatenated from the values of the specified keys, in
 	 *         the order of the keys

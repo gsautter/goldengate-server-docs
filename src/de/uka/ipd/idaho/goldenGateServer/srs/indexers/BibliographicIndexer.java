@@ -31,6 +31,8 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.sql.SQLException;
+import java.util.Iterator;
+import java.util.TreeMap;
 
 import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
@@ -65,6 +67,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	private static final String EXT_ID_TYPE_ATTRIBUTE = "extIdType";
 	
 	private static final String BIB_INDEX_TABLE_NAME = "BibMetaDataIndex";
+	private static final String BIB_ID_INDEX_TABLE_NAME = "BibIdentifierIndex";
 	
 	private static final GPath authorPath = new GPath("//mods:name[.//mods:roleTerm = 'Author']/mods:namePart");
 	
@@ -90,7 +93,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		return "BibMetaData";
 	}
 	
-	/** @see de.goldenGateSrs.AbstractIndexer#init()
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.AbstractGoldenGateSrsPlugin#init()
 	 */
 	public void init() {
 		
@@ -100,22 +104,29 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			throw new RuntimeException("MODS Document Indexer cannot work without database access.");
 		
 		//	assemble index definition
-		TableDefinition td = new TableDefinition(BIB_INDEX_TABLE_NAME);
-		td.addColumn(DOC_NUMBER_COLUMN);
-		td.addColumn(EXT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, EXT_ID_LENGTH);
-		td.addColumn(EXT_ID_TYPE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, EXT_ID_TYPE_LENGTH);
-		td.addColumn(DOCUMENT_AUTHOR_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, AUTHOR_LENGTH);
-		td.addColumn(DOCUMENT_AUTHOR_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, AUTHOR_LENGTH);
-		td.addColumn(DOCUMENT_DATE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, DATE_LENGTH);
-		td.addColumn(DOCUMENT_DATE_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, DATE_LENGTH);
-		td.addColumn(DOCUMENT_TITLE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, TITLE_LENGTH);
-		td.addColumn(DOCUMENT_TITLE_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, TITLE_LENGTH);
-		td.addColumn(DOCUMENT_ORIGIN_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, ORIGIN_LENGTH);
-		td.addColumn(DOCUMENT_ORIGIN_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, ORIGIN_LENGTH);
-		td.addColumn(PAGE_NUMBER_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
-		td.addColumn(LAST_PAGE_NUMBER_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
-		if (!this.io.ensureTable(td, true))
-			throw new RuntimeException("MODS Document Indexer cannot work without database access.");
+		TableDefinition dtd = new TableDefinition(BIB_INDEX_TABLE_NAME);
+		dtd.addColumn(DOC_NUMBER_COLUMN);
+		dtd.addColumn(EXT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, EXT_ID_LENGTH);
+		dtd.addColumn(EXT_ID_TYPE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, EXT_ID_TYPE_LENGTH);
+		dtd.addColumn(DOCUMENT_AUTHOR_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, AUTHOR_LENGTH);
+		dtd.addColumn(DOCUMENT_AUTHOR_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, AUTHOR_LENGTH);
+		dtd.addColumn(DOCUMENT_DATE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, DATE_LENGTH);
+		dtd.addColumn(DOCUMENT_DATE_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, DATE_LENGTH);
+		dtd.addColumn(DOCUMENT_TITLE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, TITLE_LENGTH);
+		dtd.addColumn(DOCUMENT_TITLE_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, TITLE_LENGTH);
+		dtd.addColumn(DOCUMENT_ORIGIN_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, ORIGIN_LENGTH);
+		dtd.addColumn(DOCUMENT_ORIGIN_ATTRIBUTE + "Search", TableDefinition.VARCHAR_DATATYPE, ORIGIN_LENGTH);
+		dtd.addColumn(PAGE_NUMBER_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
+		dtd.addColumn(LAST_PAGE_NUMBER_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
+		if (!this.io.ensureTable(dtd, true))
+			throw new RuntimeException("Bibliographic Indexer cannot work without database access.");
+		
+		TableDefinition idtd = new TableDefinition(BIB_ID_INDEX_TABLE_NAME);
+		idtd.addColumn(DOC_NUMBER_COLUMN);
+		idtd.addColumn(EXT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, EXT_ID_LENGTH);
+		idtd.addColumn(EXT_ID_TYPE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, EXT_ID_TYPE_LENGTH);
+		if (!this.io.ensureTable(idtd, true))
+			throw new RuntimeException("Bibliographic Indexer cannot work without database access.");
 		
 		//	create database indexes
 		this.io.indexColumn(BIB_INDEX_TABLE_NAME, DOC_NUMBER_COLUMN_NAME);
@@ -123,6 +134,9 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		this.io.indexColumn(BIB_INDEX_TABLE_NAME, (DOCUMENT_DATE_ATTRIBUTE + "Search"));
 		this.io.indexColumn(BIB_INDEX_TABLE_NAME, PAGE_NUMBER_ATTRIBUTE);
 		this.io.indexColumn(BIB_INDEX_TABLE_NAME, LAST_PAGE_NUMBER_ATTRIBUTE);
+		
+		this.io.indexColumn(BIB_ID_INDEX_TABLE_NAME, DOC_NUMBER_COLUMN_NAME);
+		this.io.indexColumn(BIB_ID_INDEX_TABLE_NAME, EXT_ID_ATTRIBUTE);
 		//	no use indexing author, title, and origin, queried with leading wildcards right now
 		//	TODO modify table so indexes can be used
 		
@@ -151,7 +165,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		this.io.close();
 	}
 	
-	/** @see de.goldenGateSrs.Indexer#processQuery(de.goldenGateSrs.Query)
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#processQuery(de.uka.ipd.idaho.goldenGateServer.srs.Query)
 	 */
 	public QueryResult processQuery(Query query) {
 		
@@ -172,11 +187,11 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			}
 			ids.removeDuplicateElements();
 		}
-		String author = prepareSearchString(query.getValue(DOCUMENT_AUTHOR_ATTRIBUTE, "").trim().toLowerCase());
-		String date = query.getValue(DOCUMENT_DATE_ATTRIBUTE, "").trim().toLowerCase();
-		String title = prepareSearchString(query.getValue(DOCUMENT_TITLE_ATTRIBUTE, "").trim().toLowerCase());
-		String origin = prepareSearchString(query.getValue(DOCUMENT_ORIGIN_ATTRIBUTE, "").trim().toLowerCase());
-		String partDes = query.getValue(PART_DESIGNATOR_ANNOTATION_TYPE, "").trim().toLowerCase();
+		String author = prepareSearchString(query.getValue(DOCUMENT_AUTHOR_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", ""));
+		String date = query.getValue(DOCUMENT_DATE_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", "");
+		String title = prepareSearchString(query.getValue(DOCUMENT_TITLE_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", ""));
+		String origin = prepareSearchString(query.getValue(DOCUMENT_ORIGIN_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", ""));
+		String partDes = query.getValue(PART_DESIGNATOR_ANNOTATION_TYPE, "").trim().toLowerCase().replaceAll("\\p{Punct}", "");
 		if (partDes.length() != 0) {
 			if (origin.length() == 0)
 				origin = ("" + partDes);
@@ -199,26 +214,28 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		
 		//	assemble search predicate
 		String where = "1=1";
-		if (ids.isEmpty()) {
-			if (id.length() != 0)
-				where += (" AND " + EXT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(id) + "'");
+		if (id.length() != 0) {
+			if (ids.isEmpty())
+				where += (" AND i." + EXT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(id) + "'");
+			else where += (" AND i." + EXT_ID_ATTRIBUTE + " IN ('" + ids.concatStrings("', '") + "')");
+			where += (" AND d." + DOC_NUMBER_COLUMN_NAME + " = i." + DOC_NUMBER_COLUMN_NAME + "");
 		}
-		else where += (" AND " + EXT_ID_ATTRIBUTE + " IN ('" + ids.concatStrings("', '") + "')");
 		if (author.length() != 0)
-			where += (" AND " + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
+			where += (" AND d." + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
 		if (date.length() != 0)
-			where += (" AND " + DOCUMENT_DATE_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(date) + "'");
+			where += (" AND d." + DOCUMENT_DATE_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(date) + "'");
 		if (title.length() != 0)
-			where += (" AND " + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
+			where += (" AND d." + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
 		if (origin.length() != 0)
-			where += (" AND " + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
+			where += (" AND d." + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
 		if (page.length() != 0)
-			where += (" AND (" + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND " + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
+			where += (" AND (d." + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND d." + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
 		
 		//	assemble query
-		String queryString = ("SELECT DISTINCT " + DOC_NUMBER_COLUMN_NAME + 
-				" FROM " + BIB_INDEX_TABLE_NAME + 
-				" WHERE " + where + ";");
+		String queryString = ("SELECT DISTINCT d." + DOC_NUMBER_COLUMN_NAME + 
+				" FROM " + BIB_INDEX_TABLE_NAME + " d" + ((id.length() == 0) ? "" : (", " + BIB_ID_INDEX_TABLE_NAME + " i")) +
+				" WHERE " + where + 
+				";");
 		
 		SqlQueryResult sqr = null;
 		try {
@@ -227,7 +244,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			QueryResult result = new QueryResult();
 			while (sqr.next()) {
 				String docNr = sqr.getString(0);
-				result.addResultElement(new QueryResultElement(Integer.parseInt(docNr), 1.0));
+				result.addResultElement(new QueryResultElement(Long.parseLong(docNr), 1.0));
 			}
 			
 			return result;
@@ -243,7 +260,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		}
 	}
 	
-	/** @see de.goldenGateSrs.AbstractIndexer#markSearchables(de.gamta.MutableAnnotation)
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.AbstractIndexer#markSearchables(de.uka.ipd.idaho.gamta.MutableAnnotation)
 	 */
 	public void markSearchables(MutableAnnotation doc) {
 		
@@ -294,7 +312,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.goldenGateSrs.Indexer#addSearchAttributes(de.gamta.Annotation)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#addSearchAttributes(de.uka.ipd.idaho.gamta.Annotation)
 	 */
 	public void addSearchAttributes(Annotation annotation) {
 		
@@ -309,9 +327,9 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, int[], boolean)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, long[], boolean)
 	 */
-	public IndexResult getIndexEntries(Query query, int[] docNumbers, boolean sort) {
+	public IndexResult getIndexEntries(Query query, long[] docNumbers, boolean sort) {
 		StringVector docNrs = new StringVector();
 		for (int n = 0; n < docNumbers.length; n++)
 			docNrs.addElementIgnoreDuplicates("" + docNumbers[n]);
@@ -349,7 +367,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 				
 				//	needs special handling because external ID is not in column list
 				protected IndexResultElement decodeResultElement(String[] elementData) {
-					IndexResultElement ire = new IndexResultElement(Integer.parseInt(elementData[0]), this.entryType, ((elementData[1] == null) ? "" : elementData[1]));
+					IndexResultElement ire = new IndexResultElement(Long.parseLong(elementData[0]), this.entryType, ((elementData[1] == null) ? "" : elementData[1]));
 					
 					if (elementData.length > 1)
 						ire.setAttribute(EXT_ID_ATTRIBUTE, elementData[1]);
@@ -366,8 +384,6 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		catch (SQLException sqle) {
 			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting index entries.");
 			System.out.println("  Query was " + sqlQuery.toString());
-			if (sqr != null)
-				sqr.close();
 			return null;
 		}
 	}
@@ -378,17 +394,33 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		}
 	}
 	
-	/** @see de.goldenGateSrs.Indexer#doThesaurusLookup(de.goldenGateSrs.Query)
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#doThesaurusLookup(de.uka.ipd.idaho.goldenGateServer.srs.Query)
 	 */
 	public ThesaurusResult doThesaurusLookup(Query query) {
 		
 		//	get data
 		String id = query.getValue(EXT_ID_ATTRIBUTE, "").trim();
-		String author = prepareSearchString(query.getValue(DOCUMENT_AUTHOR_ATTRIBUTE, "").trim().toLowerCase());
-		String date = query.getValue(DOCUMENT_DATE_ATTRIBUTE, "").trim().toLowerCase();
-		String title = prepareSearchString(query.getValue(DOCUMENT_TITLE_ATTRIBUTE, "").trim().toLowerCase());
-		String origin = prepareSearchString(query.getValue(DOCUMENT_ORIGIN_ATTRIBUTE, "").trim().toLowerCase());
-		String partDes = query.getValue(PART_DESIGNATOR_ANNOTATION_TYPE, "").trim().toLowerCase();
+		StringVector ids = new StringVector();
+		if (id.indexOf(',') == -1) {
+			if (id.length() > EXT_ID_LENGTH)
+				id = id.substring(0, EXT_ID_LENGTH);
+		}
+		else {
+			ids.parseAndAddElements(id, ",");
+			for (int i = 0; i < ids.size(); i++) {
+				id = ids.get(i).trim();
+				if (id.length() > EXT_ID_LENGTH)
+					id = id.substring(0, EXT_ID_LENGTH);
+				ids.setElementAt(EasyIO.sqlEscape(id), i);
+			}
+			ids.removeDuplicateElements();
+		}
+		String author = prepareSearchString(query.getValue(DOCUMENT_AUTHOR_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", ""));
+		String date = query.getValue(DOCUMENT_DATE_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", "");
+		String title = prepareSearchString(query.getValue(DOCUMENT_TITLE_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", ""));
+		String origin = prepareSearchString(query.getValue(DOCUMENT_ORIGIN_ATTRIBUTE, "").trim().toLowerCase().replaceAll("\\p{Punct}", ""));
+		String partDes = query.getValue(PART_DESIGNATOR_ANNOTATION_TYPE, "").trim().toLowerCase().replaceAll("\\p{Punct}", "");
 		if (partDes.length() != 0) {
 			if (origin.length() == 0)
 				origin = ("" + partDes);
@@ -411,23 +443,28 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		
 		//	assemble predicates
 		String where = "1=1";
-		if (id.length() != 0)
-			where += (" AND " + EXT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(id) + "'");
+		if (id.length() != 0) {
+			if (ids.isEmpty())
+				where += (" AND i." + EXT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(id) + "'");
+			else where += (" AND i." + EXT_ID_ATTRIBUTE + " IN ('" + ids.concatStrings("', '") + "')");
+			where += (" AND d." + DOC_NUMBER_COLUMN_NAME + " = i." + DOC_NUMBER_COLUMN_NAME + "");
+		}
 		if (author.length() != 0)
-			where += (" AND " + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
+			where += (" AND d." + DOCUMENT_AUTHOR_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(author) + "%'");
 		if (date.length() != 0)
-			where += (" AND " + DOCUMENT_DATE_ATTRIBUTE + "Search" + " LIKE '" + EasyIO.sqlEscape(date) + "'");
+			where += (" AND d." + DOCUMENT_DATE_ATTRIBUTE + "Search" + " LIKE '" + EasyIO.sqlEscape(date) + "'");
 		if (title.length() != 0)
-			where += (" AND " + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
+			where += (" AND d." + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
 		if (origin.length() != 0)
-			where += (" AND " + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
+			where += (" AND d." + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
 		if (page.length() != 0)
-			where += (" AND (" + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND " + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
+			where += (" AND (d." + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND d." + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
 		
 		//	check if query given
 		if (where.length() < 4) return null;
 		
-		String[] columns = {EXT_ID_ATTRIBUTE, 
+		String[] columns = {
+				EXT_ID_ATTRIBUTE,
 				EXT_ID_TYPE_ATTRIBUTE,
 				DOCUMENT_AUTHOR_ATTRIBUTE,
 				DOCUMENT_DATE_ATTRIBUTE,
@@ -435,14 +472,14 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 				DOCUMENT_ORIGIN_ATTRIBUTE,
 				PAGE_NUMBER_ATTRIBUTE,
 				LAST_PAGE_NUMBER_ATTRIBUTE
-				};
+			};
 		
 		StringBuffer sqlQuery = new StringBuffer("SELECT DISTINCT ");
 		for (int c = 0; c < columns.length; c++) {
 			if (c != 0) sqlQuery.append(", ");
-			sqlQuery.append(columns[c]);
+			sqlQuery.append("d." + columns[c]);
 		}
-		sqlQuery.append(" FROM " + BIB_INDEX_TABLE_NAME); 
+		sqlQuery.append(" FROM " + BIB_INDEX_TABLE_NAME + " d" + ((id.length() == 0) ? "" : (", " + BIB_ID_INDEX_TABLE_NAME + " i"))); 
 		sqlQuery.append(" WHERE " + where + ";");
 		
 		try {
@@ -462,13 +499,14 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.goldenGateScf.srs.Indexer#index(de.gamta.QueriableAnnotation, int)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#index(de.uka.ipd.idaho.gamta.QueriableAnnotation, long)
 	 */
-	public void index(QueriableAnnotation doc, int docNr) {
+	public void index(QueriableAnnotation doc, long docNr) {
 		
 		//	what do we want to index?
 		String extId;
 		String extIdType;
+		TreeMap extIdsByType = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 		String author;
 		String date;
 		String title;
@@ -491,6 +529,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		if (ref == null) {
 			extId = doc.getAttribute(EXT_ID_ATTRIBUTE, "").toString().trim();
 			extIdType = doc.getAttribute(EXT_ID_TYPE_ATTRIBUTE, "").toString().trim();
+			if ((extId.length() != 0) || (extIdType.length() != 0))
+				extIdsByType.put(extIdType, extId);
 			author = doc.getAttribute(DOCUMENT_AUTHOR_ATTRIBUTE, "").toString().trim();
 			date = doc.getAttribute(DOCUMENT_DATE_ATTRIBUTE, "").toString().trim();
 			title = doc.getAttribute(DOCUMENT_TITLE_ATTRIBUTE, "").toString().trim();
@@ -506,6 +546,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			String[] idTypes = ref.getIdentifierTypes();
 			int idPriority = Integer.MAX_VALUE;
 			for (int i = 0; i < idTypes.length; i++) {
+				extIdsByType.put(idTypes[i], ref.getIdentifier(idTypes[i]));
 				int idp = this.idTypeString.indexOf(idTypes[i].toLowerCase());
 				if (idp == -1)
 					continue;
@@ -567,7 +608,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		values.append(", '" + EasyIO.sqlEscape(author) + "'");
 		
 		columns.append(", " + DOCUMENT_AUTHOR_ATTRIBUTE + "Search");
-		String sAuthor = prepareSearchString(author.toLowerCase());
+		String sAuthor = prepareSearchString(author.trim().toLowerCase().replaceAll("\\p{Punct}", ""));
 		if (sAuthor.length() > AUTHOR_LENGTH)
 			sAuthor = sAuthor.substring(0, AUTHOR_LENGTH);
 		values.append(", '" + EasyIO.sqlEscape(sAuthor) + "'");
@@ -576,7 +617,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		values.append(", '" + EasyIO.sqlEscape(date) + "'");
 		
 		columns.append(", " + DOCUMENT_DATE_ATTRIBUTE + "Search");
-		String sDate = prepareSearchString(date.toLowerCase());
+		String sDate = prepareSearchString(date.trim().toLowerCase().replaceAll("\\p{Punct}", ""));
 		if (sDate.length() > DATE_LENGTH)
 			sDate = sDate.substring(0, DATE_LENGTH);
 		values.append(", '" + EasyIO.sqlEscape(sDate) + "'");
@@ -585,7 +626,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		values.append(", '" + EasyIO.sqlEscape(title) + "'");
 		
 		columns.append(", " + DOCUMENT_TITLE_ATTRIBUTE + "Search");
-		String sTitle = prepareSearchString(title.toLowerCase());
+		String sTitle = prepareSearchString(title.trim().toLowerCase().replaceAll("\\p{Punct}", ""));
 		if (sTitle.length() > TITLE_LENGTH)
 			sTitle = sTitle.substring(0, TITLE_LENGTH);
 		values.append(", '" + EasyIO.sqlEscape(sTitle) + "'");
@@ -594,7 +635,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		values.append(", '" + EasyIO.sqlEscape(origin) + "'");
 		
 		columns.append(", " + DOCUMENT_ORIGIN_ATTRIBUTE + "Search");
-		String sOrigin = prepareSearchString(origin.toLowerCase());
+		String sOrigin = prepareSearchString(origin.trim().toLowerCase().replaceAll("\\p{Punct}", ""));
 		if (sOrigin.length() > ORIGIN_LENGTH)
 			sOrigin = sOrigin.substring(0, ORIGIN_LENGTH);
 		values.append(", '" + EasyIO.sqlEscape(sOrigin) + "'");
@@ -614,57 +655,82 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
 			System.out.println("  Query was " + query);
 		}
+		
+		//	index external IDs
+		for (Iterator idtit = extIdsByType.keySet().iterator(); idtit.hasNext();) {
+			extIdType = ((String) idtit.next());
+			this.indexExtId(((String) extIdsByType.get(extIdType)), extIdType, docNr);
+		}
 	}
 	
-	/** @see de.goldenGateSrs.Indexer#deleteDocument(java.lang.String)
-	 */
-	public void deleteDocument(int docNr) {
-		String query = ("DELETE FROM " + BIB_INDEX_TABLE_NAME + " WHERE " + DOC_NUMBER_COLUMN_NAME + "=" + docNr + ";");
+	private void indexExtId(String extId, String extIdType, long docNr) {
+		if (extId.length() > EXT_ID_LENGTH)
+			extId = extId.substring(0, EXT_ID_LENGTH);
+		if (extIdType.length() > EXT_ID_TYPE_LENGTH)
+			extIdType = extIdType.substring(0, EXT_ID_TYPE_LENGTH);
+		
+		//	start column strings
+		StringBuffer columns = new StringBuffer(DOC_NUMBER_COLUMN_NAME);
+		StringBuffer values = new StringBuffer("" + docNr);
+		
+		//	add attributes
+		columns.append(", " + EXT_ID_ATTRIBUTE);
+		values.append(", '" + EasyIO.sqlEscape(extId) + "'");
+		columns.append(", " + EXT_ID_TYPE_ATTRIBUTE);
+		values.append(", '" + EasyIO.sqlEscape(extIdType) + "'");
+		
+		//	write index table entry
+		String query = ("INSERT INTO " + BIB_ID_INDEX_TABLE_NAME + " (" + columns + ") VALUES (" + values + ");");
 		try {
 			this.io.executeUpdateQuery(query);
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
 			System.out.println("  Query was " + query);
 		}
 	}
 	
-	/** @see de.goldenGateSrs.AbstractIndexer#getFieldGroup()
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#deleteDocument(long)
+	 */
+	public void deleteDocument(long docNr) {
+		String dataQuery = ("DELETE FROM " + BIB_INDEX_TABLE_NAME + " WHERE " + DOC_NUMBER_COLUMN_NAME + "=" + docNr + ";");
+		try {
+			this.io.executeUpdateQuery(dataQuery);
+		}
+		catch (SQLException sqle) {
+			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			System.out.println("  Query was " + dataQuery);
+		}
+		String idQuery = ("DELETE FROM " + BIB_ID_INDEX_TABLE_NAME + " WHERE " + DOC_NUMBER_COLUMN_NAME + "=" + docNr + ";");
+		try {
+			this.io.executeUpdateQuery(idQuery);
+		}
+		catch (SQLException sqle) {
+			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			System.out.println("  Query was " + idQuery);
+		}
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.AbstractIndexer#getFieldGroup()
 	 */
 	protected SearchFieldGroup getFieldGroup() {
 		SearchFieldRow localRow = new SearchFieldRow();
-		localRow.addField(new SearchField(DOCUMENT_AUTHOR_ATTRIBUTE, "Author"));
-		localRow.addField(new SearchField(DOCUMENT_DATE_ATTRIBUTE, "Year"));
-		localRow.addField(new SearchField(DOCUMENT_TITLE_ATTRIBUTE, "Title", 3));
+		localRow.addField(new SearchField(DOCUMENT_AUTHOR_ATTRIBUTE, "Author", "Document Author"));
+		localRow.addField(new SearchField(DOCUMENT_DATE_ATTRIBUTE, "Year", "Year of Publication"));
+		localRow.addField(new SearchField(DOCUMENT_TITLE_ATTRIBUTE, "Title", "Document Title", 3));
 		
 		SearchFieldRow metaRow = new SearchFieldRow();
-		metaRow.addField(new SearchField(DOCUMENT_ORIGIN_ATTRIBUTE, "Journal / Publisher", 2));
-		metaRow.addField(new SearchField(PART_DESIGNATOR_ANNOTATION_TYPE, "Volume / Issue", 1));
-		metaRow.addField(new SearchField(PAGE_NUMBER_ATTRIBUTE, "Page"));
-		metaRow.addField(new SearchField(EXT_ID_ATTRIBUTE, "Identifier"));
+		metaRow.addField(new SearchField(DOCUMENT_ORIGIN_ATTRIBUTE, "Journal / Publisher", "Name of Journal for Articles, Name of Publisher for Books and Book Chapters", 2));
+		metaRow.addField(new SearchField(PART_DESIGNATOR_ANNOTATION_TYPE, "Volume / Issue", "Volume or Issue Number of Journals", 1));
+		metaRow.addField(new SearchField(PAGE_NUMBER_ATTRIBUTE, "Page", "Page Number"));
+		metaRow.addField(new SearchField(EXT_ID_ATTRIBUTE, "Identifier", "External Identifier, e.g. DOI, Handle, or ISBN"));
 		
-		SearchFieldGroup sfg = new SearchFieldGroup(this.getIndexName(), "Bibliographic Metadata Index", "Use these fields to search the bibliographic meta data index.", "Reference");
+		SearchFieldGroup sfg = new SearchFieldGroup(this.getIndexName(), "Bibliographic Metadata Index", "Use these fields to search the bibliographic meta data index.", "Bibliographic Reference");
 		sfg.addFieldRow(localRow);
 		sfg.addFieldRow(metaRow);
 		
 		return sfg;
-	}
-	
-	/** @see de.goldenGateSrs.Indexer#isQuoted(java.lang.String)
-	 */
-	public boolean isQuoted(String fieldName) {
-		return (!PAGE_NUMBER_ATTRIBUTE.equals(fieldName) && !LAST_PAGE_NUMBER_ATTRIBUTE.equals(fieldName));
-	}
-	
-	/** @see de.goldenGateSrs.Indexer#getLength(java.lang.String)
-	 */
-	public int getLength(String fieldName) {
-		if (EXT_ID_ATTRIBUTE.equals(fieldName)) return EXT_ID_LENGTH;
-		else if (EXT_ID_TYPE_ATTRIBUTE.equals(fieldName)) return EXT_ID_TYPE_LENGTH;
-		else if (DOCUMENT_TITLE_ATTRIBUTE.equals(fieldName)) return TITLE_LENGTH;
-		else if (DOCUMENT_AUTHOR_ATTRIBUTE.equals(fieldName)) return AUTHOR_LENGTH;
-		else if (DOCUMENT_DATE_ATTRIBUTE.equals(fieldName)) return DATE_LENGTH;
-		else if (DOCUMENT_ORIGIN_ATTRIBUTE.equals(fieldName)) return ORIGIN_LENGTH;
-		else return 0;
 	}
 }

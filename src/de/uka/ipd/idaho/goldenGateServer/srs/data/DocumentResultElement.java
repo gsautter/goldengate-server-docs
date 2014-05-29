@@ -52,9 +52,9 @@ public class DocumentResultElement extends IndexResultElement implements GoldenG
 	 * @param	docNr		the number of the document
 	 * @param	documentId	the document ID
 	 * @param	relevance	the relevance of this document for a query
-	 * @param	document	the document itself (may be null if search was only for metadata)
+	 * @param	document	the document itself (may be null if search was only for meta data)
 	 */
-	public DocumentResultElement(int docNr, String documentId, double relevance, DocumentRoot document) {
+	public DocumentResultElement(long docNr, String documentId, double relevance, DocumentRoot document) {
 		super(docNr, DocumentRoot.DOCUMENT_TYPE, "");
 		this.documentId = documentId;
 		this.relevance = relevance;

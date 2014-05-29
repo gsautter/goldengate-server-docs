@@ -82,7 +82,13 @@ public abstract class IndexResult extends SrsSearchResult {
 					IndexResultElement ire1 = ((IndexResultElement) o1);
 					IndexResultElement ire2 = ((IndexResultElement) o2);
 					int c = ire1.getSortString(resultAttributes).compareTo(ire2.getSortString(resultAttributes));
-					return ((c == 0) ? (ire1.docNr - ire2.docNr) : c);
+					if (c != 0)
+						return c;
+					if (ire1.docNr == ire2.docNr)
+						return 0;
+					else if (ire1.docNr < ire2.docNr)
+						return -1;
+					else return 1;
 				}
 			};
 		return this.sortOrder;
@@ -248,7 +254,7 @@ public abstract class IndexResult extends SrsSearchResult {
 					if (grammar.isSingularTag(token)) {
 						TreeNodeAttributeSet sreTnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						String docNr = sreTnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
-						IndexResultElement subIre = new IndexResultElement(Integer.parseInt(docNr), tokenType, "");
+						IndexResultElement subIre = new IndexResultElement(Long.parseLong(docNr), tokenType, "");
 						String[] attributeNames = sreTnas.getAttributeNames();
 						for (int a = 0; a < attributeNames.length; a++) {
 							String attributeValue = sreTnas.getAttribute(attributeNames[a]);
@@ -264,7 +270,7 @@ public abstract class IndexResult extends SrsSearchResult {
 						//	store element if data complete
 						if ((reSubResult != null) && (sreType != null) && (sreAttributes != null) && (sreValue != null)) {
 							String docNr = sreAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
-							IndexResultElement subIre = new IndexResultElement(Integer.parseInt(docNr), sreType, sreValue);
+							IndexResultElement subIre = new IndexResultElement(Long.parseLong(docNr), sreType, sreValue);
 							String[] attributeNames = sreAttributes.getAttributeNames();
 							for (int a = 0; a < attributeNames.length; a++) {
 								String attributeValue = sreAttributes.getAttribute(attributeNames[a]);
@@ -298,7 +304,7 @@ public abstract class IndexResult extends SrsSearchResult {
 						
 						//	create result element
 						String docNr = reTnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
-						ire = new IndexResultElement(Integer.parseInt(docNr), tokenType, "");
+						ire = new IndexResultElement(Long.parseLong(docNr), tokenType, "");
 						
 						//	add attributes
 						String[] attributeNames = reTnas.getAttributeNames();
@@ -316,7 +322,7 @@ public abstract class IndexResult extends SrsSearchResult {
 							
 							//	create main result element
 							String docNr = reAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
-							ire = new IndexResultElement(Integer.parseInt(docNr), reType, reValue);
+							ire = new IndexResultElement(Long.parseLong(docNr), reType, reValue);
 							
 							//	add attributes
 							String[] attributeNames = reAttributes.getAttributeNames();
