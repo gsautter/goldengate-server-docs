@@ -46,7 +46,9 @@ import de.uka.ipd.idaho.gamta.util.gPath.GPath;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathExpression;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathParser;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathVariableResolver;
+import de.uka.ipd.idaho.gamta.util.gPath.exceptions.GPathException;
 import de.uka.ipd.idaho.gamta.util.gPath.exceptions.GPathSyntaxException;
+import de.uka.ipd.idaho.gamta.util.gPath.exceptions.VariableNotBoundException;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathNumber;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathString;
@@ -72,24 +74,57 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 	/** the command for compiling and retrieving a statistics */
 	public static final String GET_STATISTICS_COMMAND_SUFFIX = "_GET_STATISTICS";
 	
-	//	TODO document this, all !!!
-	
+	/**
+	 * A set of statistics fields, with the fields organized in groups. Every
+	 * GoldenGATE DCS instance works on exactly one field set, which defines
+	 * the whole of the statistics gathered by that instance
+	 * 
+	 * @author sautter
+	 */
 	public static class StatFieldSet {
+		
+		/** the label of the field set as a whole */
 		public final String label;
+		
+		/** a custom label for the built-in DocCount field */
 		public final String docCountLabel;
+		
 		private LinkedList variables = new LinkedList();
 		private LinkedList fieldGroups = new LinkedList();
 		StatFieldSet(String label, String docCountLabel) {
 			this.label = label;
 			this.docCountLabel = ((docCountLabel == null) ? "Number of Documents" : docCountLabel);
 		}
+		
+		/**
+		 * Retrieve the variables defined for the field set. Variables select
+		 * node sets that can be referenced by data selectors for statistics
+		 * fields. This is a means of caching the result of path expressions.
+		 * @return an array holding the variables
+		 */
 		public StatVariable[] getVariables() {
 			return ((StatVariable[]) this.variables.toArray(new StatVariable[this.variables.size()]));
 		}
+		
+		/**
+		 * Retrieve the field groups of the field set. Field groups bundle
+		 * related fields, with each field group residing in its own database
+		 * table.
+		 * @return an array holding the field groups
+		 */
 		public StatFieldGroup[] getFieldGroups() {
 			return ((StatFieldGroup[]) this.fieldGroups.toArray(new StatFieldGroup[this.fieldGroups.size()]));
 		}
-		public void writeXml(BufferedWriter bw) throws IOException {
+		
+		/**
+		 * Serialize the field set as XML. If the argument writer is not a
+		 * <code>BufferedWriter</code>, this method wraps it in one, and calls
+		 * its <code>flush()</code> method before returning.
+		 * @param out the writer to write to
+		 * @throws IOException
+		 */
+		public void writeXml(Writer out) throws IOException {
+			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 			bw.write("<fieldSet" +
 					" label=\"" + StatFieldSet.grammar.escape(this.label) + "\"" +
 					" docCountLabel=\"" + StatFieldSet.grammar.escape(this.docCountLabel) + "\"" +
@@ -101,7 +136,16 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 				((StatFieldGroup) fgit.next()).writeXml(bw);
 			bw.write("</fieldSet>");
 			bw.newLine();
+			if (bw != out)
+				bw.flush();
 		}
+		
+		/**
+		 * De-serialize a field set from its XML representation.
+		 * @param fsr the reader to read from
+		 * @return the de-serialized field set
+		 * @throws IOException
+		 */
 		public static StatFieldSet readFieldSet(Reader fsr) throws IOException {
 			if (!(fsr instanceof BufferedReader))
 				fsr = new BufferedReader(fsr);
@@ -227,20 +271,48 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		public static final Parser parser = new Parser(grammar);
 	}
 	
+	/**
+	 * A group of related fields in a statistics, e.g. the author, year, and
+	 * title of a document. Each field group resides in its own database table
+	 * in the server component.
+	 * 
+	 * @author sautter
+	 */
 	public static class StatFieldGroup {
+		
+		/** the name of the field group (has to consist of letters only, no spaces, and must not be an SQL key word; has to be unique within a field set) */
 		public final String name;
+		
+		/** the label of the field group, i.e., a nice name for use in a UI */
 		public final String label;
+		
+		/** the default context of the field group, i.e., a selector for the document annotations to to extract data values from */
 		public final GPath defContext;
+		
 		private LinkedList fields = new LinkedList();
 		StatFieldGroup(String name, String label, GPath defContext) {
 			this.name = name;
 			this.label = ((label == null) ? name : label);
 			this.defContext = defContext;
 		}
+		
+		/**
+		 * Retrieve the fields of the group.
+		 * @return an array holding the fields
+		 */
 		public StatField[] getFields() {
 			return ((StatField[]) this.fields.toArray(new StatField[this.fields.size()]));
 		}
-		public void writeXml(BufferedWriter bw) throws IOException {
+		
+		/**
+		 * Serialize the field group as XML. If the argument writer is not a
+		 * <code>BufferedWriter</code>, this method wraps it in one, and calls
+		 * its <code>flush()</code> method before returning.
+		 * @param out the writer to write to
+		 * @throws IOException
+		 */
+		public void writeXml(Writer out) throws IOException {
+			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 			bw.write("<fieldGroup" +
 					" name=\"" + StatFieldSet.grammar.escape(this.name) + "\"" +
 					" label=\"" + StatFieldSet.grammar.escape(this.label) + "\"" +
@@ -251,9 +323,19 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 				((StatField) fit.next()).writeXml(bw);
 			bw.write("</fieldGroup>");
 			bw.newLine();
+			if (bw != out)
+				bw.flush();
 		}
 	}
 	
+	/**
+	 * An individual statistics field, representing a single value. The value
+	 * is extracted from documents by means of XPath based selectors. The first
+	 * selector to return a non-false, non-0, non-empty value for a given
+	 * document determines the value of the field.
+	 * 
+	 * @author sautter
+	 */
 	public static class StatField {
 		static final boolean DEBUG = false;
 		
@@ -269,16 +351,35 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the type constant indicating a boolean field */
 		public static final String BOOLEAN_TYPE = "boolean";
 		
+		/** the field group the field belongs to */
 		public final StatFieldGroup group;
+		
+		/** the name of the field group (has to consist of letters only, no spaces, and must not be an SQL key word; has to be unique within a field group) */
 		public final String name;
+		
+		/** the full name of the field, i.e., <code>&lt;groupName&gt;.&lt;fieldName&gt;</code> */
 		public final String fullName;
+		
+		/** the label of the field group, i.e., a nice name for use in a UI */
 		public final String label;
+		
+		/** the data type of the field, one of <code>string</code>, <code>integer</code>, <code>real</code>, and <code>boolean</code> */
 		public final String dataType;
+		
+		/** the length of the field (relevant only if the data type is <code>string</code>) */
 		public final int dataLength;
+		
+		/** the default value */
 		public final GPathObject defValue;
+		
 		private LinkedList selectors = new LinkedList();
+		
+		/** the aggregation function to use by default (<code>count-distinct</code> for <code>string</code> fields, <code>sum</code> for <code>integer</code> and <code>real</code> fields) */
 		public final String defAggregate;
+		
+		/** the name of the field in a statistics (defaults to <code>&lt;groupName&gt;&lt;fieldName&gt;</code> if not specified) */
 		public final String statColName;
+		
 		StatField(StatFieldGroup fieldGroup, String name, String label, String dataType, int dataLength, GPathObject defValue, String defAggregate, String statColName) {
 			this.group = fieldGroup;
 			this.name = name;
@@ -290,9 +391,24 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			this.defAggregate = defAggregate;
 			this.statColName = ((statColName == null) ? (this.group.name.substring(0, 1).toUpperCase() + this.group.name.substring(1) + this.name.substring(0, 1).toUpperCase() + this.name.substring(1)) : statColName);
 		}
+		
+		/**
+		 * Extract the field value for a given document and context annotation.
+		 * The context annotation is one of those selected by the parent field
+		 * group's default context. This method iterates through the data
+		 * selectors defined for the field. It returns the first value that (1)
+		 * is non-empty for <code>string</code> fields and (2) is non-0 and not
+		 * <code>NaN</code> for <code>integer</code> and <code>real</code>
+		 * fields. If that is not the case for either of the data selectors,
+		 * this method returns the default value.
+		 * @param doc the whole document
+		 * @param context the context annotation
+		 * @param variables the field set variables
+		 * @return the value for the field
+		 */
 		public GPathObject getFieldValue(QueriableAnnotation doc, QueriableAnnotation context, GPathVariableResolver variables) {
 			if (DEBUG) System.out.println("Extracting field " + this.fullName);
-			for (Iterator sit = this.selectors.iterator(); sit.hasNext();) {
+			for (Iterator sit = this.selectors.iterator(); sit.hasNext();) try {
 				StatDataSelector sds = ((StatDataSelector) sit.next());
 				GPathObject sdsValue = sds.getFieldValue(doc, context, variables);
 				if ((sdsValue != null) && (BOOLEAN_TYPE.equals(this.dataType) || sdsValue.asBoolean().value) && ((!REAL_TYPE.equals(this.dataType) && !INTEGER_TYPE.equals(this.dataType)) || !"NaN".equals(sdsValue.asString().value))) {
@@ -300,10 +416,23 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 					return sdsValue;
 				}
 			}
+			catch (VariableNotBoundException vnbe) { /* we just ignore this one, as it can always happen at runtime */ }
+			catch (GPathException gpe) {
+				System.out.println("Exception extracting field '" + this.fullName + "': " + gpe.getMessage());
+			}
 			if (DEBUG) System.out.println(" =D=> " + this.defValue.toString() + " (" + this.defValue.asString().value + ")");
 			return this.defValue;
 		}
-		public void writeXml(BufferedWriter bw) throws IOException {
+		
+		/**
+		 * Serialize the field as XML. If the argument writer is not a
+		 * <code>BufferedWriter</code>, this method wraps it in one, and calls
+		 * its <code>flush()</code> method before returning.
+		 * @param out the writer to write to
+		 * @throws IOException
+		 */
+		public void writeXml(Writer out) throws IOException {
+			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 			bw.write("<field" +
 					" name=\"" + StatFieldSet.grammar.escape(this.name) + "\"" +
 					" label=\"" + StatFieldSet.grammar.escape(this.label) + "\"" +
@@ -318,18 +447,47 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 				((StatDataSelector) sit.next()).writeXml(bw);
 			bw.write("</field>");
 			bw.newLine();
+			if (bw != out)
+				bw.flush();
 		}
 	}
 	
+	/**
+	 * A statistics variable. Variables are populated at the start of data
+	 * extraction from a given document. They are then available to reference
+	 * in the data selectors associated with individual statistics fields.
+	 * This is a means of caching the results of sets of data selectors, most
+	 * useful for annotations that (1) can be in multiple different paths and
+	 * (b) are referenced in multiple field data selectors.
+	 * 
+	 * @author sautter
+	 */
 	public static class StatVariable {
+		
+		/** the name of the variable (has to consist of letters only, no spaces) */
 		public final String name;
+		
 		private LinkedList selectors = new LinkedList();
 		StatVariable(String name) {
 			this.name = (name.startsWith("$") ? name : ("$" + name));
 		}
+		
+		/**
+		 * Extract the variable value for a given document. The context
+		 * annotation is one of those selected by the parent field group's
+		 * default context. This method iterates through the data selectors
+		 * defined for the field. It returns the first value that (1) is
+		 * non-empty for <code>string</code> fields and (2) is non-0 and not
+		 * <code>NaN</code> for <code>integer</code> and <code>real</code>
+		 * fields. If that is not the case for either of the data selectors,
+		 * this method returns the default value.
+		 * @param doc the whole document
+		 * @param variables the field set variables defined so far
+		 * @return the value for the variable
+		 */
 		public GPathObject getValue(QueriableAnnotation doc, GPathVariableResolver variables) {
 			if (StatField.DEBUG) System.out.println("Extracting variable " + this.name);
-			for (Iterator sit = this.selectors.iterator(); sit.hasNext();) {
+			for (Iterator sit = this.selectors.iterator(); sit.hasNext();) try {
 				StatDataSelector sds = ((StatDataSelector) sit.next());
 				GPathObject sdsValue = sds.getFieldValue(doc, doc, variables);
 				if ((sdsValue != null) && sdsValue.asBoolean().value && !"NaN".equals(sdsValue.asString().value)) {
@@ -337,9 +495,22 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 					return sdsValue;
 				}
 			}
+			catch (VariableNotBoundException vnbe) { /* we just ignore this one, as it can always happen at runtime */ }
+			catch (GPathException gpe) {
+				System.out.println("Exception extracting variable '" + this.name + "': " + gpe.getMessage());
+			}
 			return null;
 		}
-		public void writeXml(BufferedWriter bw) throws IOException {
+		
+		/**
+		 * Serialize the variable as XML. If the argument writer is not a
+		 * <code>BufferedWriter</code>, this method wraps it in one, and calls
+		 * its <code>flush()</code> method before returning.
+		 * @param out the writer to write to
+		 * @throws IOException
+		 */
+		public void writeXml(Writer out) throws IOException {
+			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 			bw.write("<variable" +
 					" name=\"" + StatFieldSet.grammar.escape(this.name) + "\"" +
 					">");
@@ -348,18 +519,46 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 				((StatDataSelector) sit.next()).writeXml(bw);
 			bw.write("</variable>");
 			bw.newLine();
+			if (bw != out)
+				bw.flush();
 		}
 	}
 	
+	/**
+	 * A data selector, i.e., an individual XPath expression selecting some
+	 * data value from a document or subordinate annotation.
+	 * 
+	 * @author sautter
+	 */
 	public static class StatDataSelector {
+		
+		/** the extractor expression (if this actually is a path, put it in parentheses to make it an expression) */
 		public final GPathExpression extractor;
+		
+		/** a categorization value */
 		public final GPathString value;
+		
+		/** a custom context, overwriting the one of the field group a parent field belongs to */
 		public final GPath context;
+		
 		StatDataSelector(GPathExpression extractor, GPathString value, GPath context) {
 			this.extractor = extractor;
 			this.value = value;
 			this.context = context;
 		}
+		
+		/**
+		 * Extract a data value from a document or subordinate annotation. If
+		 * the data selector defines a custom context, this context is evaluated
+		 * first on the argument document, overwriting the argument context. If
+		 * the data selector has a value set, this value is returned instead of
+		 * the extracted one if the result of the extractor expression corresponds
+		 * to <code>true</code> in the semantics of XPath. 
+		 * @param doc the whole document
+		 * @param context the context to work on
+		 * @param variables the field set variables
+		 * @return the extracted value
+		 */
 		public GPathObject getFieldValue(QueriableAnnotation doc, QueriableAnnotation context, GPathVariableResolver variables) {
 			if (this.context != null) {
 				if (StatField.DEBUG) System.out.println(" - applying custom context " + this.context.toString());
@@ -376,13 +575,24 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 				return (value.asBoolean().value ? value : null);
 			else return (value.asBoolean().value ? this.value : null);
 		}
-		public void writeXml(BufferedWriter bw) throws IOException {
+		
+		/**
+		 * Serialize the data selector as XML. If the argument writer is not a
+		 * <code>BufferedWriter</code>, this method wraps it in one, and calls
+		 * its <code>flush()</code> method before returning.
+		 * @param out the writer to write to
+		 * @throws IOException
+		 */
+		public void writeXml(Writer out) throws IOException {
+			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 			bw.write("<selector" +
 					" extractor=\"" + StatFieldSet.grammar.escape(this.extractor.toString()) + "\"" +
 					((this.value == null) ? "" : (" value=\"" + StatFieldSet.grammar.escape(this.value.toString()) + "\"")) +
 					((this.context == null) ? "" : (" context=\"" + StatFieldSet.grammar.escape(this.context.toString()) + "\"")) +
 					"/>");
 			bw.newLine();
+			if (bw != out)
+				bw.flush();
 		}
 	}
 	
@@ -412,6 +622,17 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			String[] fields = new String[this.fields.length];
 			System.arraycopy(this.fields, 0, fields, 0, fields.length);
 			return fields;
+		}
+		
+		/* (non-Javadoc)
+		 * @see de.uka.ipd.idaho.stringUtils.csvHandler.StringRelation#renameKey(java.lang.String, java.lang.String)
+		 */
+		public void renameKey(String key, String newKey) {
+			super.renameKey(key, newKey);
+			for (int f = 0; f < this.fields.length; f++) {
+				if (key.equals(this.fields[f]))
+					this.fields[f] = newKey;
+			}
 		}
 		
 		/**

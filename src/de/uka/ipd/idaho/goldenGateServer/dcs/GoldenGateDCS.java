@@ -42,10 +42,14 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
@@ -84,6 +88,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	private Properties fieldGroupsToTables = new Properties();
 	private Properties fieldGroupsToTableAliases = new Properties();
 	
+	private TreeMap fieldGroupsByName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 	private TreeMap fieldsByFullName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 	
 	/**
@@ -112,6 +117,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			this.fieldSet = StatFieldSet.readFieldSet(new BufferedReader(new InputStreamReader(new FileInputStream(new File(this.dataPath, "fields.xml")))));
 			this.fieldGroups = this.fieldSet.getFieldGroups();
 			for (int g = 0; g < this.fieldGroups.length; g++) {
+				this.fieldGroupsByName.put(this.fieldGroups[g].name, this.fieldGroups[g]);
 				if ("doc".equals(this.fieldGroups[g].name))
 					this.docFieldGroup = this.fieldGroups[g];
 				StatField[] fgFields = this.fieldGroups[g].getFields();
@@ -184,13 +190,6 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			this.io.setForeignKey(stds[t].getTableName(), DOCUMENT_ID_ATTRIBUTE, dtd.getTableName(), DOCUMENT_ID_ATTRIBUTE);
 			this.io.setForeignKey(stds[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE, dtd.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
 		}
-		
-		/* TODO define fields in XML file
-		 * - assemble form dynamically as well
-		 * 
-		 * ==> embed field group and field classes, with on-board parsing methods, into constant interface
-		 * ==> add getFieldGroup() method to client class
-		 */
 	}
 	
 	/* (non-Javadoc)
@@ -249,7 +248,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 						String field = line.substring(0, line.indexOf("="));
 						String aggregate = URLDecoder.decode(line.substring(line.indexOf("=") + "=".length()), ENCODING);
 						if (";count;count-distinct;min;max;sum;avg;".indexOf(";" + aggregate.toLowerCase() + ";") != -1)
-							fieldPredicates.setProperty(field, aggregate);
+							fieldAggregates.setProperty(field, aggregate);
 					}
 					else if (line.startsWith("AP:")) {
 						line = line.substring("AP:".length()).trim();
@@ -303,7 +302,15 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	}
 	
 	private DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) {
-		StringBuffer outputFieldString = new StringBuffer("'' AS dummy, count(*) AS DocCount");
+		System.out.println(this.getExporterName() + ": processing query:");
+		System.out.println(" - output fields: " + Arrays.toString(outputFields));
+		System.out.println(" - grouping fields: " + Arrays.toString(groupingFields));
+		System.out.println(" - ordering fields: " + Arrays.toString(orderingFields));
+		System.out.println(" - field predicates: " + String.valueOf(fieldPredicates));
+		System.out.println(" - field aggregates: " + String.valueOf(fieldAggregates));
+		System.out.println(" - aggregate predicates: " + String.valueOf(aggregatePredicates));
+		
+		StringBuffer outputFieldString = new StringBuffer("'' AS dummy, count(DISTINCT " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE + ") AS DocCount");
 		HashSet outputFieldSet = new HashSet();
 		StringBuffer tableString = new StringBuffer(this.fieldGroupsToTables.getProperty("doc") + " " + this.fieldGroupsToTableAliases.getProperty("doc"));
 		HashSet tableSet = new HashSet();
@@ -377,78 +384,81 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		
 		//	assemble filter predicates
 		for (Iterator ffit = fieldPredicates.keySet().iterator(); ffit.hasNext();) {
-			StatField field = ((StatField) this.fieldsByFullName.get((String) ffit.next()));
+			String predicateTargetName = ((String) ffit.next());
+			
+			StatFieldGroup fieldGroup = ((StatFieldGroup) this.fieldGroupsByName.get(predicateTargetName));
+			if (fieldGroup != null) {
+				String predicateString = fieldPredicates.getProperty(fieldGroup.name);
+				if ((predicateString == null) || (predicateString.trim().length() == 0))
+					continue;
+				predicateString = predicateString.trim();
+				String[] predicateParts = predicateString.split("\\s+");
+				StatField[] fields = fieldGroup.getFields();
+				for (int p = 0; p < predicateParts.length; p++) {
+					int i = Integer.MIN_VALUE;
+					try {
+						i = Integer.parseInt(predicateParts[p]);
+					} catch (NumberFormatException nfe) {}
+					Double d = Double.NEGATIVE_INFINITY;
+					try {
+						d = Double.parseDouble(predicateParts[p].replaceAll("\\,", "."));
+					} catch (NumberFormatException nfe) {}
+					StringBuffer predicatePartWhere = new StringBuffer("1=0");
+					for (int f = 0; f < fields.length; f++) {
+						if (StatField.STRING_TYPE.equals(fields[f].dataType))
+							predicatePartWhere.append(" OR " + this.fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + fields[f].name + " LIKE '" + EasyIO.sqlEscape(predicateParts[p]) + "'");
+						else if (StatField.INTEGER_TYPE.equals(fields[f].dataType) && (i != Integer.MIN_VALUE))
+							predicatePartWhere.append(" OR " + this.fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + fields[f].name + " = " + i + "");
+						else if (StatField.REAL_TYPE.equals(fields[f].dataType) && (d != Double.NEGATIVE_INFINITY))
+							predicatePartWhere.append(" OR " + this.fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + fields[f].name + " = " + d + "");
+					}
+					if (predicatePartWhere.length() > 3)
+						whereString.append(" AND (" + predicatePartWhere.toString() + ")");
+				}
+				if (tableSet.add(fieldGroup.name)) {
+					tableString.append(", " + this.fieldGroupsToTables.getProperty(fieldGroup.name) + " " + this.fieldGroupsToTableAliases.getProperty(fieldGroup.name));
+					joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
+					joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
+				}
+				continue;
+			}
+			
+			StatField field = ((StatField) this.fieldsByFullName.get(predicateTargetName));
 			if (field == null)
 				continue;
 			String predicateString = fieldPredicates.getProperty(field.fullName);
 			if ((predicateString == null) || (predicateString.trim().length() == 0))
 				continue;
-			predicateString = predicateString.trim();
-			if (filterFieldSet.add(field.fullName)) {
-				String minPredicate = null;
-				String maxPredicate = null;
-				if (StatField.STRING_TYPE.equals(field.dataType)) {
-					if ((predicateString.startsWith("\"") || predicateString.startsWith("-")) && (predicateString.endsWith("\"") || predicateString.endsWith("-"))) {
-						String[] predicateParts = predicateString.trim().split("\\\"\\s*\\-\\s*\\\"", 2);
-						if (predicateParts.length == 1)
-							minPredicate = (" = '" + EasyIO.sqlEscape(predicateString) + "'");
-						else if (predicateParts.length == 2) {
-							if (predicateParts[0].startsWith("\""))
-								predicateParts[0] = predicateParts[0].substring(1).trim();
-							minPredicate = ((predicateParts[0].length() == 0) ? null : (" >= '" + EasyIO.sqlEscape(predicateParts[0]) + "'"));
-							if (predicateParts[1].endsWith("\""))
-								predicateParts[1] = predicateParts[1].substring(0, (predicateParts[1].length() - 1)).trim();
-							maxPredicate = ((predicateParts[1].length() == 0) ? null : (" <= '" + EasyIO.sqlEscape(predicateParts[1]) + "'"));
-						}
-					}
-					else minPredicate = (" LIKE '" + EasyIO.sqlEscape(predicateString) + "'");
-				}
-				else if (StatField.INTEGER_TYPE.equals(field.dataType) || StatField.REAL_TYPE.equals(field.dataType)) {
-					String[] predicateParts = predicateString.trim().split("\\s*\\-\\s*", 2);
-					if (predicateParts.length == 1)
-						minPredicate = (" = " + Integer.parseInt(predicateParts[0]));
-					else if (predicateParts.length == 2) {
-						minPredicate = ((predicateParts[0].length() == 0) ? null : (" >= " + Integer.parseInt(predicateParts[0])));
-						maxPredicate = ((predicateParts[1].length() == 0) ? null : (" <= " + Integer.parseInt(predicateParts[1])));
-					}
-				}
-				else if (StatField.BOOLEAN_TYPE.equals(field.dataType))
-					minPredicate = (" = '" + ((";0;false;no;".indexOf(";" + predicateString.trim().toLowerCase() + ";") == -1) ? 'T' : 'F') + "'");
-				else continue;
-				
-				if (minPredicate != null)
-					whereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + field.name + minPredicate);
-				if (maxPredicate != null)
-					whereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + field.name + maxPredicate);
-				
-				if (tableSet.add(field.group.name)) {
-					tableString.append(", " + this.fieldGroupsToTables.getProperty(field.group.name) + " " + this.fieldGroupsToTableAliases.getProperty(field.group.name));
-					joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
-					joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
-				}
+			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(field.dataType) || StatField.REAL_TYPE.equals(field.dataType)));
+			if (predicate.isEmpty()) {
+				System.out.println("DCS: empty predicate for " + field.dataType);
+				System.out.println("  input string was " + predicateString);
+				continue;
+			}
+			if (!filterFieldSet.add(field.fullName))
+				continue;
+			whereString.append(" AND " + predicate.getSql(this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + field.name));
+			if (tableSet.add(field.group.name)) {
+				tableString.append(", " + this.fieldGroupsToTables.getProperty(field.group.name) + " " + this.fieldGroupsToTableAliases.getProperty(field.group.name));
+				joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
+				joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
 			}
 		}
 		
 		//	assemble aggregate predicates
 		for (Iterator ffit = aggregatePredicates.keySet().iterator(); ffit.hasNext();) {
 			String fieldName = ((String) ffit.next());
-			if ("docCount".equals(fieldName)) {
+			if ("DocCount".equalsIgnoreCase(fieldName)) {
 				String predicateString = aggregatePredicates.getProperty(fieldName);
 				if ((predicateString == null) || (predicateString.trim().length() == 0))
 					continue;
-				String[] predicateParts = predicateString.trim().split("\\s*\\-\\s*", 2);
-				String minPredicate = null;
-				String maxPredicate = null;
-				if (predicateParts.length == 1)
-					minPredicate = (" = " + Integer.parseInt(predicateParts[0]));
-				else if (predicateParts.length == 2) {
-					minPredicate = ((predicateParts[0].length() == 0) ? null : (" >= " + Integer.parseInt(predicateParts[0])));
-					maxPredicate = ((predicateParts[1].length() == 0) ? null : (" <= " + Integer.parseInt(predicateParts[1])));
+				Predicate predicate = parsePredicate(predicateString, true);
+				if (predicate.isEmpty()) {
+					System.out.println("DCS: empty predicate for DocCount");
+					System.out.println("  input string was " + predicateString);
+					continue;
 				}
-				if (minPredicate != null)
-					havingString.append(" AND " + "count(*)" + minPredicate);
-				if (maxPredicate != null)
-					whereString.append(" AND " + "count(*)" + maxPredicate);
+				havingString.append(" AND " + predicate.getSql("count(DISTINCT " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE + ")"));
 				continue;
 			}
 			StatField field = ((StatField) this.fieldsByFullName.get(fieldName));
@@ -457,7 +467,6 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			String predicateString = aggregatePredicates.getProperty(field.fullName);
 			if ((predicateString == null) || (predicateString.trim().length() == 0))
 				continue;
-			predicateString = predicateString.trim();
 			String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate);
 			if ((";sum;avg;".indexOf(";" + aggregate + ";") != -1) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
 				continue;
@@ -466,43 +475,14 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				aggregateDataType = StatField.INTEGER_TYPE;
 			else if (";sum;avg;".indexOf(";" + aggregate.toLowerCase() + ";") != -1)
 				aggregateDataType = (StatField.REAL_TYPE.equals(field.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
-			String minPredicate = null;
-			String maxPredicate = null;
-			if (StatField.STRING_TYPE.equals(aggregateDataType)) {
-				if ((predicateString.startsWith("\"") || predicateString.startsWith("-")) && (predicateString.endsWith("\"") || predicateString.endsWith("-"))) {
-					String[] predicateParts = predicateString.trim().split("\\\"\\s*\\-\\s*\\\"", 2);
-					if (predicateParts.length == 1)
-						minPredicate = (" = '" + EasyIO.sqlEscape(predicateString) + "'");
-					else if (predicateParts.length == 2) {
-						if (predicateParts[0].startsWith("\""))
-							predicateParts[0] = predicateParts[0].substring(1).trim();
-						minPredicate = ((predicateParts[0].length() == 0) ? null : (" >= '" + EasyIO.sqlEscape(predicateParts[0]) + "'"));
-						if (predicateParts[1].endsWith("\""))
-							predicateParts[1] = predicateParts[1].substring(0, (predicateParts[1].length() - 1)).trim();
-						maxPredicate = ((predicateParts[1].length() == 0) ? null : (" <= '" + EasyIO.sqlEscape(predicateParts[1]) + "'"));
-					}
-				}
-				else minPredicate = (" LIKE '" + EasyIO.sqlEscape(predicateString) + "'");
+			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(aggregateDataType) || StatField.REAL_TYPE.equals(aggregateDataType)));
+			if (predicate.isEmpty()) {
+				System.out.println("DCS: empty predicate for " + aggregateDataType);
+				System.out.println("  input string was " + predicateString);
+				continue;
 			}
-			else if (StatField.INTEGER_TYPE.equals(aggregateDataType) || StatField.REAL_TYPE.equals(aggregateDataType)) {
-				String[] predicateParts = predicateString.trim().split("\\s*\\-\\s*", 2);
-				if (predicateParts.length == 1)
-					minPredicate = (" = " + Integer.parseInt(predicateParts[0]));
-				else if (predicateParts.length == 2) {
-					minPredicate = ((predicateParts[0].length() == 0) ? null : (" >= " + Integer.parseInt(predicateParts[0])));
-					maxPredicate = ((predicateParts[1].length() == 0) ? null : (" <= " + Integer.parseInt(predicateParts[1])));
-				}
-			}
-			else if (StatField.BOOLEAN_TYPE.equals(aggregateDataType))
-				minPredicate = (" = '" + ((";0;false;no;".indexOf(";" + predicateString.trim().toLowerCase() + ";") == -1) ? 'T' : 'F') + "'");
-			else continue;
-			
 			String aggreateField = ("count-distinct".equals(aggregate) ? ("count(DISTINCT " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + field.name + ")") : (aggregate + "(" + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + field.name + ")"));
-			if (minPredicate != null)
-				havingString.append(" AND " + aggreateField + minPredicate);
-			if (maxPredicate != null)
-				whereString.append(" AND " + aggreateField + maxPredicate);
-			
+			havingString.append(" AND " + predicate.getSql(aggreateField));
 			if (tableSet.add(field.group.name)) {
 				tableString.append(", " + this.fieldGroupsToTables.getProperty(field.group.name) + " " + this.fieldGroupsToTableAliases.getProperty(field.group.name));
 				joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
@@ -519,6 +499,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				" HAVING " + havingString.toString() +
 				" ORDER BY " + orderFieldString.toString() +
 				";";
+		System.out.println(this.getExporterName() + ": stats query is " + query);
 		
 		//	produce statistics
 		SqlQueryResult sqr = null;
@@ -741,10 +722,451 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			System.out.println("  Query was: " + query);
 		}
 	}
-//	
-//	/**
-//	 * @param args
-//	 */
+	
+	private static class Predicate {
+		private LinkedList positives;
+		private LinkedList negatives;
+		void addInterval(Interval interval) {
+			if (interval.isNegative) {
+				if (this.negatives == null)
+					this.negatives = new LinkedList();
+				this.negatives.add(interval);
+			}
+			else {
+				if (this.positives == null)
+					this.positives = new LinkedList();
+				this.positives.add(interval);
+			}
+		}
+		boolean isEmpty() {
+			return ((this.positives == null) && (this.negatives == null));
+		}
+		String getSql(String field) {
+			if (this.isEmpty())
+				return "1=1";
+			StringBuffer sql = new StringBuffer();
+			if (this.negatives == null) {
+				if (this.positives.size() > 1)
+					sql.append("(");
+				for (Iterator iit = this.positives.iterator(); iit.hasNext();) {
+					Interval pos = ((Interval) iit.next());
+					sql.append(pos.getSql(field));
+					if (iit.hasNext())
+						sql.append(" OR ");
+				}
+				if (this.positives.size() > 1)
+					sql.append(")");
+			}
+			else if (this.positives == null) {
+				if (this.negatives.size() > 1)
+					sql.append("(");
+				for (Iterator iit = this.negatives.iterator(); iit.hasNext();) {
+					Interval neg = ((Interval) iit.next());
+					sql.append(neg.getSql(field));
+					if (iit.hasNext())
+						sql.append(" AND ");
+				}
+				if (this.negatives.size() > 1)
+					sql.append(")");
+			}
+			else {
+				sql.append("(");
+				if (this.positives.size() > 1)
+					sql.append("(");
+				for (Iterator iit = this.positives.iterator(); iit.hasNext();) {
+					Interval pos = ((Interval) iit.next());
+					sql.append(pos.getSql(field));
+					if (iit.hasNext())
+						sql.append(" OR ");
+				}
+				if (this.positives.size() > 1)
+					sql.append(")");
+				for (Iterator iit = this.negatives.iterator(); iit.hasNext();) {
+					Interval neg = ((Interval) iit.next());
+					sql.append(" AND ");
+					sql.append(neg.getSql(field));
+				}
+				sql.append(")");
+			}
+			return sql.toString();
+		}
+	}
+	
+	private static class Interval {
+		final String left;
+		final String right;
+		final boolean isNumeric;
+		boolean isNegative;
+		Interval(int left, int right) {
+			if (right < left) {
+				this.left = ("" + right);
+				this.right = ("" + left);
+			}
+			else {
+				this.left = ((left == Integer.MIN_VALUE) ? null : ("" + left));
+				this.right = ((right == Integer.MAX_VALUE) ? null : ("" + right));
+			}
+			this.isNumeric = true;
+		}
+		Interval(double left, double right) {
+			if (right < left) {
+				this.left = ("" + right);
+				this.right = ("" + left);
+			}
+			else {
+				this.left = ((left == Double.NEGATIVE_INFINITY) ? null : ("" + left));
+				this.right = ((right == Double.POSITIVE_INFINITY) ? null : ("" + right));
+			}
+			this.isNumeric = true;
+		}
+		Interval(String left, String right) {
+			if ((left != null) && (right != null) && (right.compareTo(left) < 0)) {
+				this.left = right;
+				this.right = left;
+			}
+			else {
+				this.left = left;
+				this.right = right;
+			}
+			this.isNumeric = false;
+		}
+		String getSql(String field) {
+			if (this.isNegative) {
+				if (this.isNumeric) {
+					if (this.left == null)
+						return ("(" + field + " > " + this.right + ")");
+					else if (this.right == null)
+						return ("(" + field + " < " + this.left + ")");
+					else if (this.left.equals(this.right))
+						return ("(" + field + " <> " + this.left + ")");
+					else return ("((" + field + " < " + this.left + ") OR (" + field + " > " + this.right + "))");
+				}
+				else {
+					if (this.left == null)
+						return ("(" + field + " > '" + EasyIO.sqlEscape(this.right) + "')");
+					else if (this.right == null)
+						return ("(" + field + " < '" + EasyIO.sqlEscape(this.left) + "')");
+					else if (this.left.equals(this.right)) {
+						if (this.left.indexOf('%') == -1)
+							return ("(" + field + " <> '" + EasyIO.sqlEscape(this.left) + "')");
+						else return ("(" + field + " NOT LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+					}
+					else return ("((" + field + " < '" + EasyIO.sqlEscape(this.left) + "') OR (" + field + " > '" + EasyIO.sqlEscape(this.right) + "'))");
+				}
+			}
+			else {
+				if (this.isNumeric) {
+					if (this.left == null)
+						return ("(" + field + " <= " + this.right + ")");
+					else if (this.right == null)
+						return ("(" + field + " >= " + this.left + ")");
+					else if (this.left.equals(this.right))
+						return ("(" + field + " = " + this.left + ")");
+					else return ("((" + field + " >= " + this.left + ") AND (" + field + " <= " + this.right + "))");
+				}
+				else {
+					if (this.left == null)
+						return ("(" + field + " <= '" + EasyIO.sqlEscape(this.right) + "')");
+					else if (this.right == null)
+						return ("(" + field + " >= '" + EasyIO.sqlEscape(this.left) + "')");
+					else if (this.left.equals(this.right)) {
+						if (this.left.indexOf('%') == -1)
+							return ("(" + field + " = '" + EasyIO.sqlEscape(this.left) + "')");
+						else return ("(" + field + " LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+					}
+					else return ("((" + field + " >= '" + EasyIO.sqlEscape(this.left) + "') AND (" + field + " <= '" + EasyIO.sqlEscape(this.right) + "'))");
+				}
+			}
+		}
+		public String toString() {
+			StringBuffer sb = new StringBuffer();
+			if (this.isNegative)
+				sb.append("!");
+			sb.append("[");
+			if (this.left != null) {
+				if (this.isNumeric)
+					sb.append(this.left);
+				else {
+					sb.append("\"");
+					sb.append(this.left.replaceAll("\\\"", "\\\"\\\""));
+					sb.append("\"");
+				}
+			}
+			sb.append(",");
+			if (this.right != null) {
+				if (this.isNumeric)
+					sb.append(this.right);
+				else {
+					sb.append("\"");
+					sb.append(this.right.replaceAll("\\\"", "\\\"\\\""));
+					sb.append("\"");
+				}
+			}
+			sb.append("]");
+			return sb.toString();
+		}
+	}
+	
+	private static Predicate parsePredicate(String predString, boolean isNumeric) {
+		if (predString == null)
+			return null;
+		predString = predString.trim();
+		if (predString.length() == 0)
+			return null;
+		
+		//	parse predicate into intervals at (non-quoted) spaces
+		LinkedHashSet intStrings = new LinkedHashSet();
+		StringBuffer intBuf = new StringBuffer();
+		char quoter = ((char) 0);
+		for (int c = 0; c < predString.length(); c++) {
+			char ch = predString.charAt(c);
+			
+			//	end of quotes
+			if (ch == quoter) {
+				quoter = ((char) 0);
+				intBuf.append(ch);
+			}
+			
+			//	start of quotes
+			else if (ch == '"') {
+				quoter = ch;
+				intBuf.append(ch);
+			}
+			else if (ch == '[') {
+				quoter = ']';
+				intBuf.append(ch);
+			}
+			else if (ch == '(') {
+				quoter = ')';
+				intBuf.append(ch);
+			}
+			
+			//	in quotes
+			else if (quoter != 0)
+				intBuf.append(ch);
+			
+			//	end of interval
+			else if (ch < 33) {
+				if (intBuf.length() != 0)
+					intStrings.add(intBuf.toString());
+				intBuf = new StringBuffer();
+			}
+			
+			//	regular character
+			else intBuf.append(ch);
+		}
+		if (intBuf.length() != 0)
+			intStrings.add(intBuf.toString());
+		
+		//	parse intervals
+		Predicate predicate = new Predicate();
+		for (Iterator isit = intStrings.iterator(); isit.hasNext();) {
+			String intString = ((String) isit.next());
+			boolean isNegative = false;
+			
+			//	test if negative and cut marker
+			if (intString.startsWith("!")) {
+				intString = intString.substring("!".length());
+				isNegative = true;
+			}
+			
+			//	parse interval ...
+			Interval interval = null;
+			
+			//	- in bracket notation
+			if ((intString.startsWith("[") && intString.endsWith("]")) || (intString.startsWith("(") && intString.endsWith(")")))
+				interval = parseBracketInterval(intString.substring("[".length(), (intString.length()-"]".length())).trim(), isNumeric);
+			
+			//	- in natural notation
+			else interval = parseNaturalInterval(intString, isNumeric);
+			
+			//	set negation flag and store interval
+			if (interval != null) {
+				interval.isNegative = isNegative;
+				predicate.addInterval(interval);
+			}
+		}
+		
+		//	finally ...
+		return predicate;
+	}
+	
+	private static Interval parseBracketInterval(String intString, boolean isNumeric) {
+		
+		//	parse numeric interval
+		if (isNumeric) try {
+			if (",".equals(intString))
+				return null;
+			String left;
+			String right;
+			if (intString.indexOf(',') == -1) {
+				left = intString;
+				right = intString;
+			}
+			else if (intString.startsWith(",")) {
+				left = null;
+				right = intString.substring(",".length()).trim();
+			}
+			else if (intString.endsWith(",")) {
+				left = intString.substring(0, (intString.length() - ",".length())).trim();
+				right = null;
+			}
+			else {
+				left = intString.substring(0, intString.indexOf(',')).trim();
+				right = intString.substring(intString.indexOf(',') + ",".length()).trim();
+			}
+			try {
+				return new Interval(((left == null) ? Integer.MIN_VALUE : Integer.parseInt(left)), ((right == null) ? Integer.MAX_VALUE : Integer.parseInt(right)));
+			}
+			catch (NumberFormatException nfe) {
+				return new Interval(((left == null) ? Double.NEGATIVE_INFINITY : Double.parseDouble(left)), ((right == null) ? Double.POSITIVE_INFINITY : Double.parseDouble(right)));
+			}
+		}
+		catch (NumberFormatException nfe) {
+			return null;
+		}
+		
+		//	parse alphanumeric interval
+		StringBuffer leftBuf = new StringBuffer();
+		StringBuffer rightBuf = new StringBuffer();
+		StringBuffer tokBuf = leftBuf;
+		char quoter = ((char) 0);
+		for (int c = 0; c < intString.length(); c++) {
+			char ch = intString.charAt(c);
+			
+			//	end of quotes
+			if (ch == quoter) {
+				quoter = ((char) 0);
+				tokBuf.append(ch);
+			}
+			
+			//	start of quotes
+			else if (ch == '"') {
+				quoter = ch;
+				tokBuf.append(ch);
+			}
+			
+			//	in quotes
+			else if (quoter != 0)
+				tokBuf.append(ch);
+			
+			//	end of (first, left) token
+			else if ((ch < 33) || ("-,<>;".indexOf(ch) != -1))
+				tokBuf = rightBuf;
+			
+			//	regular character
+			else tokBuf.append(ch);
+		}
+		
+		//	cut and un-escape quotes
+		String left = leftBuf.toString().trim();
+		if (left.startsWith("\"") && left.endsWith("\"")) {
+			left = left.substring("\"".length(), (left.length() - "\"".length()));
+			left = left.replaceAll("\\\"\\\"", "\"");
+		}
+		if (left.length() == 0)
+			left = null;
+		String right = rightBuf.toString().trim();
+		if (right.startsWith("\"") && right.endsWith("\"")) {
+			right = right.substring("\"".length(), (right.length() - "\"".length()));
+			right = right.replaceAll("\\\"\\\"", "\"");
+		}
+		if (right.length() == 0)
+			right = null;
+		
+		//	do we have anything at all
+		if ((left == null) && (right == null))
+			return null;
+		
+		//	handle point interval
+		if ((right == null) && (tokBuf == leftBuf))
+			right = left;
+		
+		//	finally ...
+		return new Interval(left, right);
+	}
+	
+	private static Interval parseNaturalInterval(String intString, boolean isNumeric) {
+		
+		//	parse numeric interval
+		if (isNumeric) {
+			LinkedList numbers = new LinkedList();
+			Matcher numberMatcher = Pattern.compile("[0-9]+(\\.[0-9]+)?").matcher(intString);
+			int numberEnd = 0;
+			while (numberMatcher.find(numberEnd)) {
+				numbers.add(numberMatcher.group());
+				numberEnd = numberMatcher.end();
+			}
+			if (numbers.isEmpty())
+				return null;
+			
+			//	handle single-number intervals
+			if (numbers.size() == 1) {
+				
+				//	<A ==> [,A]   <-A ==> [,-A]
+				if (intString.startsWith("<"))
+					return parseBracketInterval(("," + intString.substring("<".length())), isNumeric);
+				
+				//	>A ==> [A,]   >-A ==> [-A,]
+				if (intString.startsWith(">"))
+					return parseBracketInterval((intString.substring(">".length()) + ","), isNumeric);
+				
+				//	--A ==> [,-A]
+				if (intString.startsWith("--"))
+					return parseBracketInterval(("," + intString.substring("-".length())), isNumeric);
+				
+				//	A- ==> [A,]   -A- ==> [-A,]
+				if (intString.endsWith("-"))
+					return parseBracketInterval((intString.substring(0, (intString.length() - "-".length())) + ","), isNumeric);
+				
+				//	-A ==> [-A,-A]   A ==> [A,A]
+				return parseBracketInterval(intString, isNumeric);
+			}
+			
+			//	handle two-number (multi-number) intervals
+			//	A-B ==> [A,B]   -A-B ==> [-A,B]   -A--B ==> [-A,-B]
+			String left = ((String) numbers.getFirst());
+			if (intString.startsWith("-"))
+				left = ("-" + left);
+			String right = ((String) numbers.getLast());
+			if (intString.indexOf("--") != -1)
+				right = ("-" + right);
+			return parseBracketInterval((left + "," + right), isNumeric);
+		}
+		
+		//	parse alphanumeric interval
+		else {
+			
+			//	<A ==> [,A]
+			if (intString.startsWith("<"))
+				return parseBracketInterval(("," + intString.substring("<".length())), isNumeric);
+			
+			//	>A ==> [A,]
+			if (intString.startsWith(">"))
+				return parseBracketInterval((intString.substring(">".length()) + ","), isNumeric);
+			
+			//	-A ==> [,A]
+			if (intString.startsWith("-"))
+				return parseBracketInterval(("," + intString.substring("-".length())), isNumeric);
+			
+			//	A- ==> [A,]
+			if (intString.endsWith("-"))
+				return parseBracketInterval((intString.substring(0, (intString.length() - "-".length())) + ","), isNumeric);
+			
+			//	everything else
+			return parseBracketInterval(intString, isNumeric);
+		}
+	}
+	
+	//	TEST FOR PREDICATE PARSING
+	public static void main(String[] args) throws Exception {
+		Predicate np = parsePredicate("1990.10-2010 (1990, 2010) \"1990 -2010\" -100 -100--50 --100 !2000", true);
+		System.out.println(np.getSql("MyNumber"));
+		Predicate sp = parsePredicate("A-Z \"A-Z\" -N !\"Fungi%\" -N- N-", false);
+		System.out.println(sp.getSql("MyString"));
+	}
+	
+//	//	TEST FOR DATA EXTRACTION FROM DOCUMENTS
 //	public static void main(String[] args) throws Exception {
 //		GoldenGateDCS dcs = new GoldenGateDCS("TEST") {
 //			protected String getExporterName() {
