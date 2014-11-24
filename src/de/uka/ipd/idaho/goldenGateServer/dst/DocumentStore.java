@@ -41,6 +41,7 @@ import java.io.Writer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.Properties;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -64,7 +65,7 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * 
  * @author sautter
  */
-public class DocumentStore implements LiteratureConstants {
+public class DocumentStore implements LiteratureConstants, GoldenGateServerDocConstants {
 	
 	private File docFolder;
 	private String encoding = "UTF-8";
@@ -103,7 +104,7 @@ public class DocumentStore implements LiteratureConstants {
 				File backupFile;
 				if (target == null)
 					backupFile = new File(DocumentStore.this.docFolder, backupName);
-				else if (target.indexOf(':') == -1)
+				else if ((target.indexOf(':') == -1) && !target.startsWith("/"))
 					backupFile = new File(new File(DocumentStore.this.docFolder, target), backupName);
 				else backupFile = new File(target, backupName);
 				
@@ -202,9 +203,9 @@ public class DocumentStore implements LiteratureConstants {
 					return null;
 				else if (arguments.length > 2)
 					return "Specify target and mode only.";
-				else if ("-c".equals(arguments[2]) || "-f".equals(arguments[2]))
+				else if ("-c".equals(arguments[1]) || "-f".equals(arguments[1]))
 					return null;
-				else return ("Invalid backup mode '" + arguments[2] + "', use '-c' and '-f' only.");
+				else return ("Invalid backup mode '" + arguments[1] + "', use '-c' and '-f' only.");
 			}
 		};	
 	}
@@ -269,7 +270,7 @@ public class DocumentStore implements LiteratureConstants {
 	 */
 	public int storeDocument(QueriableAnnotation doc, String documentId) throws IOException {
 		
-		//	buid storage ID
+		//	build storage ID
 		String docId = this.checkDocId(documentId);
 		
 		//	create two-layer storage folder structure
@@ -284,7 +285,7 @@ public class DocumentStore implements LiteratureConstants {
 		//	compute current version
 		int version = this.computeCurrentVersion(docId);
 		
-		//	create actual document file
+		//	create document file
 		File docFile = new File(secondaryFolder, (docId + ".xml"));
 		
 		//	file exists (we have an update), make way
@@ -370,9 +371,9 @@ public class DocumentStore implements LiteratureConstants {
 		int version = 0;
 		for (int f = 0; f < docFiles.length; f++) {
 			String docFileName = docFiles[f].getName();
-			docFileName = docFileName.substring(33); // cut ID and dot
+			docFileName = docFileName.substring(docId.length() + ".".length()); // cut ID and dot
 			if (docFileName.length() > 3) { // there's left more than the 'xml' file extension, which will be the case for the most recent version
-				docFileName = docFileName.substring(0, (docFileName.length() - 4)); // cut file extension
+				docFileName = docFileName.substring(0, (docFileName.length() - ".xml".length())); // cut file extension
 				try {
 					version = Math.max(version, Integer.parseInt(docFileName));
 				} catch (NumberFormatException nfe) {}
@@ -391,7 +392,26 @@ public class DocumentStore implements LiteratureConstants {
 	 * @throws IOException
 	 */
 	public Properties getDocumentAttributes(String documentId) throws IOException {
-		DocumentRoot doc = this.getDocumentHead(documentId);
+		return this.getDocumentAttributes(documentId, false);
+	}
+	
+	/**
+	 * Retrieve the attributes of a document. If the argument boolean is set to
+	 * <code>true</code>, the returned Properties includes the update users and
+	 * timestamps from prior versions in <code>updateUser&lt;version&gt;</code>
+	 * and <code>updateTime&lt;version&gt;</code> attributes, e.g.
+	 * <code>updateUser3</code> for the user who created version 3 of the
+	 * document with the argument ID.
+	 * @param documentId the ID of the document
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return a Properties object holding the attributes of the document with
+	 *         the specified ID
+	 * @throws IOException
+	 */
+	public Properties getDocumentAttributes(String documentId, boolean includeUpdateHistory) throws IOException {
+		
+		//	load current version attributes
+		DocumentRoot doc = this.getDocumentHead(documentId, 0);
 		String[] attributeNames = doc.getAttributeNames();
 		Properties attributes = new Properties();
 		for (int a = 0; a < attributeNames.length; a++) {
@@ -399,7 +419,37 @@ public class DocumentStore implements LiteratureConstants {
 			if (value instanceof String)
 				attributes.setProperty(attributeNames[a], ((String) value));
 		}
+		
+		//	add version history if asked to
+		if (includeUpdateHistory)
+			this.addUpdateHistory(documentId, this.computeCurrentVersion(documentId), attributes);
+		
+		//	finally ...
 		return attributes;
+	}
+	
+	private void addUpdateHistory(String docId, int version, Properties attributes) throws IOException {
+		
+		//	check if update history already stored in current version
+		if (attributes.containsKey(UPDATE_USER_ATTRIBUTE + "-" + version) && attributes.containsKey(UPDATE_TIME_ATTRIBUTE + "-" + version))
+			return;
+		
+		//	add update history the hard way
+		for (int v = 1; v < version; v++) {
+			DocumentRoot vDoc = this.getDocumentHead(docId, v);
+			Object vUpdateUser = vDoc.getAttribute(UPDATE_USER_ATTRIBUTE);
+			if (vUpdateUser instanceof String)
+				attributes.setProperty((UPDATE_USER_ATTRIBUTE + "-" + v), ((String) vUpdateUser));
+			Object vUpdateTime = vDoc.getAttribute(UPDATE_TIME_ATTRIBUTE);
+			if (vUpdateTime instanceof String)
+				attributes.setProperty((UPDATE_TIME_ATTRIBUTE + "-" + v), ((String) vUpdateTime));
+		}
+		String vUpdateUser = attributes.getProperty(UPDATE_USER_ATTRIBUTE);
+		if (vUpdateUser != null)
+			attributes.setProperty((UPDATE_USER_ATTRIBUTE + "-" + version), vUpdateUser);
+		String vUpdateTime = attributes.getProperty(UPDATE_TIME_ATTRIBUTE);
+		if (vUpdateTime != null)
+			attributes.setProperty((UPDATE_TIME_ATTRIBUTE + "-" + version), vUpdateTime);
 	}
 	
 	/**
@@ -410,7 +460,7 @@ public class DocumentStore implements LiteratureConstants {
 	 * @throws IOException
 	 */
 	public Properties getDocumentProperties(String documentId) throws IOException {
-		DocumentRoot doc = this.getDocumentHead(documentId);
+		DocumentRoot doc = this.getDocumentHead(documentId, 0);
 		String[] documentPropertyNames = doc.getDocumentPropertyNames();
 		Properties documentProperties = new Properties();
 		for (int a = 0; a < documentPropertyNames.length; a++) {
@@ -421,15 +471,21 @@ public class DocumentStore implements LiteratureConstants {
 		return documentProperties;
 	}
 	
-	private DocumentRoot getDocumentHead(String documentId) throws IOException {
+	private DocumentRoot getDocumentHead(String documentId, int version) throws IOException {
 		String docId = this.checkDocId(documentId);
 		
 		String primaryFolderName = docId.substring(0, 2);
 		String secondaryFolderName = docId.substring(2, 4);
 		
+		int fileVersion = 0;
+		if (version < 0)
+			fileVersion = (this.computeCurrentVersion(docId) + version);
+		else if (version > 0)
+			fileVersion = version;
+		
 		Reader in = null;
 		try {
-			final InputStream fis = new FileInputStream(new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ".xml")));
+			final InputStream fis = new FileInputStream(new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml")));
 			InputStream is = new InputStream() {
 				private int last = '\u0000';
 				public int read() throws IOException {
@@ -459,13 +515,25 @@ public class DocumentStore implements LiteratureConstants {
 	
 	/**
 	 * Load a document from storage (the most recent version)
-	 * @param	documentId	the ID of the document to load
+	 * @param documentId the ID of the document to load
 	 * @return the document with the specified ID
 	 * @throws IOException if the specified document ID is invalid (no document
 	 *             is stored by this ID) or any IOException occurs
 	 */
 	public DocumentRoot loadDocument(String documentId) throws IOException {
-		return this.loadDocument(documentId, 0);
+		return this.loadDocument(documentId, 0, false);
+	}
+	
+	/**
+	 * Load a document from storage (the most recent version)
+	 * @param documentId the ID of the document to load
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return the document with the specified ID
+	 * @throws IOException if the specified document ID is invalid (no document
+	 *             is stored by this ID) or any IOException occurs
+	 */
+	public DocumentRoot loadDocument(String documentId, boolean includeUpdateHistory) throws IOException {
+		return this.loadDocument(documentId, 0, includeUpdateHistory);
 	}
 	
 	/**
@@ -480,7 +548,23 @@ public class DocumentStore implements LiteratureConstants {
 	 *             is stored by this ID) or any IOException occurs
 	 */
 	public DocumentRoot loadDocument(String documentId, int version) throws IOException {
-		DocumentReader dr = this.loadDocumentAsStream(documentId, version);
+		return this.loadDocument(documentId, version, false);
+	}
+	
+	/**
+	 * Load a specific version of a document from storage. A positive version
+	 * number indicates an actual version specifically, while a negative version
+	 * number indicates a version backward relative to the most recent version.
+	 * Version number 0 always returns the most recent version.
+	 * @param documentId the ID of the document to load
+	 * @param version the version to load
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return the document with the specified ID
+	 * @throws IOException if the specified document ID is invalid (no document
+	 *             is stored by this ID) or any IOException occurs
+	 */
+	public DocumentRoot loadDocument(String documentId, int version, boolean includeUpdateHistory) throws IOException {
+		DocumentReader dr = this.loadDocumentAsStream(documentId, version, includeUpdateHistory);
 		try {
 			return GenericGamtaXML.readDocument(dr);
 		}
@@ -502,7 +586,23 @@ public class DocumentStore implements LiteratureConstants {
 	 *             is stored by this ID) or any IOException occurs
 	 */
 	public DocumentReader loadDocumentAsStream(String documentId) throws IOException {
-		return this.loadDocumentAsStream(documentId, 0);
+		return this.loadDocumentAsStream(documentId, 0, false);
+	}
+	
+	/**
+	 * Load a document from storage (the most recent version) as a character
+	 * stream. In situations where a document is not required in its
+	 * deserialized form, e.g. if it is intended to be written to some output
+	 * stream, this method facilitates avoiding deserialization and
+	 * reserialization.
+	 * @param documentId the ID of the document to load
+	 * @return a reader providing the document with the specified ID in its
+	 *         serialized form
+	 * @throws IOException if the specified document ID is invalid (no document
+	 *             is stored by this ID) or any IOException occurs
+	 */
+	public DocumentReader loadDocumentAsStream(String documentId, boolean includeUpdateHistory) throws IOException {
+		return this.loadDocumentAsStream(documentId, 0, includeUpdateHistory);
 	}
 	
 	/**
@@ -521,14 +621,35 @@ public class DocumentStore implements LiteratureConstants {
 	 *             is stored by this ID) or any IOException occurs
 	 */
 	public DocumentReader loadDocumentAsStream(String documentId, int version) throws IOException {
+		return this.loadDocumentAsStream(documentId, version, false);
+	}
+	
+	/**
+	 * Load a document from storage as a character stream. In situations where a
+	 * document is not required in its deserialized form, e.g. if it is intended
+	 * to be written to some output stream, this method facilitates avoiding
+	 * deserialization and reserialization. A positive version number indicates
+	 * an actual version specifically, while a negative version number indicates
+	 * a version backward relative to the most recent version. Version number 0
+	 * always returns the most recent version.
+	 * @param documentId the ID of the document to load
+	 * @param version the version to load
+	 * @return a reader providing the document with the specified ID in its
+	 *         serialized form
+	 * @throws IOException if the specified document ID is invalid (no document
+	 *             is stored by this ID) or any IOException occurs
+	 */
+	public DocumentReader loadDocumentAsStream(String documentId, int version, boolean includeUpdateHistory) throws IOException {
 		String docId = this.checkDocId(documentId);
 		
 		String primaryFolderName = docId.substring(0, 2);
 		String secondaryFolderName = docId.substring(2, 4);
 		
 		int fileVersion = 0;
-		if (version < 0) fileVersion = (this.computeCurrentVersion(docId) + version);
-		else if (version > 0) fileVersion = version;
+		if (version < 0)
+			fileVersion = (this.computeCurrentVersion(docId) + version);
+		else if (version > 0)
+			fileVersion = version;
 		
 		try {
 			File docFile = new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml"));
@@ -537,12 +658,28 @@ public class DocumentStore implements LiteratureConstants {
 			DocumentReader dr = new DocumentReader(docIn, docSize);
 			dr.setAttribute(DOCUMENT_ID_ATTRIBUTE, documentId);
 			dr.setDocumentProperty(DOCUMENT_ID_ATTRIBUTE, documentId);
+			if (includeUpdateHistory) {
+				Properties duh = new Properties();
+				String[] dans = dr.getAttributeNames();
+				for (int a = 0; a < dans.length; a++) {
+					if (dans[a].startsWith(UPDATE_USER_ATTRIBUTE) || dans[a].startsWith(UPDATE_TIME_ATTRIBUTE)) {
+						Object av = dr.getAttribute(dans[a]);
+						if (av instanceof String)
+							duh.setProperty(dans[a], ((String) av));
+					}
+				}
+				this.addUpdateHistory(docId, version, duh);
+				for (Iterator kit = duh.keySet().iterator(); kit.hasNext();) {
+					String dan = ((String) kit.next());
+					if (!dr.hasAttribute(dan))
+						dr.setAttribute(dan, duh.getProperty(dan));
+				}
+			}
 			return dr;
 		}
 		catch (FileNotFoundException fnfe) {
 			if (version == 0)
 				throw new IOException("Invalid document ID '" + documentId + "'.");
-			
 			else throw new IOException("Invalid document ID '" + documentId + "', or version '" + fileVersion + "' does not exist.");
 		}
 	}
@@ -578,9 +715,12 @@ public class DocumentStore implements LiteratureConstants {
 	}
 	
 	private String checkDocId(String documentId) throws IOException {
-		if ((documentId == null) || (documentId.trim().length() == 0)) throw new IOException("Document ID must not be null or empty.");
-		else if (!documentId.trim().matches("[a-zA-Z0-9]++"))  throw new IOException("Invalid document ID '" + documentId + "' - document ID must consist of letters and digits only.");
-		else if (documentId.trim().length() == 32) return documentId.trim();
+		if ((documentId == null) || (documentId.trim().length() == 0))
+			throw new IOException("Document ID must not be null or empty.");
+		else if (!documentId.trim().matches("[a-zA-Z0-9]++")) 
+			throw new IOException("Invalid document ID '" + documentId + "' - document ID must consist of letters and digits only.");
+		else if (documentId.trim().length() == 32)
+			return documentId.trim();
 		else {
 			documentId = documentId.trim();
 			String docId = documentId;
