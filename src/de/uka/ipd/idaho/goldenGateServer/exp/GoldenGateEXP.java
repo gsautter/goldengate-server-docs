@@ -27,11 +27,20 @@
  */
 package de.uka.ipd.idaho.goldenGateServer.exp;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Properties;
+import java.util.Set;
+import java.util.TreeMap;
 
 import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
@@ -40,6 +49,10 @@ import de.uka.ipd.idaho.easyIO.sql.TableColumnDefinition;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
+import de.uka.ipd.idaho.gamta.util.gPath.GPath;
+import de.uka.ipd.idaho.gamta.util.gPath.GPathExpression;
+import de.uka.ipd.idaho.gamta.util.gPath.GPathParser;
+import de.uka.ipd.idaho.gamta.util.gPath.exceptions.GPathException;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.stringUtils.StringUtils;
 
@@ -59,9 +72,19 @@ import de.uka.ipd.idaho.stringUtils.StringUtils;
 public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent implements LiteratureConstants {
 	
 	private static int instanceCount = 0;
-	private static synchronized void countInstance(String exporterName) {
+	private static TreeMap instancesByName = new TreeMap();
+	private static synchronized void countInstance(GoldenGateEXP exporter) {
 		instanceCount++;
-		System.out.println(exporterName + ": registered as instance number " + instanceCount + ".");
+		System.out.println(exporter.getExporterName() + ": registered as instance number " + instanceCount + ".");
+		instancesByName.put(exporter.getExporterName(), exporter);
+	}
+	
+	static void listInstances(String prefix) {
+		for (Iterator enit = instancesByName.keySet().iterator(); enit.hasNext();) {
+			String exporterName = ((String) enit.next());
+			GoldenGateEXP exporter = ((GoldenGateEXP) instancesByName.get(exporterName));
+			System.out.println(prefix + exporterName + ": " + exporter.getClass().getName() + ", " + exporter.eventQueue.size() + " update events pending, " + exporter.eventQueue.highPriorityQueue.size() + " high priority ones");
+		}
 	}
 	
 	private static UpdateEventHandler flushingEventHandler = null;
@@ -93,6 +116,44 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		else return false;
 	}
 	
+	private static final Object expPauseLock = new Object();
+	private static final Set expPausedInstances = Collections.synchronizedSet(new HashSet());
+	private static boolean expPause = false;
+	private static void checkExpPause(UpdateEventHandler ueh) {
+		synchronized (expPauseLock) {
+			if (!expPause)
+				return;
+			expPausedInstances.add(ueh);
+			System.out.println(ueh.getName() + " pausing");
+			try {
+				expPauseLock.wait();
+			} catch (InterruptedException ie) {}
+			System.out.println(ueh.getName() + " un-paused");
+			expPausedInstances.remove(ueh);
+		}
+	}
+	
+	static boolean setExpPause(boolean pause) {
+		if (expPause == pause)
+			return false;
+		else if (pause) {
+			expPause = true;
+			return true;
+		}
+		else {
+			synchronized (expPauseLock) {
+				expPause = false;
+			}
+			do {
+				synchronized (expPauseLock) {
+					expPauseLock.notify();
+				}
+				Thread.yield();
+			} while (expPausedInstances.size() != 0);
+			return true;
+		}
+	}
+	
 	private IoProvider io;
 	
 	/** the name of the index table */
@@ -103,6 +164,8 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	
 	private GoldenGateExpBinding binding;
 	
+	private GPathExpression[] filters = new GPathExpression[0];
+	
 	/**
 	 * Constructor
 	 * @param letterCode the letter code identifying the component
@@ -110,7 +173,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	protected GoldenGateEXP(String letterCode) {
 		super(letterCode);
 		this.DATA_TABLE_NAME = (this.getExporterName() + "Data");
-		countInstance(this.getExporterName());
+		countInstance(this);
 	}
 	
 	/**
@@ -192,6 +255,33 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		this.io.indexColumn(DATA_TABLE_NAME, DOCUMENT_DATE_ATTRIBUTE);
 		for (int f = 0; f < this.indexFields.length; f++)
 			this.io.indexColumn(DATA_TABLE_NAME, this.indexFields[f].getColumnName());
+		
+		//	read filters
+		File filterFile = new File(this.dataPath, "filters.cnfg");
+		if (filterFile.exists()) try {
+			BufferedReader filterBr = new BufferedReader(new InputStreamReader(new FileInputStream(filterFile), ENCODING));
+			ArrayList filterExpressions = new ArrayList();
+			for (String filterLine; (filterLine = filterBr.readLine()) != null;) {
+				filterLine = filterLine.trim();
+				if ((filterLine.length() == 0) || filterLine.startsWith("//"))
+					continue;
+				try {
+					filterExpressions.add(GPathParser.parseExpression(filterLine));
+				}
+				catch (GPathException gpe) {
+					System.out.println(this.getExporterName() + ": could not load GPath filter '" + filterLine + "'");
+					gpe.printStackTrace(System.out);
+				}
+			}
+			filterBr.close();
+			this.filters = ((GPathExpression[]) filterExpressions.toArray(new GPathExpression[filterExpressions.size()]));
+		}
+		
+		//	well, seems we're not supposed to filter
+		catch (IOException ioe) {
+			System.out.println(this.getExporterName() + ": could not load GPath filters");
+			ioe.printStackTrace(System.out);
+		}
 	}
 	
 	/**
@@ -215,7 +305,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		this.binding.connect();
 		
 		//	start event processing service
-		this.eventHandler = new UpdateEventHandler();
+		this.eventHandler = new UpdateEventHandler(this.getExporterName() + "EventHandler");
 		this.eventHandler.start();
 		System.out.println(this.getExporterName() + ": event handler started");
 	}
@@ -267,6 +357,8 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	private static final String UPDATE_ALL_COMMAND = "updateAll";
 	
 	private static final String UPDATE_DELETE_COMMAND = "updateDel";
+	
+	private static final String DIFF_DOCS_COMMAND = "diffDocs";
 	
 	private static final String QUEUE_SIZE_COMMAND = "queueSize";
 	
@@ -370,7 +462,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		};
 		cal.add(ca);
 		
-		//	retrigger deletions
+		//	re-trigger deletions
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
 				return UPDATE_DELETE_COMMAND;
@@ -386,13 +478,13 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				if (arguments.length != 0)
 					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
 				else {
-					String docQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
+					String deletedDocIdQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
 							" FROM " + DATA_TABLE_NAME + 
 							" WHERE " + DELETED_MARKER_COLUMN_NAME + " = 'D'" +
 							";";
 					SqlQueryResult sqr = null;
 					try {
-						sqr = io.executeSelectQuery(docQuery);
+						sqr = io.executeSelectQuery(deletedDocIdQuery);
 						int count = 0;
 						while (sqr.next()) {
 							documentDeleted(sqr.getString(0), ((Properties) null)); // set attributes to null initially to prevent holding whole index table in memory for large console-triggered updates
@@ -402,12 +494,86 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 					}
 					catch (SQLException sqle) {
 						System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting deleted document IDs.");
-						System.out.println("  query was " + docQuery);
+						System.out.println("  query was " + deletedDocIdQuery);
 					}
 					finally {
 						if (sqr != null)
 							sqr.close();
 					}
+				}
+			}
+		};
+		cal.add(ca);
+		
+		//	diff documents with source
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return DIFF_DOCS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						DIFF_DOCS_COMMAND,
+						"Diff the erporter's document table with the backing source."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0)
+					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
+				else {
+					HashSet deleteDocIDs = new HashSet();
+					int retained = 0;
+					
+					//	get document IDs from own database table
+					String docIdQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
+							" FROM " + DATA_TABLE_NAME + 
+							";";
+					SqlQueryResult sqr = null;
+					try {
+						sqr = io.executeSelectQuery(docIdQuery);
+						while (sqr.next()) try {
+							binding.getDocument(sqr.getString(0));
+							retained++;
+						}
+						catch (IOException ioe) {
+							if (ioe.getMessage().startsWith("Invalid document ID '" + sqr.getString(0) + "'"))
+								deleteDocIDs.add(sqr.getString(0));
+						}
+					}
+					catch (SQLException sqle) {
+						System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting deleted document IDs.");
+						System.out.println("  query was " + docIdQuery);
+					}
+					finally {
+						if (sqr != null)
+							sqr.close();
+					}
+					
+					//	flag obsolete documents as deleted
+					if (deleteDocIDs.size() != 0) {
+						StringBuffer docUpdateQuery = new StringBuffer("UPDATE " + DATA_TABLE_NAME + 
+								" SET " + DELETED_MARKER_COLUMN_NAME + " = 'D'" +
+								" WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN (");
+						for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();) {
+							String deleteDocId = ((String) idit.next());
+							docUpdateQuery.append("'" + deleteDocId + "'");
+							if (idit.hasNext())
+								docUpdateQuery.append(", ");
+						}
+						docUpdateQuery.append(");");
+						try {
+							io.executeUpdateQuery(docUpdateQuery.toString());
+						}
+						catch (SQLException sqle) {
+							System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while flagging documents as deleted.");
+							System.out.println("  query was " + docUpdateQuery.toString());
+						}
+					}
+					
+					//	trigger update events
+					for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();)
+						documentDeleted(((String) idit.next()), ((Properties) null)); // set attributes to null initially to prevent holding whole index table in memory for large console-triggered updates
+					System.out.println("Issued delete events for " + deleteDocIDs.size() + " documents, retained " + retained + " ones.");
 				}
 			}
 		};
@@ -480,7 +646,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		};
 		cal.add(ca);
 		
-		//	put event handler out of flushing mode
+		//	clear event queue
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
 				return CLEAR_QUEUE_COMMAND;
@@ -500,7 +666,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 					}
 					System.out.println("Update event queue cleared, " + eventQueue.size() + " update events remain pending.");
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', at most the mode argument.");
+				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify at most the mode argument.");
 			}
 		};
 		cal.add(ca);
@@ -542,6 +708,12 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	 * @param doc the document
 	 */
 	public void documentUpdated(String docId, QueriableAnnotation doc) {
+		
+		//	apply filters if doc given
+		if ((doc != null) && this.filterOut(doc))
+			return;
+		
+		//	gather export parameters
 		Properties docAttributes = new Properties();
 		boolean highPriority = (doc != null);
 		
@@ -610,7 +782,13 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				//	load document on demand for console triggered updates
 				if (doc == null) try {
 					doc = this.binding.getDocument(docId);
+					
+					//	apply filters
+					if (this.filterOut(doc))
+						return;
 				}
+				
+				//	document unavailable, we're done here
 				catch (IOException ioe) {
 					System.out.println(this.getExporterName() + ": " + ioe.getMessage() + " while loading document '" + docId + "' from SRS.");
 					ioe.printStackTrace(System.out);
@@ -662,6 +840,29 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		
 		//	enqueue update
 		this.documentUpdated(docId, highPriority, docAttributes);
+	}
+	
+	/**
+	 * Filter documents. This default implementation applies the GPath filter
+	 * expressions loaded from the <code>filters.cnfg</code> file in the data
+	 * path of the exporter. If any of the filters evaluates to true, the
+	 * document is filtered out. Sub classes may overwrite this method to use
+	 * additional non-GPath filters. To keep the GPath based filers active,
+	 * however, they should make the super call to this implementation.
+	 * @param doc the document to filter
+	 * @return true if the document should be ignored for export, false
+	 *            otherwise
+	 */
+	protected boolean filterOut(QueriableAnnotation doc) {
+		for (int f = 0; f < this.filters.length; f++) try {
+			if (GPath.evaluateExpression(this.filters[f], doc, null).asBoolean().value)
+				return true;
+		}
+		catch (GPathException gpe) {
+			System.out.println(this.getExporterName() + ": could not apply GPath filter '" + this.filters[f].toString() + "'");
+			gpe.printStackTrace(System.out);
+		}
+		return false;
 	}
 	
 	private void documentUpdated(String docId, boolean highPriority, Properties docAttributes) {
@@ -800,6 +1001,9 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	private class UpdateEventHandler extends Thread {
 		private boolean shutdown = false;
 		private boolean flushing = false;
+		public UpdateEventHandler(String name) {
+			super(name);
+		}
 		public void run() {
 			
 			//	wake up starting thread
@@ -814,6 +1018,13 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 			
 			//	run indefinitely
 			while (!this.shutdown) {
+				
+				//	check for global pausing
+				checkExpPause(this);
+				
+				//	have we been globally un-paused by a shutdown interrupt?
+				if (this.shutdown)
+					break;
 				
 				//	get next event, or wait until next event available
 				UpdateEvent ue = null;
@@ -893,7 +1104,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				}
 				
 				//	give the others a little time (and the export target as well), dependent on number of exporters and activity (time spent on actual exports)
-				if (!this.flushing) try {
+				if (!this.flushing && !this.shutdown) try {
 					long sleepTime = (0 + 
 							250 + // base sleep
 							(50 * instanceCount) + // a little extra for every instance
@@ -917,7 +1128,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				this.shutdown = true;
 				eventQueue.clear(true);
 				eventQueue.notify();
-				this.interrupt(); // end any post export waiting immediately
+				this.interrupt(); // end any post export or global pause waiting immediately
 			}
 		}
 		
