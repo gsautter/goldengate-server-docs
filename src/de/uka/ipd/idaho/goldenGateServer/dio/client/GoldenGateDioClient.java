@@ -73,12 +73,12 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * return only documents that are not checked out by any user (including the
 	 * user connected through this client). This is to prevent a document from
 	 * being opened more than once simultaneously. If the user this client is
-	 * authenticated with has administrative priviledges, however, the list will
+	 * authenticated with has administrative privileges, however, the list will
 	 * contain all document, plus the information which user has currently
 	 * checked them out. This is to enable administrators to release documents
 	 * blocked by other users. If the size of the document list would exceed the
 	 * limit configured in the backing DIO and the user this client is
-	 * authenticated with does not have administrative priviledges, the returned
+	 * authenticated with does not have administrative privileges, the returned
 	 * list will not contain any elements. However, the getListFieldValues()
 	 * method of the document list will provide summary sets that can be used as
 	 * filter suggestions for the user.
@@ -93,12 +93,12 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * return only documents that are not checked out by any user (including the
 	 * user connected through this client). This is to prevent a document from
 	 * being opened more than once simultaneously. If the user this client is
-	 * authenticated with has administrative priviledges, however, the list will
+	 * authenticated with has administrative privileges, however, the list will
 	 * contain all document, plus the information which user has currently
 	 * checked them out. This is to enable administrators to release documents
 	 * blocked by other users. If the size of the document list would exceed the
 	 * limit configured in the backing DIO and the user this client is
-	 * authenticated with does not have administrative priviledges, the returned
+	 * authenticated with does not have administrative privileges, the returned
 	 * list will not contain any elements. However, the getListFieldValues()
 	 * method of the document list will provide summary sets that can be used as
 	 * filter suggestions for the user.<br>
@@ -309,7 +309,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	/**
 	 * Upload a new document to the backing DIO. If the specified document has
 	 * actually been loaded from the backing DIO, the upload will fail. If the
-	 * document was loaded from some other source (eg a local file on the client
+	 * document was loaded from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document, but will not mark it as checked
 	 * out by the user this client is authenticated with. To acquire a lock for
 	 * a newly uploaded document, use the updateDocument() method.
@@ -328,7 +328,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	/**
 	 * Upload a new document to the backing DIO. If the specified document has
 	 * actually been loaded from the backing DIO, the upload will fail. If the
-	 * document was loaded from some other source (eg a local file on the client
+	 * document was loaded from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document, but will not mark it as checked
 	 * out by the user this client is authenticated with. To acquire a lock for
 	 * a newly uploaded document, use the updateDocument() method. If the
@@ -353,7 +353,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	/**
 	 * Upload a new document to the backing DIO. If the specified document has
 	 * actually been loaded from the backing DIO, the upload will fail. If the
-	 * document was loaded from some other source (eg a local file on the client
+	 * document was loaded from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document, but will not mark it as checked
 	 * out by the user this client is authenticated with. To acquire a lock for
 	 * a newly uploaded document, use the updateDocument() method.
@@ -373,7 +373,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	/**
 	 * Upload a new document to the backing DIO. If the specified document has
 	 * actually been loaded from the backing DIO, the upload will fail. If the
-	 * document was loaded from some other source (eg a local file on the client
+	 * document was loaded from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document, but will not mark it as checked
 	 * out by the user this client is authenticated with. To acquire a lock for
 	 * a newly uploaded document, use the updateDocument() method. If the
@@ -454,8 +454,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 			String error = br.readLine();
 			if (UPLOAD_DOCUMENT.equals(error)) {
 				StringVector log = new StringVector();
-				String logEntry;
-				while ((logEntry = br.readLine()) != null)
+				for (String logEntry; (logEntry = br.readLine()) != null;)
 					log.addElement(logEntry);
 				if (pm != null) {
 					pm.setInfo("Upload complete.");
@@ -630,7 +629,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * Store/update a document in the backing DIO. If the specified document is
 	 * not marked as checked out by the user this client is authenticated with,
 	 * the upload will fail, with one exception: If the document was not loaded
-	 * from DIO but from some other source (eg a local file on the client
+	 * from DIO but from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document and subsequently mark it as checked
 	 * out by the user this client is authenticated with. This implies that
 	 * newly uploaded documents have to be released before any other users can
@@ -652,7 +651,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * Store/update a document in the backing DIO. If the specified document is
 	 * not marked as checked out by the user this client is authenticated with,
 	 * the upload will fail, with one exception: If the document was not loaded
-	 * from DIO but from some other source (eg a local file on the client
+	 * from DIO but from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document and subsequently mark it as checked
 	 * out by the user this client is authenticated with. This implies that
 	 * newly uploaded documents have to be released before any other users can
@@ -679,7 +678,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * Store/update a document in the backing DIO. If the specified document is
 	 * not marked as checked out by the user this client is authenticated with,
 	 * the upload will fail, with one exception: If the document was not loaded
-	 * from DIO but from some other source (eg a local file on the client
+	 * from DIO but from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document and subsequently mark it as checked
 	 * out by the user this client is authenticated with. This implies that
 	 * newly uploaded documents have to be released before any other users can
@@ -704,7 +703,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * Store/update a document in the backing DIO. If the specified document is
 	 * not marked as checked out by the user this client is authenticated with,
 	 * the upload will fail, with one exception: If the document was not loaded
-	 * from DIO but from some other source (eg a local file on the client
+	 * from DIO but from some other source (e.g. a local file on the client
 	 * machine), DIO will store the document and subsequently mark it as checked
 	 * out by the user this client is authenticated with. This implies that
 	 * newly uploaded documents have to be released before any other users can
@@ -754,7 +753,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 		if (pm != null)
 			pm.setInfo("Connecting to server ...");
 		
-		//	change password
+		//	do update
 		Connection con = null;
 		try {
 			con = this.authClient.getConnection();
@@ -789,8 +788,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 			String error = br.readLine();
 			if (UPDATE_DOCUMENT.equals(error)) {
 				StringVector log = new StringVector();
-				String logEntry;
-				while ((logEntry = br.readLine()) != null)
+				for (String logEntry; (logEntry = br.readLine()) != null;)
 					log.addElement(logEntry);
 				if (pm != null) {
 					pm.setInfo("Update complete.");
@@ -809,8 +807,45 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	}
 	
 	/**
+	 * Retrieve the update protocol of document, i.e. an array of messages that
+	 * describe which other modifications the update to the latest version
+	 * incurred throughout the server. This includes only modifications that
+	 * happen synchronously on update notification, though.
+	 * @param docId the ID of the document to get the update protocol for
+	 * @return the update protocol
+	 * @throws IOException
+	 */
+	public String[] getUpdateProtocol(String docId) throws IOException {
+		Connection con = null;
+		try {
+			con = this.authClient.getConnection();
+			BufferedWriter bw = con.getWriter();
+			
+			bw.write(GET_UPDATE_PROTOCOL);
+			bw.newLine();
+			bw.write(docId);
+			bw.newLine();
+			bw.flush();
+			
+			BufferedReader br = con.getReader();
+			String error = br.readLine();
+			if (GET_UPDATE_PROTOCOL.equals(error)) {
+				StringVector log = new StringVector();
+				for (String logEntry; (logEntry = br.readLine()) != null;)
+					log.addElement(logEntry);
+				return log.toStringArray();
+			}
+			else throw new IOException(error);
+		}
+		finally {
+			if (con != null)
+				con.close();
+		}
+	}
+	
+	/**
 	 * Delete a documents from the DIO. If a user other than the one this client
-	 * is authenticated with holds the lock for the document with the speciefied
+	 * is authenticated with holds the lock for the document with the specified
 	 * ID, the deletion fails and an IOException will be thrown.
 	 * @param documentId the ID of the document to delete
 	 * @return an array holding the logging messages collected during the
@@ -836,8 +871,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 			String error = br.readLine();
 			if (DELETE_DOCUMENT.equals(error)) {
 				StringVector log = new StringVector();
-				String logEntry;
-				while ((logEntry = br.readLine()) != null)
+				for (String logEntry; (logEntry = br.readLine()) != null;)
 					log.addElement(logEntry);
 				return log.toStringArray();
 			}
@@ -856,9 +890,9 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * Release a document so other users can work on it again. This is possible
 	 * only under two conditions: (1) the document was checked out by the user
 	 * this client is authenticated with, which is the normal use, or (2) with
-	 * administrative priviledges, which should be done only in rare cases
-	 * because it possibly anihilates all the work the checkout user has done on
-	 * the document.
+	 * administrative privileges, which should be done only in rare cases
+	 * because it possibly annihilates all the work the checkout user has done
+	 * on the document.
 	 * @param documentId the ID of the document to release
 	 * @throws IOException
 	 */

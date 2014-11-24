@@ -626,7 +626,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return GET_DOCUMENT_LIST;
 			}
-
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
 				
 				// check authentication
@@ -671,13 +670,36 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			}
 		};
 		cal.add(ca);
+		
+		// deliver document update protocol
+		ca = new ComponentActionNetwork() {
+			public String getActionCommand() {
+				return GET_UPDATE_PROTOCOL;
+			}
+			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
+				String docId = input.readLine();
+				UpdateProtocol up = ((UpdateProtocol) updateProtocolsByDocId.get(docId));
+				if (up == null) {
+					output.write("No recent update for document '" + docId + "'");
+					output.newLine();
+				}
+				else {
+					output.write(GET_UPDATE_PROTOCOL);
+					output.newLine();
+					for (int e = 0; e < up.size(); e++) {
+						output.write((String) up.get(e));
+						output.newLine();
+					}
+				}
+			}
+		};
+		cal.add(ca);
 
 		// deliver document through network
 		ca = new ComponentActionNetwork() {
 			public String getActionCommand() {
 				return GET_DOCUMENT;
 			}
-
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
 				
 				// check authentication
@@ -726,7 +748,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return GET_DOCUMENT_AS_STREAM;
 			}
-
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
 				
 				// check authentication
@@ -778,7 +799,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return UPLOAD_DOCUMENT;
 			}
-
 			public void performActionNetwork(final BufferedReader input, BufferedWriter output) throws IOException {
 
 				// check authentication
@@ -809,11 +829,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					DocumentRoot doc = GenericGamtaXML.readDocument(new Reader() {
 						boolean end = false;
-
 						public void close() throws IOException {
 							input.close();
 						}
-
 						public int read(char[] cbuf, int off, int len) throws IOException {
 							if (this.end) return -1;
 							int c;
@@ -840,20 +858,24 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 					String user = uaa.getUserNameForSession(sessionId);
 					System.out.println(" - user is " + user);
 
-					if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE)) doc.setAttribute(CHECKIN_USER_ATTRIBUTE, user);
+					if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE))
+						doc.setAttribute(CHECKIN_USER_ATTRIBUTE, user);
 					doc.setAttribute(UPDATE_USER_ATTRIBUTE, user);
 
 					doc.setAttribute(DOCUMENT_NAME_ATTRIBUTE, docName);
 
-					final StringVector log = new StringVector();
+//					final StringVector log = new StringVector();
+					final UpdateProtocol up = new UpdateProtocol(((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID())), false);
 					int version;
 					try {
-						version = uploadDocument(user, doc, new EventLogger() {
-							public void writeLog(String logEntry) {
-								if (logEntry != null)
-									log.addElement(logEntry);
-							}
-						}, externalIdentifierMode);
+//						version = uploadDocument(user, doc, new EventLogger() {
+//							public void writeLog(String logEntry) {
+//								if (logEntry != null)
+//									log.addElement(logEntry);
+//							}
+//						}, externalIdentifierMode);
+						version = uploadDocument(user, doc, up, externalIdentifierMode);
+						up.setHead(docName, version);
 					}
 					catch (DuplicateExternalIdentifierException deie) {
 						output.write(DUPLICATE_EXTERNAL_IDENTIFIER);
@@ -871,83 +893,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					output.write("Document '" + docName + "' stored as version " + version);
 					output.newLine();
-
-					for (int l = 0; l < log.size(); l++) {
-						output.write(log.get(l));
-						output.newLine();
-					}
-//					String docSize = input.readLine();
-//					System.out.println(" - size is " + docSize);
-//
-//					String docName = input.readLine();
-//					System.out.println(" - name is " + docName);
-//
-//					String externalIdentifierMode = input.readLine();
-//					System.out.println(" - external identifier mode is " + externalIdentifierMode);
-//
-//					DocumentRoot doc = GenericGamtaXML.readDocument(new Reader() {
-//						boolean end = false;
-//
-//						public void close() throws IOException {
-//							input.close();
-//						}
-//
-//						public int read(char[] cbuf, int off, int len) throws IOException {
-//							if (this.end) return -1;
-//							int c;
-//							for (int o = 0; o < (len - off); o++) {
-//								c = input.read();
-//								if ((c == '\n') || (c == '\r')) {
-//									this.end = true;
-//									return o;
-//								} else cbuf[off + o] = ((char) c);
-//							}
-//							return (len - off);
-//						}
-//					});
-//					System.out.println(" - got document, size is " + doc.size());
-//
-//					// check if data transfer complete
-//					if (!docSize.equals("" + doc.size())) {
-//						output.write("Document transfer incomplete, received only " + doc.size() + " of " + docSize + " tokens.");
-//						output.newLine();
-//						return;
-//					}
-//
-//					String user = uaa.getUserNameForSession(sessionId);
-//					System.out.println(" - user is " + user);
-//
-//					if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE)) doc.setAttribute(CHECKIN_USER_ATTRIBUTE, user);
-//					doc.setAttribute(UPDATE_USER_ATTRIBUTE, user);
-//
-//					doc.setAttribute(DOCUMENT_NAME_ATTRIBUTE, docName);
-//
-//					final StringVector log = new StringVector();
-//					int version;
-//					try {
-//						version = uploadDocument(user, doc, new EventLogger() {
-//							public void writeLog(String logEntry) {
-//								if (logEntry != null)
-//									log.addElement(logEntry);
-//							}
-//						}, externalIdentifierMode);
-//					}
-//					catch (DuplicateExternalIdentifierException deie) {
-//						output.write(DUPLICATE_EXTERNAL_IDENTIFIER);
-//						output.newLine();
-//						output.write(deie.externalIdentifierAttributeName);
-//						output.newLine();
-//						output.write(deie.conflictingExternalIdentifier);
-//						output.newLine();
-//						deie.writeConflictingDocuments(output);
-//						return;
-//					}
-//					
-//					output.write(UPLOAD_DOCUMENT);
-//					output.newLine();
-//
-//					output.write("Document '" + docName + "' stored as version " + version);
-//					output.newLine();
 //
 //					for (int l = 0; l < log.size(); l++) {
 //						output.write(log.get(l));
@@ -967,7 +912,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return CHECKOUT_DOCUMENT;
 			}
-
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
 
 				// check authentication
@@ -1044,7 +988,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return CHECKOUT_DOCUMENT_AS_STREAM;
 			}
-			
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
 
 				// check authentication
@@ -1124,7 +1067,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return UPDATE_DOCUMENT;
 			}
-
 			public void performActionNetwork(final BufferedReader input, BufferedWriter output) throws IOException {
 
 				// check authentication
@@ -1155,11 +1097,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 					
 					DocumentRoot doc = GenericGamtaXML.readDocument(new Reader() {
 						boolean end = false;
-						
 						public void close() throws IOException {
 							input.close();
 						}
-						
 						public int read(char[] cbuf, int off, int len) throws IOException {
 							if (this.end) return -1;
 							int c;
@@ -1188,20 +1128,24 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					String docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID()));
 
-					if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE)) doc.setAttribute(CHECKIN_USER_ATTRIBUTE, user);
+					if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE))
+						doc.setAttribute(CHECKIN_USER_ATTRIBUTE, user);
 					doc.setAttribute(UPDATE_USER_ATTRIBUTE, user);
 
 					doc.setAttribute(DOCUMENT_NAME_ATTRIBUTE, docName);
 
-					final StringVector log = new StringVector();
+//					final StringVector log = new StringVector();
+					final UpdateProtocol up = new UpdateProtocol(docId, false);
 					int version;
 					try {
-						version = updateDocument(user, docId, doc, new EventLogger() {
-							public void writeLog(String logEntry) {
-								if (logEntry != null)
-									log.addElement(logEntry);
-							}
-						}, externalIdentifierMode);
+//						version = updateDocument(user, docId, doc, new EventLogger() {
+//							public void writeLog(String logEntry) {
+//								if (logEntry != null)
+//									log.addElement(logEntry);
+//							}
+//						}, externalIdentifierMode);
+						version = updateDocument(user, docId, doc, up, externalIdentifierMode);
+						up.setHead(docName, version);
 					}
 					catch (DuplicateExternalIdentifierException deie) {
 						output.write(DUPLICATE_EXTERNAL_IDENTIFIER);
@@ -1219,11 +1163,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					output.write("Document '" + docName + "' stored as version " + version);
 					output.newLine();
-
-					for (int l = 0; l < log.size(); l++) {
-						output.write(log.get(l));
-						output.newLine();
-					}
+//					
+//					for (int l = 0; l < log.size(); l++) {
+//						output.write(log.get(l));
+//						output.newLine();
+//					}
 				}
 				catch (IOException ioe) {
 					output.write(ioe.getMessage());
@@ -1238,7 +1182,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return DELETE_DOCUMENT;
 			}
-
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
 
 				// check authentication
@@ -1259,19 +1202,24 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				
 				try {
 					String docId = input.readLine();
-					
-					final StringVector log = new StringVector();
-					deleteDocument(uaa.getUserNameForSession(sessionId), docId, new EventLogger() {
-						public void writeLog(String logEntry) {
-							log.addElement(logEntry);
-						}
-					});
+//					final StringVector log = new StringVector();
+					final UpdateProtocol up = new UpdateProtocol(docId, true);
+//					deleteDocument(uaa.getUserNameForSession(sessionId), docId, new EventLogger() {
+//						public void writeLog(String logEntry) {
+//							log.addElement(logEntry);
+//						}
+//					});
+					deleteDocument(uaa.getUserNameForSession(sessionId), docId, up);
 					
 					output.write(DELETE_DOCUMENT);
 					output.newLine();
-
-					for (int l = 0; l < log.size(); l++) {
-						output.write(log.get(l));
+//
+//					for (int l = 0; l < log.size(); l++) {
+//						output.write(log.get(l));
+//						output.newLine();
+//					}
+					for (int e = 0; e < up.size(); e++) {
+						output.write((String) up.get(e));
 						output.newLine();
 					}
 				}
@@ -1288,7 +1236,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return RELEASE_DOCUMENT;
 			}
-
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
 
 				// check authentication
@@ -1321,12 +1268,10 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return LIST_WATCHED_FOLDERS_COMMAND;
 			}
-			
 			public String[] getExplanation() {
 				String[] explanation = { LIST_WATCHED_FOLDERS_COMMAND, "List the folders this GoldenGATE DIO is watching for new documents." };
 				return explanation;
 			}
-			
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
 					System.out.println("GoldenGATE DIO is currently watching the following folders for new documents:");
@@ -1345,13 +1290,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return WATCH_FOLDER_COMMAND;
 			}
-
 			public String[] getExplanation() {
 				String[] explanation = { WATCH_FOLDER_COMMAND + " ", "Watch a folder for new documents to be added to this GoldenGATE DIO's storage:",
 						"- : the folder to watch, either relative to the DIO's data path, or absolute." };
 				return explanation;
 			}
-
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 1) {
 					String error = watchFolder(arguments[0]);
@@ -1367,14 +1310,12 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return STOP_WATCH_FOLDER_COMMAND;
 			}
-
 			public String[] getExplanation() {
 				String[] explanation = {STOP_WATCH_FOLDER_COMMAND + " <folderName>", 
 						"Stop watching a folder for new documents to be added to this GoldenGATE DIO's storage space:",
 						"- <folderName> : the folder to stop watching, as listen in " + LIST_WATCHED_FOLDERS_COMMAND };
 				return explanation;
 			}
-
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 1) {
 					for (int i = 0; i < inputFolderWatchers.size(); i++) {
@@ -1398,12 +1339,10 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public String getActionCommand() {
 				return IMPORT_FILE_COMMAND;
 			}
-			
 			public String[] getExplanation() {
 				String[] explanation = { IMPORT_FILE_COMMAND + " ", "Import a document from a file:", "- : the file to import, has to be an XML file" };
 				return explanation;
 			}
-
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 1) {
 					File file = new File(arguments[0]);
@@ -1436,6 +1375,31 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			cal.add(dstActions[a]);
 		
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
+	}
+	
+	private Map updateProtocolsByDocId = Collections.synchronizedMap(new LinkedHashMap(16, 0.9f, false) {
+		protected boolean removeEldestEntry(Entry eldest) {
+			return (this.size() > 128); // should be OK for starters
+		}
+	});
+	private class UpdateProtocol extends ArrayList implements EventLogger {
+		final String docId;
+		final boolean isDeletion;
+		UpdateProtocol(String docId, boolean isDeletion) {
+			this.docId = docId;
+			this.isDeletion = isDeletion;
+			this.add("Document deleted"); // acts as placeholder for head entry in updates, which know their version number only later
+			updateProtocolsByDocId.put(this.docId, this);
+		}
+		void setHead(String docName, int version) {
+			this.set(0, (this.isDeletion ? "Document deleted" : ("Document '" + docName + "' stored as version " + version)));
+		}
+		public void writeLog(String logEntry) {
+			this.add(logEntry);
+		}
+		void close() {
+			this.add(this.isDeletion ? DELETION_COMPLETE : UPDATE_COMPLETE);
+		}
 	}
 
 	private ArrayList inputFolderWatchers = new ArrayList();
@@ -1617,9 +1581,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @return the new version number of the document just updated
 	 * @throws IOException
 	 */
-	public synchronized int uploadDocument(String userName, QueriableAnnotation doc, EventLogger logger, String externalIdentifierMode) throws IOException {
+	public synchronized int uploadDocument(final String userName, final QueriableAnnotation doc, final EventLogger logger, String externalIdentifierMode) throws IOException {
 		
-		String docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID()));
+		final String docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID()));
 		
 		// get checkout user (must be null if document is new)
 		String checkoutUser = this.getCheckoutUser(docId);
@@ -1628,7 +1592,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		// get timestamp
-		long time = System.currentTimeMillis();
+		final long time = System.currentTimeMillis();
 		String timeString = ("" + time);
 
 		// update meta data
@@ -1663,7 +1627,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 
 		// store document in DSS
-		int version = this.dst.storeDocument(doc);
+		final int version = this.dst.storeDocument(doc);
 
 		// check and (if necessary) truncate name
 		String name = ((String) doc.getAttribute(DOCUMENT_NAME_ATTRIBUTE, docId));
@@ -1772,11 +1736,25 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			throw new IOException(sqle.getMessage());
 		}
 		
-		// issue update event
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, this.getClass().getName(), time, logger));
+		//	update coming through network interface, do event notification asynchronously for quick response
+		if (logger instanceof UpdateProtocol) {
+			Thread dunThread = new Thread() {
+				public void run() {
+					// issue update event, immediately followed by release event (document is not locked, free for editing)
+					GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
+					GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
+					((UpdateProtocol) logger).close();
+				}
+			};
+			dunThread.start();
+		}
 		
-		// issue release event (document is not locked, free for editing)
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, this.getClass().getName(), time, null));
+		//	component API update, we can work synchronously
+		else {
+			// issue update event, immediately followed by release event (document is not locked, free for editing)
+			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
+			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
+		}
 		
 		// report new version
 		return version;
@@ -1825,7 +1803,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @return the new version number of the document just updated
 	 * @throws IOException
 	 */
-	public synchronized int updateDocument(String userName, String docId, QueriableAnnotation doc, EventLogger logger, String externalIdentifierMode) throws IOException {
+	public synchronized int updateDocument(final String userName, final String docId, final QueriableAnnotation doc, final EventLogger logger, String externalIdentifierMode) throws IOException {
 		
 		// check if document checked out
 		if (!this.mayUpdateDocument(userName, docId))
@@ -1833,7 +1811,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		// get timestamp
-		long time = System.currentTimeMillis();
+		final long time = System.currentTimeMillis();
 		String timeString = ("" + time);
 
 		// do not store checkout user info
@@ -1891,7 +1869,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		// store document in DSS
-		int version = this.dst.storeDocument(doc);
+		final int version = this.dst.storeDocument(doc);
 		
 		StringVector assignments = new StringVector();
 
@@ -2047,9 +2025,20 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			System.out.println("  query was " + updateQuery);
 			throw new IOException(sqle.getMessage());
 		}
-
-		// issue event
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, this.getClass().getName(), time, logger));
+		
+		//	update coming through network interface, do event notification asynchronously for quick response
+		if (logger instanceof UpdateProtocol) {
+			Thread dunThread = new Thread() {
+				public void run() {
+					GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
+					((UpdateProtocol) logger).close();
+				}
+			};
+			dunThread.start();
+		}
+		
+		//	component API update, we can work synchronously
+		else GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
 		
 		// report new version
 		return version;
@@ -2102,9 +2091,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
 			System.out.println("  query was " + deleteQuery);
 		}
-
+		
 		// issue event
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, GoldenGateDIO.class.getName(), System.currentTimeMillis(), logger));
+		if (logger instanceof UpdateProtocol)
+			((UpdateProtocol) logger).close();
 	}
 
 	/**
@@ -2293,7 +2284,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			
 			//	log checkout and notify listeners
 			this.writeLogEntry("document " + docId + " checked out by '" + userName + "'.");
-			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, this.getClass().getName(), checkoutTime, null));
+			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime, null));
 			
 			return dr;
 		}
@@ -2345,7 +2336,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		//	release document if possible
 		if (this.uaa.isAdmin(userName) || checkoutUser.equals(userName)) { // admin user, or user holding the lock
 			this.setCheckoutUser(docId, "", -1);
-			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, this.getClass().getName(), System.currentTimeMillis(), null));
+			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), System.currentTimeMillis(), null));
 		}
 	}
 

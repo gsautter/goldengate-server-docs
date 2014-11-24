@@ -62,6 +62,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -495,7 +496,7 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 		}
 		
 		//	check document ID
-		String docId = (doc.hasAttribute(DOCUMENT_ID_ATTRIBUTE) ? ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE)) : doc.getAnnotationID());
+		final String docId = (doc.hasAttribute(DOCUMENT_ID_ATTRIBUTE) ? ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE)) : doc.getAnnotationID());
 		
 		//	cache document if possible
 		boolean docCached;
@@ -545,8 +546,26 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 				}
 				else return false;
 			}
-			UploadProtocolDialog uploadProtocolDialog = new UploadProtocolDialog("Document Upload Protocol", ("Document '" + docName + "' successfully uploaded to GoldenGATE Server at\n" + authManager.getHost() + ":" + authManager.getPort() + "\nDetails:"), uploadProtocol);
-			uploadProtocolDialog.setVisible(true);
+			final UploadProtocolDialog upDialog = new UploadProtocolDialog("Document Upload Protocol", ("Document '" + docName + "' successfully uploaded to GoldenGATE Server at\n" + authManager.getHost() + ":" + authManager.getPort() + "\nDetails:"), uploadProtocol);
+			Thread upThread = new Thread() {
+				public void run() {
+					while (dioClient != null) {
+						try {
+							Thread.sleep(1000);
+						} catch (InterruptedException ie) {}
+						try {
+							String[] up = dioClient.getUpdateProtocol(docId);
+							upDialog.setUploadProtocol(up);
+							if ((up.length != 0) && (UPDATE_COMPLETE.equals(up[up.length-1]) || DELETION_COMPLETE.equals(up[up.length-1])))
+								return;
+						}
+						catch (IOException ioe) {
+							ioe.printStackTrace(System.out);
+						}
+					}
+				}
+			};
+			upThread.start();
 			return true;
 		}
 		catch (IOException ioe) {
@@ -2196,20 +2215,20 @@ reduce document list loading effort:
 		}
 	}
 	
-	private class UploadProtocolDialog extends DialogPanel {
-		UploadProtocolDialog(String title, String label, final String[] uplaodProtocol) {
-			super(title, true);
-			this.getContentPane().setLayout(new BorderLayout());
-			
-			if (label != null)
-				this.getContentPane().add(new JLabel(label, JLabel.LEFT), BorderLayout.NORTH);
-			
-			JTable resultList = new JTable(new TableModel() {
+	private class UploadProtocolDialog extends JFrame {
+		private String[] uploadProtocol = new String[0];
+		private int uploadProtocolSize = 0;
+		private JTable protocolList;
+		private JButton closeButton;
+		UploadProtocolDialog(String title, String label, String[] up) {
+			super(title);
+			this.setIconImage(parent.getGoldenGateIcon());
+			this.protocolList = new JTable(new TableModel() {
 				public int getColumnCount() {
 					return 1;
 				}
 				public int getRowCount() {
-					return uplaodProtocol.length;
+					return uploadProtocol.length;
 				}
 				public String getColumnName(int columnIndex) {
 					if (columnIndex == 0) return "";
@@ -2222,7 +2241,8 @@ reduce document list loading effort:
 					return false;
 				}
 				public Object getValueAt(int rowIndex, int columnIndex) {
-					if (columnIndex == 0) return uplaodProtocol[rowIndex];
+					if (columnIndex == 0)
+						return uploadProtocol[rowIndex];
 					return null;
 				}
 				public void setValueAt(Object aValue, int rowIndex, int columnIndex) {}
@@ -2230,28 +2250,49 @@ reduce document list loading effort:
 				public void addTableModelListener(TableModelListener l) {}
 				public void removeTableModelListener(TableModelListener l) {}
 			});
-			resultList.setShowHorizontalLines(true);
-			resultList.setShowVerticalLines(false);
-			resultList.setTableHeader(null);
+			this.protocolList.setShowHorizontalLines(true);
+			this.protocolList.setShowVerticalLines(false);
+			this.protocolList.setTableHeader(null);
 			
-			JScrollPane resultListBox = new JScrollPane(resultList);
+			JScrollPane resultListBox = new JScrollPane(this.protocolList);
 			resultListBox.setViewportBorder(BorderFactory.createLoweredBevelBorder());
 			
-			this.getContentPane().add(resultListBox, BorderLayout.CENTER);
-			
-			JButton okButton = new JButton("OK");
-			okButton.setBorder(BorderFactory.createRaisedBevelBorder());
-			okButton.setPreferredSize(new Dimension(100, 21));
-			okButton.addActionListener(new ActionListener() {
+			this.closeButton = new JButton("Background");
+			this.closeButton.setBorder(BorderFactory.createRaisedBevelBorder());
+			this.closeButton.setPreferredSize(new Dimension(100, 21));
+			this.closeButton.addActionListener(new ActionListener() {
 				public void actionPerformed(ActionEvent ae) {
 					dispose();
 				}
 			});
-			this.getContentPane().add(okButton, BorderLayout.SOUTH);
 			
-			//	show dialog
+			this.getContentPane().setLayout(new BorderLayout());
+			if (label != null)
+				this.getContentPane().add(new JLabel(label, JLabel.LEFT), BorderLayout.NORTH);
+			this.getContentPane().add(resultListBox, BorderLayout.CENTER);
+			this.getContentPane().add(this.closeButton, BorderLayout.SOUTH);
+			
 			this.setSize(500, 600);
-			this.setLocationRelativeTo(this.getOwner());
+			this.setLocationRelativeTo(DialogPanel.getTopWindow());
+			
+			this.setUploadProtocol(up);
+		}
+		void setUploadProtocol(String[] up) {
+			if (this.uploadProtocolSize == this.uploadProtocol.length)
+				return;
+			this.uploadProtocol = up;
+			this.protocolList.validate();
+			this.protocolList.repaint();
+			this.uploadProtocolSize = this.uploadProtocol.length;
+			if ((this.uploadProtocol.length != 0) && (UPDATE_COMPLETE.equals(this.uploadProtocol[this.uploadProtocol.length-1]) || DELETION_COMPLETE.equals(this.uploadProtocol[this.uploadProtocol.length-1]))) {
+				this.closeButton.setText("OK");
+				this.closeButton.validate();
+				this.closeButton.repaint();
+			}
+			this.setVisible(true);
+			this.validate();
+			this.repaint();
+			this.toFront();
 		}
 	}
 	

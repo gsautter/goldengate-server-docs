@@ -64,7 +64,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 	/** the command for loading a document */
 	public static final String GET_DOCUMENT_AS_STREAM = "DIO_GET_DOCUMENT_AS_STREAM";
 	
-	/** the command for uploading a document, i.e. uploading a new version */
+	/** the command for uploading a document, i.e. adding a new document to the collection */
 	public static final String UPLOAD_DOCUMENT = "DIO_UPLOAD_DOCUMENT";
 	
 	/** the command for checking out a document from a storage */
@@ -84,6 +84,15 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 	
 	/** the command for loading a list of all documents in the DIO */
 	public static final String GET_DOCUMENT_LIST = "DIO_GET_DOCUMENT_LIST";
+	
+	/** the command for retrieving the update protocol of document, i.e. messages that describe which other modifications the new version incurred throughout the server (only modifications that happen synchronously on update notification, though) */
+	public static final String GET_UPDATE_PROTOCOL = "DIO_GET_UPDATE_PROTOCOL";
+	
+	/** the last entry in a document update protocol, indicating that the update is fully propagated through the server */
+	public static final String UPDATE_COMPLETE = "Document update complete";
+	
+	/** the last entry in a document update protocol belonging to a deletion, indicating that the update is fully propagated through the server */
+	public static final String DELETION_COMPLETE = "Document deletion complete";
 	
 	
 	/** the permission for uploading new documents to the DIO*/
