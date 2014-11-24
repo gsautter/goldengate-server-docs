@@ -260,7 +260,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 	/**
 	 * This implementation adds a column for the document name on the connected
 	 * eXist servers. Sub classes overwriting this method thus have to make the
-	 * super invokation and add this column to their own list of index fields.
+	 * super invocation and add this column to their own list of index fields.
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#getIndexFields()
 	 */
 	protected TableColumnDefinition[] getIndexFields() {
@@ -273,7 +273,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 	/**
 	 * This implementation reads the value for the document name on the
 	 * connected eXist servers. Sub classes overwriting this method thus have to
-	 * make the super invokation.
+	 * make the super invocation.
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#getIndexFieldValue(java.lang.String, de.uka.ipd.idaho.gamta.QueriableAnnotation)
 	 */
 	protected String getIndexFieldValue(String fieldName, QueriableAnnotation doc) {
@@ -293,7 +293,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 	/**
 	 * This implementation loads the configures connections to eXist servers.
 	 * Sub classes overwriting this method thus have to make the super
-	 * invokation.
+	 * invocation.
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#initComponent()
 	 */
 	protected void initComponent() {
