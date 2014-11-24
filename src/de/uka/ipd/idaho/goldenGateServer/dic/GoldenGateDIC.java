@@ -329,7 +329,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				System.out.println(" - got " + imported.size() + " documents imported before");
 				
 				//	importer component fetch documents one by one
-				for (int d = 0; this.parent.keepRunning && this.keepRunning && (d < ids.length); d++) {
+				for (int d = 0; this.parent.keepRunning && this.keepRunning && (d < ids.length); d++) try {
 					System.out.println(" - importing " + ids[d].docId + " ...");
 					
 					//	we'dealt with seen this one
@@ -411,6 +411,10 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 					if (this.keepRunning && this.parent.keepRunning) try {
 						Thread.sleep(1000);
 					} catch (InterruptedException ie) {}
+				}
+				catch (Exception e) {
+					System.out.println("Error on getting update " + ids[d].docId + " from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
+					e.printStackTrace(System.out);
 				}
 			}
 			

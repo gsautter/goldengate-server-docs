@@ -184,33 +184,6 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 		this.lastImportComplete = 0;
 	}
 	
-//	/**
-//	 * Trigger document import. This method is invoked by the parent DIC to
-//	 * trigger the import. If import is successful, the last import timestamp is
-//	 * updated. In particular, this method first invokes importDocuments(), and
-//	 * then updates the timestamp.
-//	 * @return an array of descriptors for the freshly imported documents
-//	 * @throws IOException
-//	 */
-//	public final ImportDocument[] doImport() throws IOException {
-//		this.lastImportAttempt = System.currentTimeMillis();
-//		ImportDocument[] imported = this.importDocuments();
-//		this.lastImportComplete = System.currentTimeMillis();
-//		this.lastImportAttempt = this.lastImportComplete;
-//		return imported;
-//	}
-//	
-//	/**
-//	 * Import documents, i.e. download them to the importer's data path (or some
-//	 * folder below it) and return descriptor objects pointing to the documents.
-//	 * The parent DIC expects the documents to be in generic GAMTA document
-//	 * format. Importers are recommended, but not required to use the
-//	 * cacheDocument() method, which fulfills this requirement automatically.
-//	 * @return an array of descriptors for the freshly imported documents
-//	 * @throws IOException
-//	 */
-//	protected abstract ImportDocument[] importDocuments() throws IOException;
-//	
 	/**
 	 * Get the documents to import, i.e. fetch their identifiers, plus possible
 	 * importer specific data, e.g. URLs. Implementations of this method should
