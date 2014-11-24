@@ -36,6 +36,7 @@ import java.net.URLDecoder;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -68,6 +69,7 @@ import de.uka.ipd.idaho.gamta.util.AnnotationInputStream;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader.ComponentInitializer;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
+import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
@@ -492,7 +494,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				Query query = parseQuery(queryString);
 				
 				//	get result
-				DocumentResult dr = searchDocuments(query);
+				DocumentResult dr = searchDocuments(query, !"false".equals(query.getValue(INCLUDE_UPDATE_HISTORY_PARAMETER, "false")));
 				if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: document search complete");
 				if (DEBUG_DOCUMENT_SEARCH) System.out.println("  query was " + query.toString());
 				
@@ -521,7 +523,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				Query query = parseQuery(queryString);
 				
 				//	get result
-				DocumentResult dr = searchDocumentDetails(query);
+				DocumentResult dr = searchDocumentDetails(query, !"false".equals(query.getValue(INCLUDE_UPDATE_HISTORY_PARAMETER, "false")));
 				if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: document search complete");
 				if (DEBUG_DOCUMENT_SEARCH) System.out.println("  query was " + query.toString());
 				
@@ -626,15 +628,27 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				String docId = input.readLine();
 				try {
-					QueriableAnnotation doc = getDocument(docId);
-					
-					//	indicate document coming
-					output.write(GET_XML_DOCUMENT);
-					output.newLine();
-					
-					//	write document
-					GenericGamtaXML.storeDocument(doc, output);
-					output.newLine();
+					DocumentReader dr = getDocumentAsStream(docId);
+					try {
+						
+						//	indicate document coming
+						output.write(GET_XML_DOCUMENT);
+						output.newLine();
+						
+						//	write document
+						char[] cbuf = new char[1024];
+						int read;
+						while ((read = dr.read(cbuf, 0, cbuf.length)) != -1)
+							output.write(cbuf, 0, read);
+						output.newLine();
+					}
+					catch (IOException ioe) {
+						output.write(ioe.getMessage());
+						output.newLine();
+					}
+					finally {
+						dr.close();
+					}
 				}
 				catch (Exception e) {
 					output.write("Could not find or load document with ID " + docId);
@@ -1033,7 +1047,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			};
 		}
 	}
-	
 	/**
 	 * Retrieve the attributes of a document, as stored in the SRS's storage.
 	 * There is no guarantee with regard to the attributes contained in the
@@ -1045,6 +1058,21 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public Properties getDocumentAttributes(String docId) {
+		return this.getDocumentAttributes(docId, false);
+	}
+	
+	/**
+	 * Retrieve the attributes of a document, as stored in the SRS's storage.
+	 * There is no guarantee with regard to the attributes contained in the
+	 * returned properties. If a document with the specified ID does not exist,
+	 * this method returns null.
+	 * @param docId the ID of the document
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return a Properties object holding the attributes of the document with
+	 *         the specified ID
+	 * @throws IOException
+	 */
+	public Properties getDocumentAttributes(String docId, boolean includeUpdateHistory) {
 		
 		//	normalize UUID
 		docId = normalizeId(docId);
@@ -1086,6 +1114,46 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public QueriableAnnotation getDocument(String docId) throws IOException {
+		return this.getDocument(docId, false);
+	}
+	
+	/**
+	 * Retrieve a document from the SRS's storage.
+	 * @param docId the ID of the document to load
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public QueriableAnnotation getDocument(String docId, boolean includeUpdateHistory) throws IOException {
+		DocumentReader dr = this.getDocumentAsStream(docId, includeUpdateHistory);
+		try {
+			return GenericGamtaXML.readDocument(dr);
+		}
+		finally {
+			dr.close();
+		}
+	}
+	
+	/**
+	 * Retrieve a document from the SRS's storage, as a stream for sending out
+	 * to some writer without instantiating it on this end.
+	 * @param docId the ID of the document to load
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public DocumentReader getDocumentAsStream(String docId) throws IOException {
+		return this.getDocumentAsStream(docId, false);
+	}
+	
+	/**
+	 * Retrieve a document from the SRS's storage, as a stream for sending out
+	 * to some writer without instantiating it on this end.
+	 * @param docId the ID of the document to load
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public DocumentReader getDocumentAsStream(String docId, boolean includeUpdateHistory) throws IOException {
 		
 		//	normalize UUID
 		docId = normalizeId(docId);
@@ -1112,7 +1180,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		}
 		
 		//	return document
-		return this.dst.loadDocument(docId);
+		return this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
 	}
 	
 	/**
@@ -2204,7 +2272,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		MASTER_PAGE_NUMBER_ATTRIBUTE,
 		MASTER_LAST_PAGE_NUMBER_ATTRIBUTE
 	};
-	private DocumentResult searchDocuments(Query query) throws IOException {
+	private DocumentResult searchDocuments(Query query, boolean includeUpdateHistory) throws IOException {
 		if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: doing document search ...");
 		
 		//	get document numbers
@@ -2342,10 +2410,10 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		};
 	}
 	
-	private DocumentResult searchDocumentDetails(Query query) throws IOException {
+	private DocumentResult searchDocumentDetails(Query query, boolean includeUpdateHistory) throws IOException {
 		
 		//	get result
-		final DocumentResult fullDr = searchDocuments(query);
+		final DocumentResult fullDr = searchDocuments(query, includeUpdateHistory);
 		
 		//	wrap document result in order to reduce documents
 		return new DocumentResult() {
@@ -3122,40 +3190,62 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			query.setIndexNameMask(null);
 		}
 		
-		//	retrieve timestamp filters
+		//	retrieve user and timestamp filters
 		long modifiedSince;
 		try {
-			modifiedSince = Long.parseLong(query.getValue(LAST_MODIFIED_SINCE, "0"));
+			String modifiedSinceString = query.getValue(LAST_MODIFIED_SINCE, "0");
+			if (modifiedSinceString.matches("[12][0-9]{3}"))
+				modifiedSinceString = (modifiedSinceString + "-01-01");
+			else if (modifiedSinceString.matches("[12][0-9]{3}\\-[01]?[0-9]"))
+				modifiedSinceString = (modifiedSinceString + "-01");
+			if (modifiedSinceString.matches("[12][0-9]{3}\\-[01]?[0-9]\\-[0-3]?[0-9]"))
+				modifiedSince = MODIFIED_DATE_FORMAT.parse(modifiedSinceString).getTime();
+			else modifiedSince = Long.parseLong(modifiedSinceString);
 		}
-		catch (NumberFormatException e) {
+		catch (NumberFormatException nfe) {
+			modifiedSince = 0;
+		}
+		catch (ParseException pe) {
 			modifiedSince = 0;
 		}
 		long modifiedBefore;
 		try {
-			modifiedBefore = Long.parseLong(query.getValue(LAST_MODIFIED_BEFORE, "0"));
+			String modifiedBeforeString = query.getValue(LAST_MODIFIED_BEFORE, "0");
+			if (modifiedBeforeString.matches("[12][0-9]{3}"))
+				modifiedBeforeString = (modifiedBeforeString + "-01-01");
+			else if (modifiedBeforeString.matches("[12][0-9]{3}\\-[01]?[0-9]"))
+				modifiedBeforeString = (modifiedBeforeString + "-01");
+			if (modifiedBeforeString.matches("[12][0-9]{3}\\-[01]?[0-9]\\-[0-3]?[0-9]"))
+				modifiedBefore = MODIFIED_DATE_FORMAT.parse(modifiedBeforeString).getTime();
+			else modifiedBefore = Long.parseLong(query.getValue(LAST_MODIFIED_SINCE, "0"));
 		}
-		catch (NumberFormatException e) {
+		catch (NumberFormatException nfe) {
 			modifiedBefore = 0;
 		}
+		catch (ParseException pe) {
+			modifiedBefore = 0;
+		}
+		String user = query.getValue(UPDATE_USER_ATTRIBUTE, query.getValue(CHECKIN_USER_ATTRIBUTE));
 		
-		//	do timstamp filtering
-		QueryResult timestampResult = null;
+		//	do document data filtering
+		QueryResult docDataResult = null;
 		if ((modifiedSince != 0) || (modifiedBefore != 0)) {
-			timestampResult = new QueryResult();
-			String docTimestampQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + 
+			docDataResult = new QueryResult();
+			String docDataQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + 
 					" FROM " + DOCUMENT_TABLE_NAME + 
 					" WHERE " + ((modifiedSince == 0) ? "0=0" : (UPDATE_TIME_ATTRIBUTE + " >= " + modifiedSince)) + 
 					" AND " + ((modifiedBefore == 0) ? "0=0" : (UPDATE_TIME_ATTRIBUTE + " <= " + modifiedSince)) + 
+					" AND " + ((user == null) ? "0=0" : ("(" + UPDATE_USER_ATTRIBUTE + " = '" + EasyIO.sqlEscape(user) + "' OR " + CHECKIN_USER_ATTRIBUTE + " = '" + EasyIO.sqlEscape(user) + "')")) +
 					";";
 			SqlQueryResult sqr = null;
 			try {
-				sqr = this.io.executeSelectQuery(docTimestampQuery);
+				sqr = this.io.executeSelectQuery(docDataQuery);
 				while (sqr.next())
-					timestampResult.addResultElement(new QueryResultElement(Long.parseLong(sqr.getString(0)), 1));
+					docDataResult.addResultElement(new QueryResultElement(Long.parseLong(sqr.getString(0)), 1));
 			}
 			catch (SQLException sqle) {
 				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
-				System.out.println("  Query was " + docTimestampQuery);
+				System.out.println("  Query was " + docDataQuery);
 			}
 			finally {
 				if (sqr != null)
@@ -3169,19 +3259,19 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		for (int r = 0; r < qr.length; r++)
 			partialDocNrResults.addLast(qr[r]);
 		
-		//	no result, or timestamp filter only
+		//	no result, or document data filter only
 		if (partialDocNrResults.isEmpty() && fixedResultDocIDs.isEmpty()) {
 			
 			//	no result at all
-			if (timestampResult == null) {
+			if (docDataResult == null) {
 				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got empty result");
 				return new QueryResult();
 			}
 			
-			//	timestamp filter result
+			//	document data result
 			else {
-				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + timestampResult.size() + " results time based results");
-				return timestampResult;
+				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + docDataResult.size() + " document data based results");
+				return docDataResult;
 			}
 		}
 		
@@ -3189,7 +3279,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		else if (partialDocNrResults.isEmpty()) {
 			QueryResult result = new QueryResult();
 			
-			String docIdToDocNrQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + " FROM " + DOCUMENT_TABLE_NAME + " WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + DOCUMENT_UUID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "');";
+			String docIdToDocNrQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + " FROM " + DOCUMENT_TABLE_NAME + " WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + DOCUMENT_UUID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + MASTER_DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "');";
 			SqlQueryResult sqr = null;
 			try {
 				sqr = this.io.executeSelectQuery(docIdToDocNrQuery);
@@ -3205,9 +3295,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					sqr.close();
 			}
 			
-			//	apply timestamp filter if given
-			if (timestampResult != null)
-				result = QueryResult.merge(result, timestampResult, QueryResult.USE_MIN, 0);
+			//	apply document data filter if given
+			if (docDataResult != null)
+				result = QueryResult.merge(result, docDataResult, QueryResult.USE_MIN, 0);
 			
 			//	return result
 			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers in result");
@@ -3229,8 +3319,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			docNrResult = ((QueryResult) partialDocNrResults.removeFirst());
 			
 			//	apply timestamp filter if given
-			if (timestampResult != null)
-				docNrResult = QueryResult.merge(docNrResult, timestampResult, QueryResult.USE_MIN, 0);
+			if (docDataResult != null)
+				docNrResult = QueryResult.merge(docNrResult, docDataResult, QueryResult.USE_MIN, 0);
 			
 			//	no results left after merge
 			if (docNrResult.size() == 0)
@@ -3287,7 +3377,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		if (DEBUG_INDEX_SEARCH) System.out.println("  - index name is " + searchIndexName);
 		
 		//	search for document index, search document data and wrap it in IndexResult
-		if ("0".equals(searchIndexName))
+		if ("0".equals(searchIndexName) || "doc".equals(searchIndexName) || "document".equals(searchIndexName))
 			return this.searchDocumentIndex(query);
 		
 		//	find indexer

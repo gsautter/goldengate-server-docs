@@ -54,6 +54,12 @@ public interface SearchPortalConstants extends GoldenGateSrsConstants {
 	/** the attribute holding the link to a search with higher cutoff (document search only) */
 	public static final String MORE_RESULTS_LINK_ATTRIBUTE = "moreResultsLink";
 	
+	/** the attribute holding the link to the given search result, but with as few fields as possible */
+	public static final String SHORT_LINK_ATTRIBUTE = "shortLink";
+	
+	/** the attribute holding the label of a search result, i.e., what the search was for */
+	public static final String RESULT_LABEL_ATTRIBUTE = "resultLabel";
+	
 	
 	/** the parameter indicating how to layout the list of result documents of a search */
 	public static final String RESULT_LIST_MODE_PARAMETER = "resultListMode";
@@ -92,6 +98,9 @@ public interface SearchPortalConstants extends GoldenGateSrsConstants {
 	
 	/** value for SEARCH_MODE_PARAMETER triggering a search for documents */
 	public static final String DOCUMENT_SEARCH_MODE = "documents";
+	
+	/** value for SEARCH_MODE_PARAMETER triggering a document summary for one master document */
+	public static final String DOCUMENT_SUMMARY_MODE = "summary";
 	
 	/** value for SEARCH_MODE_PARAMETER triggering an index search */
 	public static final String INDEX_SEARCH_MODE = "index";

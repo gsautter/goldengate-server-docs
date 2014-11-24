@@ -36,6 +36,8 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
@@ -170,6 +172,12 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 	public static final String LAST_MODIFIED_BEFORE = "lastModifiedBefore";
 	
 	/**
+	 * date format for parsing human readable input for document modification
+	 * dates, expecting <code>YYYY-MM-DD</code> formatted input
+	 */
+	public static DateFormat MODIFIED_DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
+	
+	/**
 	 * the query parameter for telling the SRS with which stylesheet to
 	 * transform documents before returning them to the requester (only for
 	 * SEARCH_DOCUMENTS command). If this parameter is specified, but the URL is
@@ -187,6 +195,13 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 	 * a non-zero relevance being returned (ATTENTION: HIGH EFFORT)
 	 */
 	public static final String RESULT_PIVOT_INDEX_PARAMETER = "resultPivot";
+
+	/**
+	 * the query parameter for specifying whether or not to include the update
+	 * history in the attributes of the result documents (only for
+	 * SEARCH_DOCUMENTS and SEARCH_DOCUMENT_DETAILS commands).
+	 */
+	public static final String INCLUDE_UPDATE_HISTORY_PARAMETER = "includeUpdateHistory";
 
 	/**
 	 * the query parameter for specifying how to merge the results of individual

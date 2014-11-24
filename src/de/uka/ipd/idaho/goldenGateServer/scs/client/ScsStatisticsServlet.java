@@ -103,7 +103,7 @@ public class ScsStatisticsServlet extends GgServerHtmlServlet {
 	
 	private StatisticsTray getStatistics(HttpServletRequest request) throws IOException {
 		
-		//	check if request for previously retrieced statistics (alternative result format)
+		//	check if request for previously retrieved statistics (alternative result format)
 		String statId = request.getParameter("statId");
 		if ((statId != null) && this.statisticsCache.containsKey(statId))
 			return ((StatisticsTray) this.statisticsCache.get(statId));

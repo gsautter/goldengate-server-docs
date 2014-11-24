@@ -462,7 +462,7 @@ public interface GoldenGateScsConstants extends GoldenGateServerConstants {
 		private static final String filter_ATTRIBUTE = "filter";
 		private static final String sortPriority_ATTRIBUTE = "sortPriority";
 		
-		/** the operation indidation to use a field for grouping */
+		/** the operation indication to use a field for grouping */
 		public static final String GROUP_OPERATION = "group";
 		
 		/** the full name of the field, i.e., the field name prefixed with the name of the field group the field belongs to */

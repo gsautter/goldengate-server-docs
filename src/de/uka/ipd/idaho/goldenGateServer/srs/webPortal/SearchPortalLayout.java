@@ -258,7 +258,7 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	 * @throws IOException
 	 */
 	public abstract void includeSearchForm(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder hpb) throws IOException;
-
+	
 	/**
 	 * Write an index search result
 	 * @param index the index search result to include
@@ -268,7 +268,35 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	public abstract void includeIndexResult(BufferedIndexResult index, HtmlPageBuilder hpb) throws IOException;
 	
 	/**
-	 * Write a the indices for a search result
+	 * Write an index search result. This default implementation simply loops
+	 * through to the two argument version of this method, thus always ignoring
+	 * the link. Sub classes are welcome to overwrite it as needed.
+	 * @param index the index search result to include
+	 * @param hpb the HTML page builder to write the index result index
+	 * @param shortLink the shortest possible link for the search result page
+	 * @throws IOException
+	 */
+	public void includeIndexResult(BufferedIndexResult index, HtmlPageBuilder hpb, String shortLink) throws IOException {
+		this.includeIndexResult(index, hpb);
+	}
+	
+	/**
+	 * Write an index search result. This default implementation simply loops
+	 * through to the two argument version of this method, thus always ignoring
+	 * the link and label. Sub classes are welcome to overwrite it as needed.
+	 * @param index the index search result to include
+	 * @param hpb the HTML page builder to write the index result index
+	 * @param shortLink the shortest possible link for the search result page
+	 * @param searchResultLabel a label for the search result, listing what the
+	 *            search was for
+	 * @throws IOException
+	 */
+	public void includeIndexResult(BufferedIndexResult index, HtmlPageBuilder hpb, String shortLink, String searchResultLabel) throws IOException {
+		this.includeIndexResult(index, hpb);
+	}
+	
+	/**
+	 * Write the indices for a search result.
 	 * @param indices the result indices to include
 	 * @param hpb the HTML page builder to write the result index to
 	 * @throws IOException
@@ -276,7 +304,7 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	public abstract void includeResultIndex(BufferedThesaurusResult[] indices, HtmlPageBuilder hpb) throws IOException;
 	
 	/**
-	 * Write a result list of a document search
+	 * Write the result list of a document search.
 	 * @param documents the documents to create a result list from
 	 * @param hpb the HTML page builder to write the result list to
 	 * @throws IOException
@@ -285,10 +313,10 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	
 	/**
 	 * Write a result list of a document search. The link for searching with a
-	 * higher cutoff may be null, eg if there are no further results. This
+	 * higher cutoff may be null, e.g. if there are no further results. This
 	 * default implementation simply loops through to the two argument version
-	 * of this method, thus always ignoring the link. Sub classes are welcome to
-	 * overwrite it as needed.
+	 * of this method, thus always ignoring the link. Sub classes are welcome
+	 * to overwrite it as needed.
 	 * @param documents the documents to create a result list from
 	 * @param hpb the HTML page builder to write the result list to
 	 * @param moreResultsLink the link for repeating the search with a higher
@@ -296,6 +324,42 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	 * @throws IOException
 	 */
 	public void includeResultList(BufferedDocumentResult documents, HtmlPageBuilder hpb, String moreResultsLink) throws IOException {
+		this.includeResultList(documents, hpb);
+	}
+	
+	/**
+	 * Write a result list of a document search. The link for searching with a
+	 * higher cutoff may be null, e.g. if there are no further results. This
+	 * default implementation simply loops through to the two argument version
+	 * of this method, thus always ignoring the links. Sub classes are welcome
+	 * to overwrite it as needed.
+	 * @param documents the documents to create a result list from
+	 * @param hpb the HTML page builder to write the result list to
+	 * @param moreResultsLink the link for repeating the search with a higher
+	 *            cutoff
+	 * @param shortLink the shortest possible link for the search result page
+	 * @throws IOException
+	 */
+	public void includeResultList(BufferedDocumentResult documents, HtmlPageBuilder hpb, String moreResultsLink, String shortLink) throws IOException {
+		this.includeResultList(documents, hpb);
+	}
+	
+	/**
+	 * Write a result list of a document search. The link for searching with a
+	 * higher cutoff may be null, e.g. if there are no further results. This
+	 * default implementation simply loops through to the two argument version
+	 * of this method, thus always ignoring the links and label. Sub classes
+	 * are welcome to overwrite it as needed.
+	 * @param documents the documents to create a result list from
+	 * @param hpb the HTML page builder to write the result list to
+	 * @param moreResultsLink the link for repeating the search with a higher
+	 *            cutoff
+	 * @param shortLink the shortest possible link for the search result page
+	 * @param searchResultLabel a label for the search result, listing what the
+	 *            search was for
+	 * @throws IOException
+	 */
+	public void includeResultList(BufferedDocumentResult documents, HtmlPageBuilder hpb, String moreResultsLink, String shortLink, String searchResultLabel) throws IOException {
 		this.includeResultList(documents, hpb);
 	}
 	
@@ -313,7 +377,34 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	public abstract String getResultListSearchMode();
 	
 	/**
-	 * Write a single result document
+	 * Write a master document summary. This default implementations behaves
+	 * just the same as for a document search result. 
+	 * @param documents the documents to create the summary
+	 * @param hpb the HTML page builder to write the summary to
+	 * @throws IOException
+	 */
+	public void includeDocumentSummary(BufferedDocumentResult documents, HtmlPageBuilder hpb) throws IOException {
+		this.includeResultList(documents, hpb);
+	}
+	
+	/**
+	 * Indicate which form of result is required for creating the summary. This
+	 * default implementation behaves just like a document search.<br>
+	 * SEARCH_DOCUMENTS indicates complete documents (attention, large amount of
+	 * data)<br>
+	 * SEARCH_DOCUMENT_DETAILS indicates essential details of the documents<br>
+	 * SEARCH_INDEX indicates document metadata, plus the documents' index
+	 * entries from all indexers<br>
+	 * SEARCH_DOCUMENT_DATA indicates document metatdata<br>
+	 * @return the search mode to use for document summary, one of SEARCH_DOCS,
+	 *         SEARCH_DOC_DETAILS, SEARCH_INDEX, or SEARCH_DOC_DATA
+	 */
+	public String getSummarySearchMode() {
+		return this.getResultListSearchMode();
+	}
+	
+	/**
+	 * Write a single result document.
 	 * @param document the documet to write (null for the document should
 	 *            trigger an error message to be displayed)
 	 * @param hpb the HTML page builder to write the document to
@@ -322,7 +413,7 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	public abstract void includeResultDocument(DocumentResultElement document, HtmlPageBuilder hpb) throws IOException;
 	
 	/**
-	 * Write the search forms for thesaurus search
+	 * Write the search forms for thesaurus search.
 	 * @param formTitle the title for the (group of) search forms (null
 	 *            indicates no title)
 	 * @param fieldGroups the search fields (represented by the root nodes of
@@ -336,15 +427,45 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	public abstract void includeThesaurusForms(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder hpb) throws IOException;
 	
 	/**
-	 * Write the result of a thesaurus lookup
+	 * Write the result of a thesaurus lookup.
 	 * @param result the thesaurus lookup result to write
 	 * @param hpb the HTML page builder to write the lookup result to
 	 * @throws IOException
 	 */
 	public abstract void includeThesaurusResult(BufferedThesaurusResult result, HtmlPageBuilder hpb) throws IOException;
-
+	
 	/**
-	 * Write the collection statistics line
+	 * Write the result of a thesaurus lookup. This default implementation
+	 * simply loops through to the two argument version of this method, thus
+	 * always ignoring the link. Sub classes are welcome to overwrite it as
+	 * needed.
+	 * @param result the thesaurus lookup result to write
+	 * @param hpb the HTML page builder to write the lookup result to
+	 * @param shortLink the shortest possible link for the search result page
+	 * @throws IOException
+	 */
+	public void includeThesaurusResult(BufferedThesaurusResult result, HtmlPageBuilder hpb, String shortLink) throws IOException {
+		this.includeThesaurusResult(result, hpb);
+	}
+	
+	/**
+	 * Write the result of a thesaurus lookup. This default implementation
+	 * simply loops through to the two argument version of this method, thus
+	 * always ignoring the link and label. Sub classes are welcome to overwrite
+	 * it as needed.
+	 * @param result the thesaurus lookup result to write
+	 * @param hpb the HTML page builder to write the lookup result to
+	 * @param shortLink the shortest possible link for the search result page
+	 * @param searchResultLabel a label for the search result, listing what the
+	 *            search was for
+	 * @throws IOException
+	 */
+	public void includeThesaurusResult(BufferedThesaurusResult result, HtmlPageBuilder hpb, String shortLink, String searchResultLabel) throws IOException {
+		this.includeThesaurusResult(result, hpb);
+	}
+	
+	/**
+	 * Write the collection statistics line.
 	 * @param statistics the statistics to write
 	 * @param links links to include in the statistics line
 	 * @param hpb the HTML page builder to write the statistics to
@@ -353,7 +474,7 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	public abstract void includeStatisticsLine(BufferedCollectionStatistics statistics, NavigationLink[] links, HtmlPageBuilder hpb) throws IOException;
 
 	/**
-	 * Write the collection statistics
+	 * Write the collection statistics.
 	 * @param statistics the statistics to write
 	 * @param hpb the HTML page builder to write the statistics to
 	 * @throws IOException

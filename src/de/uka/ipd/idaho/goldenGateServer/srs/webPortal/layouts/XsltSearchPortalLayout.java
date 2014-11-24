@@ -64,6 +64,7 @@ import javax.xml.transform.stream.StreamSource;
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
+import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.Token;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.CollectionStatistics;
@@ -96,6 +97,8 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * <ul>
  * <li><b>documentResult.xslt</b>: the XSLT stylesheet for rendering the
  * result list of a document search</li>
+ * <li><b>documentSummary.xslt</b>: the XSLT stylesheet for rendering a master
+ * document summary</li>
  * <li><b>resultIndex.xslt</b>: the XSLT stylesheet for rendering the result
  * index part of the result list of a document serach</li>
  * <li><b>indexResult.xslt</b>: the XSLT stylesheet for rendering the result
@@ -163,6 +166,16 @@ public class XsltSearchPortalLayout extends SearchPortalLayout {
 		catch (Exception e) {
 			this.documentResultTransformer = null;
 			this.documentResultTransformerError = this.wrapException(e);
+		}
+		
+		//	create transformer for document search result list
+		try {
+			this.documentSummaryTransformer = this.getTransformer("documentSummary.xslt");
+			this.documentSummaryTransformerError = null;
+		}
+		catch (Exception e) {
+			this.documentSummaryTransformer = null;
+			this.documentSummaryTransformerError = this.wrapException(e);
 		}
 		
 		//	create transformer for document search result index
@@ -362,6 +375,9 @@ xsl:with-param select="expression"
 	private Transformer documentResultTransformer = null;
 	private IOException documentResultTransformerError = null;
 	
+	private Transformer documentSummaryTransformer = null;
+	private IOException documentSummaryTransformerError = null;
+	
 	private Transformer resultIndexTransformer = null;
 	private IOException resultIndexTransformerError = null;
 	
@@ -531,33 +547,33 @@ xsl:with-param select="expression"
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.webPortal.SearchPortalLayout#includeNavigationLinks(de.goldenGateSrs.webPortal.SearchPortalServletFlexLayout.NavigationLink[], de.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeNavigationLinks(NavigationLink[] links, HtmlPageBuilder tr) throws IOException {
+	public void includeNavigationLinks(NavigationLink[] links, HtmlPageBuilder hpb) throws IOException {
 		
 		if ((links != null) && (links.length != 0)) {
-			tr.storeToken("<p class=\"navigation\">", 0);
+			hpb.storeToken("<p class=\"navigation\">", 0);
 			
 			for (int l = 0; l < links.length; l++) {
 				
-				if (l != 0) tr.storeToken("&nbsp;", 0);
+				if (l != 0) hpb.storeToken("&nbsp;", 0);
 				
-				tr.storeToken("<a href=\"" + links[l].link + "\">", 0);
+				hpb.storeToken("<a href=\"" + links[l].link + "\">", 0);
 				if (links[l].icon != null)
-					tr.storeToken(("<img src=\"" + links[l].icon + "\" alt=\" \" border=\"0\">"), 0);
-				tr.storeToken(links[l].label, 0);
-				tr.storeToken("</a>", 0);
+					hpb.storeToken(("<img src=\"" + links[l].icon + "\" alt=\" \" border=\"0\">"), 0);
+				hpb.storeToken(links[l].label, 0);
+				hpb.storeToken("</a>", 0);
 			}
 			
-			tr.storeToken("</p>", 0);
+			hpb.storeToken("</p>", 0);
 		}
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.webPortal.SearchPortalLayout#includeSearchForm(java.lang.String, de.goldenGateSrs.GoldenGateSrsConstants.SearchFieldGroup[], de.goldenGateSrs.GoldenGateSrsConstants.SearchFieldRow, java.util.Properties, de.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeSearchForm(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder tr) throws IOException {
+	public void includeSearchForm(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder hpb) throws IOException {
 		
 		//	open form
-		tr.storeToken(("<form method=\"GET\" name=\"" + SRS_SEARCH_FORM_NAME + "\" action=\"./" + DEFAULT_SEARCH_MODE + "\">"), 0);
+		hpb.storeToken(("<form method=\"GET\" name=\"" + SRS_SEARCH_FORM_NAME + "\" action=\"./" + DEFAULT_SEARCH_MODE + "\">"), 0);
 		
 		//	compute overall width
 		int formWidth = 0;
@@ -566,64 +582,63 @@ xsl:with-param select="expression"
 		
 		//	display error message for empty forms
 		if (formWidth == 0) {
-			tr.storeToken(("<table class=\"formTable\">"), 0);
-			tr.storeToken("<tr>", 0);
-			tr.storeToken("<td width=\"100%\" class=\"searchErrorMessage\">", 0);
-			tr.storeToken(("There are no search fields avaliable for this GoldenGATE SRS, sorry."), 0);
-			tr.storeToken("</td>", 0);
-			tr.storeToken("</tr>", 0);
-			tr.storeToken(("</table>"), 0);
+			hpb.storeToken(("<table class=\"formTable\">"), 0);
+			hpb.storeToken("<tr>", 0);
+			hpb.storeToken("<td width=\"100%\" class=\"searchErrorMessage\">", 0);
+			hpb.storeToken(("There are no search fields avaliable for this GoldenGATE SRS, sorry."), 0);
+			hpb.storeToken("</td>", 0);
+			hpb.storeToken("</tr>", 0);
+			hpb.storeToken(("</table>"), 0);
 			return;
 		}
 		
 		//	open master table
-		tr.storeToken(("<table class=\"formTable\">"), 0);
+		hpb.storeToken(("<table class=\"formTable\">"), 0);
 		
 		//	add title row
 		if ((formTitle != null) && (formTitle.trim().length() != 0)) {
-			tr.storeToken("<tr>", 0);
-			tr.storeToken(("<td width=\"100%\" class=\"formTableHeader\">"), 0);
-			tr.storeToken(IoTools.prepareForHtml(formTitle, HTML_CHAR_MAPPING), 0);
-			tr.storeToken("</td>", 0);
-			tr.storeToken("</tr>", 0);
+			hpb.storeToken("<tr>", 0);
+			hpb.storeToken(("<td width=\"100%\" class=\"formTableHeader\">"), 0);
+			hpb.storeToken(IoTools.prepareForHtml(formTitle, HTML_CHAR_MAPPING), 0);
+			hpb.storeToken("</td>", 0);
+			hpb.storeToken("</tr>", 0);
 		}
 		
 		//	open table body
-		tr.storeToken("<tr>", 0);
-		tr.storeToken(("<td width=\"100%\" class=\"formTableBody\">"), 0);
+		hpb.storeToken("<tr>", 0);
+		hpb.storeToken(("<td width=\"100%\" class=\"formTableBody\">"), 0);
 		
 		for (int g = 0; g < fieldGroups.length; g++) {
 			
 			//	empty field group, just write comment
 			if (fieldGroups[g].getWidth() == 0)
-				tr.storeToken("<!-- omitting empty field group for '" + fieldGroups[g].label + "' -->", 0);
+				hpb.storeToken("<!-- omitting empty field group for '" + fieldGroups[g].label + "' -->", 0);
 			
 			//	fields to display
 			else {
 				
 				// open fieldset and write field group legend
-				tr.storeToken("<fieldset>", 0);
-				tr.storeToken("<legend>", 0);
-//				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
-				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
-				tr.storeToken("</legend>", 0);
+				hpb.storeToken("<fieldset>", 0);
+				hpb.storeToken("<legend>", 0);
+				hpb.storeToken(IoTools.prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
+				hpb.storeToken("</legend>", 0);
 				
 				//	open table for field group
-				tr.storeToken("<table class=\"fieldSetTable\">", 0);
+				hpb.storeToken("<table class=\"fieldSetTable\">", 0);
 				
 				//	write field rows
 				SearchFieldRow[] fieldRows = fieldGroups[g].getFieldRows();
 				for (int r = 0; r < fieldRows.length; r++) {
 					
 					//	open table row
-					tr.storeToken("<tr>", 0);
+					hpb.storeToken("<tr>", 0);
 					
 					//	write fields
 					SearchField[] fields = fieldRows[r].getFields();
 					for (int f = 0; f < fields.length; f++) {
 						
 						//	open table cell and write label
-						tr.storeToken(("<td class=\"fieldSetTableCell" + fields[f].size + "\" colspan=\"" + fields[f].size + "\">"), 0);
+						hpb.storeToken(("<td class=\"fieldSetTableCell" + fields[f].size + "\" colspan=\"" + fields[f].size + "\">"), 0);
 						
 						//	compute layout classes
 						String labelClass = "label";
@@ -646,62 +661,62 @@ xsl:with-param select="expression"
 						String fieldId = ("input" + fields[f].name.replaceAll("\\.", ""));
 						
 						//	add label
-						tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
-						tr.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
-						tr.storeToken("</label>", 0);
+						hpb.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+						hpb.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
+						hpb.storeToken("</label>", 0);
 						
 						//	add spacer
-						tr.storeToken(" ", 0);
+						hpb.storeToken(" ", 0);
 						
 						//	write actual field
 						if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + "" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+							hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + "" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
-							tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+							hpb.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 							
 							String preSelected = fieldValues.getProperty(fields[f].name);
 							if (preSelected == null) preSelected = fields[f].value;
 							
 							SearchFieldOption[] fieldOptions = fields[f].getOptions();
 							for (int o = 0; o < fieldOptions.length; o++) {
-								tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"selected\"" : "") + ">"), 0);
-								tr.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
-								tr.storeToken("</option>", 0);
+								hpb.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"selected\"" : "") + ">"), 0);
+								hpb.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
+								hpb.storeToken("</option>", 0);
 							}
 							
-							tr.storeToken("</select>", 0);
+							hpb.storeToken("</select>", 0);
 						}
-						else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+						else hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						//	close table cell
-						tr.storeToken("</td>", 0);
+						hpb.storeToken("</td>", 0);
 					}
 					
 					//	fill in empty cells
 					for (int e = fieldRows[r].getWidth(); e < formWidth; e++) {
-						tr.storeToken(("<td class=\"fieldSetTableCell1\">"), 0);
-						tr.storeToken("&nbsp;", 0);
-						tr.storeToken("</td>", 0);
+						hpb.storeToken(("<td class=\"fieldSetTableCell1\">"), 0);
+						hpb.storeToken("&nbsp;", 0);
+						hpb.storeToken("</td>", 0);
 					}
 					
 					//	close table row
-					tr.storeToken("</tr>", 0);
+					hpb.storeToken("</tr>", 0);
 				}
 				
 				//	close table and fieldset of field group
-				tr.storeToken("</table>", 0);
-				tr.storeToken("</fieldset>", 0);
+				hpb.storeToken("</table>", 0);
+				hpb.storeToken("</fieldset>", 0);
 			}
 		}
 		
 		//	close table body
-		tr.storeToken("</td>", 0);
-		tr.storeToken("</tr>", 0);
+		hpb.storeToken("</td>", 0);
+		hpb.storeToken("</tr>", 0);
 		
 		//	open button row
-		tr.storeToken("<tr>", 0);
-		tr.storeToken("<td class=\"buttonRow\">", 0);
+		hpb.storeToken("<tr>", 0);
+		hpb.storeToken("<td class=\"buttonRow\">", 0);
 		
 		//	add button row fields (if any)
 		if (buttonRowFields != null) {
@@ -729,63 +744,62 @@ xsl:with-param select="expression"
 				String fieldId = ("brInput" + fields[f].name.replaceAll("\\.", ""));
 				
 				//	write label
-				tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\">"), 0);
-				tr.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
-				tr.storeToken("</label>", 0);
+				hpb.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\">"), 0);
+				hpb.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
+				hpb.storeToken("</label>", 0);
 				
 				//	add spacer
-				tr.storeToken(" ", 0);
+				hpb.storeToken(" ", 0);
 				
 				//	write actual field
 				if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-					tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + ">"), 0);
+					hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"checked\"" : "") + ">"), 0);
 				
 				else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
-					tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\">"), 0);
+					hpb.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\">"), 0);
 					
 					String preSelected = fieldValues.getProperty(fields[f].name);
 					if (preSelected == null) preSelected = fields[f].value;
 					
 					SearchFieldOption[] fieldOptions = fields[f].getOptions();
 					for (int o = 0; o < fieldOptions.length; o++) {
-						tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"selected\"" : "") + ">"), 0);
-						tr.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
-						tr.storeToken("</option>", 0);
+						hpb.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"selected\"" : "") + ">"), 0);
+						hpb.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
+						hpb.storeToken("</option>", 0);
 					}
 					
-					tr.storeToken("</select>", 0);
+					hpb.storeToken("</select>", 0);
 				}
 				
-				else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
+				else hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
 				
 				//	add spacer
-				tr.storeToken("&nbsp;", 0);
+				hpb.storeToken("&nbsp;", 0);
 			}
 		}
 		
 		//	add buttons
-		tr.storeToken("<input type=\"submit\" value=\"Search\" class=\"submitButton\">", 0);
-		tr.storeToken("&nbsp;", 0);
-		tr.storeToken("<input type=\"reset\" value=\"Reset\" class=\"resetButton\">", 0);
-		tr.storeToken("&nbsp;", 0);
-		tr.storeToken("<input type=\"reset\" value=\"Clear\" onclick=\"return resetFields();\" class=\"clearButton\">", 0);
+		hpb.storeToken("<input type=\"submit\" value=\"Search\" class=\"submitButton\">", 0);
+		hpb.storeToken("&nbsp;", 0);
+		hpb.storeToken("<input type=\"reset\" value=\"Reset\" class=\"resetButton\">", 0);
+		hpb.storeToken("&nbsp;", 0);
+		hpb.storeToken("<input type=\"reset\" value=\"Clear\" onclick=\"return resetFields();\" class=\"clearButton\">", 0);
 		
 		//	close button row
-		tr.storeToken("</td>", 0);
-		tr.storeToken("</tr>", 0);
+		hpb.storeToken("</td>", 0);
+		hpb.storeToken("</tr>", 0);
 		
 		//	close table
-		tr.storeToken("</table>", 0);
+		hpb.storeToken("</table>", 0);
 		
 		//	close form
-		tr.storeToken("</form>", 0);
+		hpb.storeToken("</form>", 0);
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeResultIndex(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedThesaurusResult[], de.uka.ipd.idaho.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeResultIndex(final BufferedThesaurusResult[] indices, HtmlPageBuilder tr) throws IOException {
-		
+	public void includeResultIndex(final BufferedThesaurusResult[] indices, HtmlPageBuilder hpb) throws IOException {
 		PipedInputStream pis = new PipedInputStream();
 		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
 		OutputWriter writer = new OutputWriter() {
@@ -804,7 +818,7 @@ xsl:with-param select="expression"
 					bw.newLine();
 					
 					for (int i = 0; i < indices.length; i++)
-						writeThesaurusResult(indices[i], bw, SUB_RESULTS_NODE_NAME);
+						writeThesaurusResult(indices[i], bw, SUB_RESULTS_NODE_NAME, null, null);
 					
 					bw.write("</" + RESULTS_NODE_NAME + ">"); 
 					bw.newLine();
@@ -819,7 +833,7 @@ xsl:with-param select="expression"
 		};
 		
 		//	do transformation
-		this.doTransformation(writer, pis, this.resultIndexTransformer, this.resultIndexTransformerError, tr);
+		this.doTransformation(writer, pis, this.resultIndexTransformer, this.resultIndexTransformerError, hpb);
 	}
 	
 	/* (non-Javadoc)
@@ -832,20 +846,33 @@ xsl:with-param select="expression"
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeResultList(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedDocumentResult, de.uka.ipd.idaho.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeResultList(BufferedDocumentResult documents, HtmlPageBuilder tr) throws IOException {
-		this.includeResultList(documents, tr, null);
+	public void includeResultList(BufferedDocumentResult documents, HtmlPageBuilder hpb) throws IOException {
+		this.includeResultList(documents, hpb, null);
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeResultList(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedDocumentResult, de.uka.ipd.idaho.htmlXmlUtil.HtmlPageBuilder, java.lang.String)
 	 */
-	public void includeResultList(final BufferedDocumentResult documents, HtmlPageBuilder tr, final String moreResultsLink) throws IOException {
-		
+	public void includeResultList(final BufferedDocumentResult documents, HtmlPageBuilder hpb, final String moreResultsLink) throws IOException {
+		this.includeResultList(documents, hpb, moreResultsLink, null);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeResultList(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedDocumentResult, de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder, java.lang.String, java.lang.String)
+	 */
+	public void includeResultList(BufferedDocumentResult documents, HtmlPageBuilder hpb, String moreResultsLink, String shortLink) throws IOException {
+		this.includeResultList(documents, hpb, moreResultsLink, shortLink, null);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeResultList(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedDocumentResult, de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder, java.lang.String, java.lang.String, java.lang.String)
+	 */
+	public void includeResultList(final BufferedDocumentResult documents, HtmlPageBuilder hpb, final String moreResultsLink, final String shortLink, final String searchResultLabel) throws IOException {
 		PipedInputStream pis = new PipedInputStream();
 		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
 		OutputWriter writer = new OutputWriter() {
 			public void writeOutput() throws IOException {
-				writeDocumentList(documents, bw, moreResultsLink);
+				writeDocumentList(documents, bw, moreResultsLink, shortLink, searchResultLabel);
 				bw.flush();
 				bw.close();
 			}
@@ -855,10 +882,31 @@ xsl:with-param select="expression"
 		};
 		
 		//	do transformation
-		this.doTransformation(writer, pis, this.documentResultTransformer, this.documentResultTransformerError, tr);
+		this.doTransformation(writer, pis, this.documentResultTransformer, this.documentResultTransformerError, hpb);
 	}
 	
-	private void writeDocumentList(BufferedDocumentResult documents, BufferedWriter out, String moreResultsLink) throws IOException {
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeDocumentSummary(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedDocumentResult, de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder)
+	 */
+	public void includeDocumentSummary(final BufferedDocumentResult documents, HtmlPageBuilder hpb) throws IOException {
+		PipedInputStream pis = new PipedInputStream();
+		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
+		OutputWriter writer = new OutputWriter() {
+			public void writeOutput() throws IOException {
+				writeDocumentList(documents, bw, null, null, null);
+				bw.flush();
+				bw.close();
+			}
+			public String getOutputName() {
+				return "Document Summary";
+			}
+		};
+		
+		//	do transformation
+		this.doTransformation(writer, pis, this.documentSummaryTransformer, this.documentSummaryTransformerError, hpb);
+	}
+	
+	private void writeDocumentList(BufferedDocumentResult documents, BufferedWriter out, String moreResultsLink, String shortLink, String resultLabel) throws IOException {
 		List dreList = new LinkedList();
 		for (DocumentResult dr = documents.getDocumentResult(); dr.hasNextElement();)
 			dreList.add(dr.getNextDocumentResultElement());
@@ -1089,6 +1137,8 @@ xsl:with-param select="expression"
 			resultFields.addContent(DOCUMENT_ATTRIBUTES);
 			out.write("<" + RESULTS_NODE_NAME +
 					((moreResultsLink == null) ? "" : (" " + MORE_RESULTS_LINK_ATTRIBUTE + "=\"" + AnnotationUtils.escapeForXml(moreResultsLink, true) + "\"")) +
+					((shortLink == null) ? "" : (" " + SHORT_LINK_ATTRIBUTE + "=\"" + AnnotationUtils.escapeForXml(shortLink, true) + "\"")) +
+					((resultLabel == null) ? "" : (" " + RESULT_LABEL_ATTRIBUTE + "=\"" + AnnotationUtils.escapeForXml(resultLabel, true) + "\"")) +
 					" " + RESULT_SIZE_ATTRIBUTE + "=\"" + dres.length + "\"" +
 					" " + RESULT_INDEX_FIELDS_ATTRIBUTE + "=\"" + resultFields.concatStrings(" ") +	"\"" +
 					">");
@@ -1253,13 +1303,26 @@ xsl:with-param select="expression"
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeIndexResult(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedIndexResult, de.uka.ipd.idaho.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeIndexResult(final BufferedIndexResult index, HtmlPageBuilder tr) throws IOException {
-		
+	public void includeIndexResult(final BufferedIndexResult index, HtmlPageBuilder hpb) throws IOException {
+		this.includeIndexResult(index, hpb, null, null);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeIndexResult(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedIndexResult, de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder, java.lang.String)
+	 */
+	public void includeIndexResult(BufferedIndexResult index, HtmlPageBuilder hpb, String shortLink) throws IOException {
+		this.includeIndexResult(index, hpb, shortLink, null);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeIndexResult(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedIndexResult, de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder, java.lang.String, java.lang.String)
+	 */
+	public void includeIndexResult(final BufferedIndexResult index, HtmlPageBuilder hpb, final String shortLink, final String searchResultLabel) throws IOException {
 		PipedInputStream pis = new PipedInputStream();
 		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
 		OutputWriter writer = new OutputWriter() {
 			public void writeOutput() throws IOException {
-				writeIndexResult(index, bw);
+				writeIndexResult(index, bw, shortLink, searchResultLabel);
 				bw.flush();
 				bw.close();
 			}
@@ -1269,10 +1332,10 @@ xsl:with-param select="expression"
 		};
 		
 		//	do transformation
-		this.doTransformation(writer, pis, this.indexResultTransformer, this.indexResultTransformerError, tr);
+		this.doTransformation(writer, pis, this.indexResultTransformer, this.indexResultTransformerError, hpb);
 	}
 	
-	private void writeIndexResult(BufferedIndexResult index, BufferedWriter out) throws IOException {
+	private void writeIndexResult(BufferedIndexResult index, BufferedWriter out, String shortLink, String resultLabel) throws IOException {
 		
 		//	empty result
 		if (index.isEmpty()) {
@@ -1300,6 +1363,8 @@ xsl:with-param select="expression"
 					" " + RESULT_INDEX_NAME_ATTRIBUTE + "=\"" + index.indexName + "\"" +
 					" " + RESULT_INDEX_LABEL_ATTRIBUTE + "=\"" + index.indexLabel + "\"" +
 					" " + RESULT_INDEX_FIELDS_ATTRIBUTE + "=\"" + indexFields.concatStrings(" ") + "\"" +
+					((shortLink == null) ? "" : (" " + SHORT_LINK_ATTRIBUTE + "=\"" + AnnotationUtils.escapeForXml(shortLink, true) + "\"")) +
+					((resultLabel == null) ? "" : (" " + RESULT_LABEL_ATTRIBUTE + "=\"" + AnnotationUtils.escapeForXml(resultLabel, true) + "\"")) +
 			">");
 			out.newLine();
 			
@@ -1581,8 +1646,7 @@ xsl:with-param select="expression"
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.webPortal.SearchPortalLayout#includeResultDocument(de.goldenGateSrs.DocumentResultElement, de.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeResultDocument(final DocumentResultElement document, final HtmlPageBuilder tr) throws IOException {
-		
+	public void includeResultDocument(final DocumentResultElement document, final HtmlPageBuilder hpb) throws IOException {
 		PipedInputStream pis = new PipedInputStream();
 		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
 		OutputWriter writer = new OutputWriter() {
@@ -1597,7 +1661,7 @@ xsl:with-param select="expression"
 		};
 		
 		//	do transformation
-		this.doTransformation(writer, pis, this.documentTransformer, this.documentTransformerError, tr);
+		this.doTransformation(writer, pis, this.documentTransformer, this.documentTransformerError, hpb);
 	}
 	
 	private void writeResultDocument(MutableAnnotation doc, BufferedWriter out) throws IOException {
@@ -1638,15 +1702,23 @@ xsl:with-param select="expression"
 				breakBeforeEndTag = false;
 			}
 			
+			//	keep track of skipped tags in case we have to substitute whitespace
+			boolean hadTagsBeforeToken = false;
+			boolean wroteTagsBeforeToken = false;
+			
 			//	write end tags for Annotations ending before current Token
-			while ((stack.size() > 0) && ((((Annotation) stack.peek()).getStartIndex() + ((Annotation) stack.peek()).size()) <= t)) {
+			while ((stack.size() > 0) && (((Annotation) stack.peek()).getEndIndex() <= t)) {
 				Annotation annotation = ((Annotation) stack.pop());
-				if (breakBeforeEndTag) {
+				hadTagsBeforeToken = true;
+				if (DocumentRoot.DOCUMENT_TYPE.equals(annotation.getType()) || this.documentResultElements.contains(annotation.getType().toLowerCase())) {
+					if (breakBeforeEndTag) {
+						out.newLine();
+						breakBeforeEndTag = false;
+					}
+					out.write(AnnotationUtils.produceEndTag(annotation));
 					out.newLine();
-					breakBeforeEndTag = false;
+					wroteTagsBeforeToken = true;
 				}
-				out.write(AnnotationUtils.produceEndTag(annotation));
-				out.newLine();
 			}
 			
 			//	skip space character before unspaced punctuation (e.g. ',') or if explicitly told so
@@ -1656,29 +1728,31 @@ xsl:with-param select="expression"
 			//	write start tags for Annotations beginning at current Token
 			while ((annotationPointer < annotations.length) && (annotations[annotationPointer].getStartIndex() == t)) {
 				Annotation annotation = annotations[annotationPointer++];
+				stack.push(annotation);
+				hadTagsBeforeToken = true;
 				if (DocumentRoot.DOCUMENT_TYPE.equals(annotation.getType()) || this.documentResultElements.contains(annotation.getType().toLowerCase())) {
 					out.write(AnnotationUtils.produceStartTag(annotation));
 					out.newLine();
+					wroteTagsBeforeToken = true;
 					
 					//	write external links
 					for (int l = 0; l < linkers.length; l++) {
-						SearchResultLink[] links = null;
-						
+						SearchResultLink[] links;
 						if (DocumentRoot.DOCUMENT_TYPE.equals(annotation.getType()))
 							links = linkers[l].getDocumentLinks(doc);
-						
 						else links = linkers[l].getAnnotationLinks(annotation);
-						
 						if (links != null)
 							for (int k = 0; k < links.length; k++) {
 								out.write(links[k].toXml());
 								out.newLine();
 							}
 					}
-					
-					stack.push(annotation);
 				}
 			}
+			
+			//	we had tags, but skipped them all, check if we need to substitute a space
+			if (hadTagsBeforeToken && !wroteTagsBeforeToken && (lastToken != null) && Gamta.insertSpace(lastToken, token))
+				out.write(" ");
 			
 			//	write current Token
 			out.write(AnnotationUtils.escapeForXml(token.getValue()));
@@ -1687,8 +1761,10 @@ xsl:with-param select="expression"
 		//	write end tags for Annotations not closed so far
 		while (stack.size() > 0) {
 			Annotation annotation = ((Annotation) stack.pop());
-			out.newLine();
-			out.write(AnnotationUtils.produceEndTag(annotation));
+			if (DocumentRoot.DOCUMENT_TYPE.equals(annotation.getType()) || this.documentResultElements.contains(annotation.getType().toLowerCase())) {
+				out.newLine();
+				out.write(AnnotationUtils.produceEndTag(annotation));
+			}
 		}
 		out.newLine();
 		out.flush();
@@ -1697,7 +1773,7 @@ xsl:with-param select="expression"
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.webPortal.SearchPortalLayout#includeThesaurusForms(java.lang.String, de.goldenGateSrs.GoldenGateSrsConstants.SearchFieldGroup[], de.goldenGateSrs.GoldenGateSrsConstants.SearchFieldRow, java.util.Properties, de.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeThesaurusForms(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder tr) throws IOException {
+	public void includeThesaurusForms(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder hpb) throws IOException {
 		
 		//	compute overall width
 		int formWidth = 0;
@@ -1706,67 +1782,67 @@ xsl:with-param select="expression"
 		
 		//	display error message for empty forms
 		if (formWidth == 0) {
-			tr.storeToken(("<table class=\"formTable\">"), 0);
-			tr.storeToken("<tr>", 0);
-			tr.storeToken("<td width=\"100%\" class=\"searchErrorMessage\">", 0);
-			tr.storeToken(("There are no search fields avaliable for this GoldenGATE SRS, sorry."), 0);
-			tr.storeToken("</td>", 0);
-			tr.storeToken("</tr>", 0);
-			tr.storeToken(("</table>"), 0);
+			hpb.storeToken(("<table class=\"formTable\">"), 0);
+			hpb.storeToken("<tr>", 0);
+			hpb.storeToken("<td width=\"100%\" class=\"searchErrorMessage\">", 0);
+			hpb.storeToken(("There are no search fields avaliable for this GoldenGATE SRS, sorry."), 0);
+			hpb.storeToken("</td>", 0);
+			hpb.storeToken("</tr>", 0);
+			hpb.storeToken(("</table>"), 0);
 			return;
 		}
 		
 		//	open master table
-		tr.storeToken(("<table class=\"formTable\">"), 0);
+		hpb.storeToken(("<table class=\"formTable\">"), 0);
 		
 		//	add title row
 		if ((formTitle != null) && (formTitle.trim().length() != 0)) {
-			tr.storeToken("<tr>", 0);
-			tr.storeToken(("<td width=\"100%\" class=\"formTableHeader\">"), 0);
-			tr.storeToken(IoTools.prepareForHtml(formTitle, HTML_CHAR_MAPPING), 0);
-			tr.storeToken("</td>", 0);
-			tr.storeToken("</tr>", 0);
+			hpb.storeToken("<tr>", 0);
+			hpb.storeToken(("<td width=\"100%\" class=\"formTableHeader\">"), 0);
+			hpb.storeToken(IoTools.prepareForHtml(formTitle, HTML_CHAR_MAPPING), 0);
+			hpb.storeToken("</td>", 0);
+			hpb.storeToken("</tr>", 0);
 		}
 		
 		for (int g = 0; g < fieldGroups.length; g++) {
 			
 			//	empty field group, just write comment
 			if (fieldGroups[g].getWidth() == 0)
-				tr.storeToken("<!-- omitting empty field group for '" + fieldGroups[g].label + "' -->", 0);
+				hpb.storeToken("<!-- omitting empty field group for '" + fieldGroups[g].label + "' -->", 0);
 			
 			//	fields to display
 			else {
 				
 				//	open form
-				tr.storeToken("<form method=\"GET\" action=\"./" + THESAURUS_SEARCH_MODE + "\" class=\"thesaurusForm\">", 0);
+				hpb.storeToken("<form method=\"GET\" action=\"./" + THESAURUS_SEARCH_MODE + "\" class=\"thesaurusForm\">", 0);
 				
 				//	open table row & table cell for field table
-				tr.storeToken("<tr>", 0);
-				tr.storeToken("<td class=\"formTableBody\">", 0);
+				hpb.storeToken("<tr>", 0);
+				hpb.storeToken("<td class=\"formTableBody\">", 0);
 				
 				//	open fieldset and write field group legend
-				tr.storeToken("<fieldset>", 0);
-				tr.storeToken("<legend>", 0);
+				hpb.storeToken("<fieldset>", 0);
+				hpb.storeToken("<legend>", 0);
 //				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].legend, HTML_CHAR_MAPPING), 0);
-				tr.storeToken(IoTools.prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
-				tr.storeToken("</legend>", 0);
+				hpb.storeToken(IoTools.prepareForHtml(fieldGroups[g].tooltip, HTML_CHAR_MAPPING), 0);
+				hpb.storeToken("</legend>", 0);
 				
 				//	open table for field group
-				tr.storeToken("<table class=\"fieldSetTable\">", 0);
+				hpb.storeToken("<table class=\"fieldSetTable\">", 0);
 				
 				//	write field rows
 				SearchFieldRow[] fieldRows = fieldGroups[g].getFieldRows();
 				for (int r = 0; r < fieldRows.length; r++) {
 					
 					//	open table row
-					tr.storeToken("<tr>", 0);
+					hpb.storeToken("<tr>", 0);
 					
 					//	write fields
 					SearchField[] fields = fieldRows[r].getFields();
 					for (int f = 0; f < fields.length; f++) {
 						
 						//	open table cell and write label
-						tr.storeToken(("<td class=\"fieldSetTableCell" + fields[f].size + "\" colspan=\"" + fields[f].size + "\">"), 0);
+						hpb.storeToken(("<td class=\"fieldSetTableCell" + fields[f].size + "\" colspan=\"" + fields[f].size + "\">"), 0);
 						
 						//	compute layout classes
 						String labelClass = "label";
@@ -1789,60 +1865,60 @@ xsl:with-param select="expression"
 						String fieldId = ("input" + fields[f].name.replaceAll("\\.", ""));
 						
 						//	add label
-						tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
-						tr.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
-						tr.storeToken("</label>", 0);
+						hpb.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+						hpb.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
+						hpb.storeToken("</label>", 0);
 						
 						//	add spacer
-						tr.storeToken(" ", 0);
+						hpb.storeToken(" ", 0);
 						
 						//	write actual field
 						if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + "" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+							hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + "" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
-							tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+							hpb.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 							
 							String preSelected = fieldValues.getProperty(fields[f].name);
 							if (preSelected == null) preSelected = fields[f].value;
 							
 							SearchFieldOption[] fieldOptions = fields[f].getOptions();
 							for (int o = 0; o < fieldOptions.length; o++) {
-								tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"true\"" : "") + ">"), 0);
-								tr.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
-								tr.storeToken("</option>", 0);
+								hpb.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"true\"" : "") + ">"), 0);
+								hpb.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
+								hpb.storeToken("</option>", 0);
 							}
 							
-							tr.storeToken("</select>", 0);
+							hpb.storeToken("</select>", 0);
 						}
-						else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
+						else hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\"" + ((fields[f].tooltip.length() == 0) ? "" : (" title=\"" + IoTools.prepareForHtml(fields[f].tooltip, HTML_CHAR_MAPPING) + "\"")) + ">"), 0);
 						
 						//	close table cell
-						tr.storeToken("</td>", 0);
+						hpb.storeToken("</td>", 0);
 					}
 					
 					//	fill in empty cells
 					for (int e = fieldRows[r].getWidth(); e < formWidth; e++) {
-						tr.storeToken(("<td class=\"fieldSetTableCell1\">"), 0);
-						tr.storeToken("&nbsp;", 0);
-						tr.storeToken("</td>", 0);
+						hpb.storeToken(("<td class=\"fieldSetTableCell1\">"), 0);
+						hpb.storeToken("&nbsp;", 0);
+						hpb.storeToken("</td>", 0);
 					}
 					
 					//	close table row
-					tr.storeToken("</tr>", 0);
+					hpb.storeToken("</tr>", 0);
 				}
 				
 				//	close table and fieldset of field group
-				tr.storeToken("</table>", 0);
-				tr.storeToken("</fieldset>", 0);
+				hpb.storeToken("</table>", 0);
+				hpb.storeToken("</fieldset>", 0);
 				
 				//	fieldset row
-				tr.storeToken("</td>", 0);
-				tr.storeToken("</tr>", 0);
+				hpb.storeToken("</td>", 0);
+				hpb.storeToken("</tr>", 0);
 				
 				//	open button row
-				tr.storeToken("<tr>", 0);
-				tr.storeToken("<td class=\"buttonRow\">", 0);
+				hpb.storeToken("<tr>", 0);
+				hpb.storeToken("<td class=\"buttonRow\">", 0);
 				
 				//	add button row fields (if any)
 				if (buttonRowFields != null) {
@@ -1870,67 +1946,80 @@ xsl:with-param select="expression"
 						String fieldId = ("brInput" + fields[f].name.replaceAll("\\.", ""));
 						
 						//	write label
-						tr.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\">"), 0);
-						tr.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
-						tr.storeToken("</label>", 0);
+						hpb.storeToken(("<label id=\"" + labelId + "\" class=\"" + labelClass + "\">"), 0);
+						hpb.storeToken(IoTools.prepareForHtml(fields[f].label, HTML_CHAR_MAPPING), 0);
+						hpb.storeToken("</label>", 0);
 						
 						//	add spacer
-						tr.storeToken(" ", 0);
+						hpb.storeToken(" ", 0);
 						
 						//	write actual field
 						if (SearchField.BOOLEAN_TYPE.equals(fields[f].type))
-							tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + ">"), 0);
+							hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" type=\"checkbox\" name=\"" + fields[f].name + "\" value=\"" + true + "\"" + ((fieldValues.containsKey(fields[f].name) || ((fields[f].value != null) && (fields[f].value.length() != 0))) ? " checked=\"true\"" : "") + ">"), 0);
 						
 						else if (SearchField.SELECT_TYPE.equals(fields[f].type)) {
-							tr.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\">"), 0);
+							hpb.storeToken(("<select id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\">"), 0);
 							
 							String preSelected = fieldValues.getProperty(fields[f].name);
 							if (preSelected == null) preSelected = fields[f].value;
 							
 							SearchFieldOption[] fieldOptions = fields[f].getOptions();
 							for (int o = 0; o < fieldOptions.length; o++) {
-								tr.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"true\"" : "") + ">"), 0);
-								tr.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
-								tr.storeToken("</option>", 0);
+								hpb.storeToken(("<option value=\"" + fieldOptions[o].value + "\"" + (fieldOptions[o].value.equals(preSelected) ? " selected=\"true\"" : "") + ">"), 0);
+								hpb.storeToken(IoTools.prepareForHtml(fieldOptions[o].label, HTML_CHAR_MAPPING), 0);
+								hpb.storeToken("</option>", 0);
 							}
 							
-							tr.storeToken("</select>", 0);
+							hpb.storeToken("</select>", 0);
 						}
-						else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
+						else hpb.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
 						
 						//	add spacer
-						tr.storeToken("&nbsp;", 0);
+						hpb.storeToken("&nbsp;", 0);
 					}
 				}
 				
 				//	add buttons
-				tr.storeToken("<input type=\"submit\" value=\"Search\" class=\"submitButton\">", 0);
-				tr.storeToken("&nbsp;", 0);
-				tr.storeToken("<input type=\"reset\" value=\"Reset\" class=\"resetButton\">", 0);
+				hpb.storeToken("<input type=\"submit\" value=\"Search\" class=\"submitButton\">", 0);
+				hpb.storeToken("&nbsp;", 0);
+				hpb.storeToken("<input type=\"reset\" value=\"Reset\" class=\"resetButton\">", 0);
 				
 				//	close button row
-				tr.storeToken("</td>", 0);
-				tr.storeToken("</tr>", 0);
+				hpb.storeToken("</td>", 0);
+				hpb.storeToken("</tr>", 0);
 				
 				//	close form
-				tr.storeToken("</form>", 0);
+				hpb.storeToken("</form>", 0);
 			}
 		}
 		
 		//	close master table
-		tr.storeToken("</table>", 0);
+		hpb.storeToken("</table>", 0);
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeThesaurusResult(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedThesaurusResult, de.uka.ipd.idaho.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeThesaurusResult(final BufferedThesaurusResult result, HtmlPageBuilder tr) throws IOException {
-		
+	public void includeThesaurusResult(final BufferedThesaurusResult result, HtmlPageBuilder hpb) throws IOException {
+		this.includeThesaurusResult(result, hpb, null);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeThesaurusResult(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedThesaurusResult, de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder, java.lang.String)
+	 */
+	public void includeThesaurusResult(BufferedThesaurusResult result, HtmlPageBuilder hpb, String shortLink) throws IOException {
+		this.includeThesaurusResult(result, hpb, shortLink, null);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeThesaurusResult(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedThesaurusResult, de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder, java.lang.String, java.lang.String)
+	 */
+	public void includeThesaurusResult(final BufferedThesaurusResult result, HtmlPageBuilder hpb, final String shortLink, final String searchResultLabel) throws IOException {
 		PipedInputStream pis = new PipedInputStream();
 		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
 		OutputWriter writer = new OutputWriter() {
 			public void writeOutput() throws IOException {
-				writeThesaurusResult(result, bw, RESULTS_NODE_NAME);
+				writeThesaurusResult(result, bw, RESULTS_NODE_NAME, shortLink, searchResultLabel);
 				bw.flush();
 				bw.close();
 			}
@@ -1940,10 +2029,10 @@ xsl:with-param select="expression"
 		};
 		
 		//	do transformation
-		this.doTransformation(writer, pis, this.thesaurusResultTransformer, this.thesaurusResultTransformerError, tr);
+		this.doTransformation(writer, pis, this.thesaurusResultTransformer, this.thesaurusResultTransformerError, hpb);
 	}
 	
-	private void writeThesaurusResult(BufferedThesaurusResult result, BufferedWriter out, String rootNodeType) throws IOException {
+	private void writeThesaurusResult(BufferedThesaurusResult result, BufferedWriter out, String rootNodeType, String shortLink, String resultLabel) throws IOException {
 		
 		//	write empty data
 		if (result.isEmpty()) {
@@ -1974,6 +2063,8 @@ xsl:with-param select="expression"
 					" " + RESULT_INDEX_NAME_ATTRIBUTE + "=\"" + result.thesaurusEntryType + "\"" +
 					" " + RESULT_INDEX_LABEL_ATTRIBUTE + "=\"" + result.thesaurusName + "\"" +
 					" " + RESULT_INDEX_FIELDS_ATTRIBUTE + "=\"" + thesaurusFields.concatStrings(" ") + "\"" +
+					((shortLink == null) ? "" : (" " + SHORT_LINK_ATTRIBUTE + "=\"" + AnnotationUtils.escapeForXml(shortLink, true) + "\"")) +
+					((resultLabel == null) ? "" : (" " + RESULT_LABEL_ATTRIBUTE + "=\"" + AnnotationUtils.escapeForXml(resultLabel, true) + "\"")) +
 			">");
 			
 			for (ThesaurusResult tr = result.getThesaurusResult(); tr.hasNextElement();) {
@@ -1999,19 +2090,19 @@ xsl:with-param select="expression"
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeStatisticsLine(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedCollectionStatistics, de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalConstants.NavigationLink[], de.uka.ipd.idaho.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeStatisticsLine(BufferedCollectionStatistics statistics, NavigationLink[] links, HtmlPageBuilder tr) throws IOException {
-		tr.storeToken("<span class=\"statisticsLine\">", 0);
-		tr.storeToken("Search through&nbsp;", 0);
-		tr.storeToken(((statistics == null) ? "0" : ("" + statistics.docCount)), 0);
-		tr.storeToken(("&nbsp;" + this.parent.getDocumentLabelPlural().toLowerCase() + " ("), 0);
-		tr.storeToken((((statistics == null) ? "0" : ("" + statistics.masterDocCount)) + "&nbsp;documents"), 0);
-		tr.storeToken(") in the archive.", 0);
+	public void includeStatisticsLine(BufferedCollectionStatistics statistics, NavigationLink[] links, HtmlPageBuilder hpb) throws IOException {
+		hpb.storeToken("<span class=\"statisticsLine\">", 0);
+		hpb.storeToken("Search through&nbsp;", 0);
+		hpb.storeToken(((statistics == null) ? "0" : ("" + statistics.docCount)), 0);
+		hpb.storeToken(("&nbsp;" + this.parent.getDocumentLabelPlural().toLowerCase() + " ("), 0);
+		hpb.storeToken((((statistics == null) ? "0" : ("" + statistics.masterDocCount)) + "&nbsp;documents"), 0);
+		hpb.storeToken(") in the archive.", 0);
 		
 		//	include links (if any)
 		if (links != null) {
 			for (int l = 0; l < links.length; l++) {
-				tr.storeToken("<span class=\"statisticsLineLink\">", 0);
-				tr.storeToken("&nbsp;", 0);
+				hpb.storeToken("<span class=\"statisticsLineLink\">", 0);
+				hpb.storeToken("&nbsp;", 0);
 				
 				String href = "";
 				if (links[l].link != null)
@@ -2021,23 +2112,22 @@ xsl:with-param select="expression"
 				if (links[l].onclick != null)
 					onclick = (" onclick=\"" + links[l].onclick + "\"");
 				
-				tr.storeToken(("<a" + href + onclick + ">"), 0);
+				hpb.storeToken(("<a" + href + onclick + ">"), 0);
 				if (links[l].icon != null)
-					tr.storeToken(("<img src=\"" + links[l].icon + "\" alt=\" \" border=\"0\">"), 0);
-				tr.storeToken(links[l].label, 0);
-				tr.storeToken("</a>", 0);
-				tr.storeToken("</span>", 0);
+					hpb.storeToken(("<img src=\"" + links[l].icon + "\" alt=\" \" border=\"0\">"), 0);
+				hpb.storeToken(links[l].label, 0);
+				hpb.storeToken("</a>", 0);
+				hpb.storeToken("</span>", 0);
 			}
 		}
 		
-		tr.storeToken("</span>", 0);
+		hpb.storeToken("</span>", 0);
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalLayout#includeStatistics(de.uka.ipd.idaho.goldenGateServer.srs.webPortal.layoutData.BufferedCollectionStatistics, de.uka.ipd.idaho.htmlXmlUtil.HtmlPageBuilder)
 	 */
-	public void includeStatistics(final BufferedCollectionStatistics statistics, HtmlPageBuilder tr) throws IOException {
-		
+	public void includeStatistics(final BufferedCollectionStatistics statistics, HtmlPageBuilder hpb) throws IOException {
 		PipedInputStream pis = new PipedInputStream();
 		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
 		OutputWriter writer = new OutputWriter() {
@@ -2052,7 +2142,7 @@ xsl:with-param select="expression"
 		};
 		
 		//	do transformation
-		this.doTransformation(writer, pis, this.statisticsTransformer, this.statisticsTransformerError, tr);
+		this.doTransformation(writer, pis, this.statisticsTransformer, this.statisticsTransformerError, hpb);
 	}
 	
 	private void writeStatistics(BufferedCollectionStatistics statistics, BufferedWriter out) throws IOException {
