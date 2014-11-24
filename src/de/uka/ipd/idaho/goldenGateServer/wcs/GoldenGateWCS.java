@@ -999,7 +999,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 	 */
 	protected abstract String getTitle(QueriableAnnotation document);
 	
-	private static final boolean DEBUG_EXPORT = true;
+	private static final boolean DEBUG_EXPORT = false;
 	private static final boolean DEBUG_LINK_FILTER = (DEBUG_EXPORT && false);
 	
 	private static Properties wikiEscapers = new Properties();
