@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Stack;
+import java.util.Vector;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -130,7 +131,16 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  */
 public class XsltSearchPortalLayout extends SearchPortalLayout {
 	
-	private static final Html html = new Html();
+	/* We have to consider XSLT spitting out XML rather than HTML, i.e.,
+	 * singular tags rather than pairs of start and end tags, e.g. for inline
+	 * scripts. On the other hand, we can omit token sequence sanitizing, as
+	 * XSLT produces valid XML. */
+	private static final Html html = new Html() {
+		public boolean waitForEndTag(String tag) {
+			return (!this.isSingularTag(tag) && super.waitForEndTag(tag));
+		}
+		public void ckeckTokenSequence(Vector ts) {}
+	};
 	private static final Parser parser = new Parser(html);
 	
 	private static final String[] defaultDocumentResultSortOrder = {"-" + RELEVANCE_ATTRIBUTE};
@@ -287,7 +297,17 @@ xsl:with-param select="expression"
 	}
 	private static final Grammar xmlGrammar = new StandardGrammar();
 	private static final Parser xmlParser = new Parser(xmlGrammar);
-	private static final Pattern qNamePattern = Pattern.compile("(((([a-zA-Z][a-zA-Z0-9\\_\\-]+)|\\*)\\:)?[a-zA-Z\\_\\-][a-zA-Z0-9\\_\\-]+\\*?)", Pattern.CASE_INSENSITIVE);
+	private static final Pattern qNamePattern = Pattern.compile("(" +
+//			"((" +
+//				"(ancestor(\\-or\\-self)?)|parent|" +
+//				"(descendant(\\-or\\-self)?)|child|" +
+//				"(following(\\-sibling)?)|" +
+//				"(preceding(\\-sibling)?)|" +
+//				"self|attribute" +
+//			")\\:\\:)?" +
+			"((([a-zA-Z][a-zA-Z0-9\\_\\-]+)|\\*)\\:)?" +
+			"[a-zA-Z\\_\\-][a-zA-Z0-9\\_\\-]+\\*?" +
+			")", Pattern.CASE_INSENSITIVE);
 	private static class AnnotationTagFilterSet extends HashSet {
 		final HashSet include = new HashSet();
 		final HashSet exclude = new HashSet();
@@ -315,7 +335,7 @@ xsl:with-param select="expression"
 						while (qNameMatcher.find()) {
 							String qName = qNameMatcher.group(0);
 							if (((qNameMatcher.start(0) != 0) && ("@'\"".indexOf(expressionAttributeValue.charAt(qNameMatcher.start(0)-1)) != -1)) || ((qNameMatcher.end(0) < expressionAttributeValue.length()) && (("('\"".indexOf(expressionAttributeValue.charAt(qNameMatcher.end(0))) != -1) || expressionAttributeValue.startsWith("::", qNameMatcher.end(0)))))
-								return;
+								continue;
 							usedElementNames.include.add(qName.toLowerCase());
 							if (qName.indexOf('*') != -1)
 								usedElementNames.include.add("*");
@@ -452,7 +472,7 @@ xsl:with-param select="expression"
 		};
 		
 		//	build sender infrastructure
-		Thread transformerInputWriterThread = new Thread() {
+		Thread transformerInputWriterThread = new Thread("TransformerInputWriter") {
 			public void run() {
 				try {
 					writer.writeOutput();
@@ -483,7 +503,7 @@ xsl:with-param select="expression"
 		//	build receiver infrastructure
 		final PipedOutputStream fromTransformer = new PipedOutputStream();
 		final BufferedReader br = new BufferedReader(new InputStreamReader(new PipedInputStream(fromTransformer), "utf-8"));
-		Thread transformerOutputUnescaperThread = new Thread() {
+		Thread transformerOutputUnescaperThread = new Thread("TransformerOutputUnescaper") {
 			public void run() {
 				try {
 					parser.stream(br, unescapingTrWrapper);
@@ -542,7 +562,8 @@ xsl:with-param select="expression"
 			throw ((e instanceof IOException) ? ((IOException) e) : this.wrapException(e));
 		}
 	}
-	private static final boolean DEBUG_XSLT = true;
+	
+	private static final boolean DEBUG_XSLT = false;
 	
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.webPortal.SearchPortalLayout#includeNavigationLinks(de.goldenGateSrs.webPortal.SearchPortalServletFlexLayout.NavigationLink[], de.htmlXmlUtil.HtmlPageBuilder)
@@ -2179,4 +2200,49 @@ xsl:with-param select="expression"
 		
 		out.flush();
 	}
+//	
+//	public static void main(String[] args) throws Exception {
+//		final XsltSearchPortalLayout xspl = new XsltSearchPortalLayout();
+////		xspl.setDataPath(new File("E:/GoldenGATEv3.WebApp/WEB-INF/srsWebPortalData/Layouts/XsltSearchPortalLayoutData"));
+//		xspl.setDataPath(new File("E:/Projektdaten/PlaziWebPortal2015/XsltSearchPortalLayoutData"));
+//		xspl.init();
+//		Gamta.setAnnotationNestingOrder("document section subSection footnote treatment subSubSection caption paragraph sentence");
+//		
+//		//	get document
+//		//	DB722DA08B1A0E329FF6F7869A1D14FA Monomorium dentatum
+//		//	BDA70EC9F8ABAED6C2B7628596A1714A Pardosa zyuzini (design example)
+//		//	8AD0DAEF2180649D27DBA7CE08E4FF93 Anochetus boltoni
+//		//	E97BBEDED4F4AF14E895B31CF33940C8 Pardosa zyuzini ZooBank stub
+//		GoldenGateSrsClient srsc = new GoldenGateSrsClient(ServerConnection.getServerConnection("http://plazi.cs.umb.edu/GgServer/proxy"));
+//		srsc.setCacheFolder(new File("E:/Projektdaten/PlaziWebPortal2015/srsCache"));
+//		Properties query = new Properties();
+//		query.setProperty(ID_QUERY_FIELD_NAME, "BDA70EC9F8ABAED6C2B7628596A1714A");
+//		DocumentResult dr = srsc.searchDocuments(query, true, true);
+//		BufferedDocumentResult bdr = new BufferedDocumentResult(dr);
+//		bdr.sort(); // just need to make sure result is retrieved completely
+//		dr = bdr.getDocumentResult();
+//		final DocumentResultElement dre = dr.getNextDocumentResultElement();
+//		
+//		//	pipe input
+//		PipedInputStream pis = new PipedInputStream();
+//		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
+//		OutputWriter writer = new OutputWriter() {
+//			public void writeOutput() throws IOException {
+//				xspl.writeResultDocument(dre.document, bw);
+//				bw.flush();
+//				bw.close();
+//			}
+//			public String getOutputName() {
+//				return ("Document " + dre.documentId);
+//			}
+//		};
+//		
+//		//	do transformation
+//		xspl.doTransformation(writer, pis, xspl.documentTransformer, xspl.documentTransformerError, new TokenReceiver() {
+//			public void storeToken(String token, int treeDepth) throws IOException {
+//				System.out.println(token.trim());
+//			}
+//			public void close() throws IOException {}
+//		});
+//	}
 }

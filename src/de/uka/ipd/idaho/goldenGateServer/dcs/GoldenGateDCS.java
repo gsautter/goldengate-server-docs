@@ -39,12 +39,16 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.TimeZone;
 import java.util.TreeMap;
@@ -90,6 +94,8 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	
 	private TreeMap fieldGroupsByName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 	private TreeMap fieldsByFullName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
+	
+	private long lastUpdate = System.currentTimeMillis();
 	
 	/**
 	 * @param letterCode the letter code to use
@@ -310,6 +316,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		System.out.println(" - field aggregates: " + String.valueOf(fieldAggregates));
 		System.out.println(" - aggregate predicates: " + String.valueOf(aggregatePredicates));
 		
+		//	prepare parsing and SQL query assembly
 		StringBuffer outputFieldString = new StringBuffer("'' AS dummy, count(DISTINCT " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE + ") AS DocCount");
 		HashSet outputFieldSet = new HashSet();
 		StringBuffer tableString = new StringBuffer(this.fieldGroupsToTables.getProperty("doc") + " " + this.fieldGroupsToTableAliases.getProperty("doc"));
@@ -324,10 +331,12 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		HashSet orderFieldSet = new HashSet();
 		HashSet filterFieldSet = new HashSet();
 		
+		//	prepare output fields
 		StringVector statFields = new StringVector();
 		statFields.addElement("DocCount");
 		
-		//	assemble grouping fields
+		//	assemble grouping fields (we can order them, as grouping is commutative)
+		Arrays.sort(groupingFields);
 		for (int f = 0; f < groupingFields.length; f++) {
 			StatField field = ((StatField) this.fieldsByFullName.get(groupingFields[f]));
 			if (field == null)
@@ -431,7 +440,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				continue;
 			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(field.dataType) || StatField.REAL_TYPE.equals(field.dataType)));
 			if (predicate.isEmpty()) {
-				System.out.println("DCS: empty predicate for " + field.dataType);
+				System.out.println(this.getExporterName() + ": empty predicate for " + field.dataType);
 				System.out.println("  input string was " + predicateString);
 				continue;
 			}
@@ -454,7 +463,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					continue;
 				Predicate predicate = parsePredicate(predicateString, true);
 				if (predicate.isEmpty()) {
-					System.out.println("DCS: empty predicate for DocCount");
+					System.out.println(this.getExporterName() + ": empty predicate for DocCount");
 					System.out.println("  input string was " + predicateString);
 					continue;
 				}
@@ -477,7 +486,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				aggregateDataType = (StatField.REAL_TYPE.equals(field.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
 			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(aggregateDataType) || StatField.REAL_TYPE.equals(aggregateDataType)));
 			if (predicate.isEmpty()) {
-				System.out.println("DCS: empty predicate for " + aggregateDataType);
+				System.out.println(this.getExporterName() + ": empty predicate for " + aggregateDataType);
 				System.out.println("  input string was " + predicateString);
 				continue;
 			}
@@ -489,6 +498,25 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				joinWhereString.append(" AND " + this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
 			}
 		}
+		
+		/* produce cache key TODO increase hit rate by exploiting commutative properties
+		 * - HEX hash of output field string (includes aggregates)
+		 * - HEX hash of ORDER field string
+		 * - HEX hash of sorted WHERE string (predicates are commutative TODO use it)
+		 * - HEX hash of sorted GROUP field string (grouping is commutative TODO use it)
+		 * - HEX hash of sorted HAVING string (predicates are commutative TODO use it)
+		 */
+		String statsCacheKey = "" + Integer.toString(outputFieldString.toString().hashCode(), 16) +
+				"-" + Integer.toString(orderFieldString.toString().hashCode(), 16) +
+				"-" + Integer.toString(whereString.toString().hashCode(), 16) +
+				"-" + Integer.toString(groupFieldString.toString().hashCode(), 16) +
+				"-" + Integer.toString(havingString.toString().hashCode(), 16) +
+				"";
+		
+		//	do cache lookup
+		DcStatistics stats = ((DcStatistics) this.cache.get(statsCacheKey));
+		if (stats != null)
+			return stats;
 		
 		//	assemble query
 		String query = "SELECT " + outputFieldString.toString() +
@@ -504,21 +532,30 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		//	produce statistics
 		SqlQueryResult sqr = null;
 		try {
+			
+			//	we're testing the query parser ...
 			if (this.host == null) {
 				System.out.println(query);
 				return null;
 			}
-			sqr = this.io.executeSelectQuery(query.toString(), true);
-			DcStatistics stat = new DcStatistics(statFields.toStringArray());
 			
+			//	execute query
+			sqr = this.io.executeSelectQuery(query.toString(), true);
+			
+			//	read data
+			stats = new DcStatistics(statFields.toStringArray(), lastUpdate);
 			while (sqr.next()) {
 				StringTupel st = new StringTupel();
-				for (int f = 1 /* skip the dummy */; (f < sqr.getColumnCount()) && ((f-1) < statFields.size()); f++) {
+				for (int f = 1 /* skip the dummy */; (f < sqr.getColumnCount()) && ((f-1) < statFields.size()); f++)
 					st.setValue(statFields.get(f-1), sqr.getString(f));
-				}
-				stat.addElement(st);
+				stats.addElement(st);
 			}
-			return stat;
+			
+			//	cache statistics
+			this.cache.put(statsCacheKey, stats);
+			
+			//	finally ...
+			return stats;
 		}
 		catch (SQLException sqle) {
 			System.out.println("DocumentCollectionStatistics: exception generating statistics: " + sqle.getMessage());
@@ -592,7 +629,12 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			for (int c = 0; c < contexts.length; c++)
 				this.updateFieldGroup(this.fieldGroups[g], doc, contexts[c], variables, subTableFields, subTableValues);
 		}
+		
+		//	clear cache & update timestamp
+		this.cache.clear();
+		this.lastUpdate = System.currentTimeMillis();
 	}
+	
 	private static class UtcDateFormat extends SimpleDateFormat {
 		UtcDateFormat(String pattern) {
 			super(pattern, Locale.US);
@@ -670,6 +712,14 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			System.out.println("  Query was: " + query);
 		}
 	}
+	
+	private static final int initCacheSize = 128;
+	private static final int maxCacheSize = 256;
+	private Map cache = Collections.synchronizedMap(new LinkedHashMap(initCacheSize, 0.9f, true) {
+		protected boolean removeEldestEntry(Entry eldest) {
+			return (this.size() > maxCacheSize);
+		}
+	});
 	
 	/**
 	 * Normalize a field value. This default implementation does simply returns
@@ -1157,15 +1207,15 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			return parseBracketInterval(intString, isNumeric);
 		}
 	}
-	
-	//	TEST FOR PREDICATE PARSING
-	public static void main(String[] args) throws Exception {
-		Predicate np = parsePredicate("1990.10-2010 (1990, 2010) \"1990 -2010\" -100 -100--50 --100 !2000", true);
-		System.out.println(np.getSql("MyNumber"));
-		Predicate sp = parsePredicate("A-Z \"A-Z\" -N !\"Fungi%\" -N- N-", false);
-		System.out.println(sp.getSql("MyString"));
-	}
-	
+//	
+//	//	TEST FOR PREDICATE PARSING
+//	public static void main(String[] args) throws Exception {
+//		Predicate np = parsePredicate("1990.10-2010 (1990, 2010) \"1990 -2010\" -100 -100--50 --100 !2000", true);
+//		System.out.println(np.getSql("MyNumber"));
+//		Predicate sp = parsePredicate("A-Z \"A-Z\" -N !\"Fungi%\" -N- N-", false);
+//		System.out.println(sp.getSql("MyString"));
+//	}
+//	
 //	//	TEST FOR DATA EXTRACTION FROM DOCUMENTS
 //	public static void main(String[] args) throws Exception {
 //		GoldenGateDCS dcs = new GoldenGateDCS("TEST") {

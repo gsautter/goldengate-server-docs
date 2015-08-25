@@ -28,10 +28,11 @@
 	<target name="compileSvr" description="Compile GoldenGATE Server backend Java sources">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
     		<include name="**/goldenGateServer/ats/*.java" />
     		<include name="**/goldenGateServer/ats/client/*.java" />
+    		<include name="**/goldenGateServer/dcs/*.java" />
     		<include name="**/goldenGateServer/dic/*.java" />
     		<include name="**/goldenGateServer/dio/*.java" />
     		<include name="**/goldenGateServer/dio/connectors/*.java" />
@@ -45,6 +46,7 @@
     		<include name="**/goldenGateServer/srs/*.java" />
     		<include name="**/goldenGateServer/srs/connectors/*.java" />
     		<include name="**/goldenGateServer/srs/data/*.java" />
+    		<include name="**/goldenGateServer/srs/indexers/*.java" />
     		<include name="**/goldenGateServer/wcs/*.java" />
 	        <classpath refid="compile.classpath" />
 	    </javac>
@@ -57,7 +59,7 @@
 	<target name="compileClt" depends="check-gg" if="${gg.exists}" description="Compile GoldenGATE Editor plugin Java sources">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
 	    	
     		<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
@@ -75,8 +77,11 @@
 	<target name="compileWeb" description="Compile GoldenGATE Server web front-end Java sources">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
+	    	
+    		<include name="**/goldenGateServer/dcs/GoldenGateDcsConstants*.java" />
+    		<include name="**/goldenGateServer/dcs/client/*.java" />
 	    	
     		<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
     		<include name="**/goldenGateServer/dio/client/DocumentServlet.java" />
@@ -92,7 +97,7 @@
     		<include name="**/goldenGateServer/srs/webPortal/*.java" />
     		<include name="**/goldenGateServer/srs/webPortal/layoutData/*.java" />
     		<include name="**/goldenGateServer/srs/webPortal/layouts/*.java" />
-    		<include name="**/goldenGateServer/srs/webPortal/resultLinkers*.java" />
+    		<include name="**/goldenGateServer/srs/webPortal/resultLinkers/*.java" />
 	    	
 	        <classpath refid="compile.classpath" />
 	    </javac>
@@ -102,7 +107,7 @@
 	<target name="compileDgPacker" description="Compile document gateway packer tool">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
   	 		<include name="**/goldenGateServer/dio/utilities/*.java" />
 	    	

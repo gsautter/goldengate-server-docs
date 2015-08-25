@@ -269,7 +269,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 			return null;
 		
 		//	get data
-		return this.dcsClient.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), orderingFields.toStringArray(), fieldPredicates, fieldAggregates, aggregatePredicates);
+		return this.dcsClient.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), orderingFields.toStringArray(), fieldPredicates, fieldAggregates, aggregatePredicates, !"force".equals(request.getParameter("cacheControl")));
 	}
 	
 	/* (non-Javadoc)

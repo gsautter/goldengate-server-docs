@@ -29,8 +29,6 @@ package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.PipedReader;
-import java.io.PipedWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.util.Comparator;
@@ -41,6 +39,7 @@ import java.util.Properties;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSrsConstants;
 import de.uka.ipd.idaho.htmlXmlUtil.Parser;
+import de.uka.ipd.idaho.htmlXmlUtil.Parser.ParserInstance;
 import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
 import de.uka.ipd.idaho.htmlXmlUtil.grammars.Grammar;
@@ -259,9 +258,10 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 	protected static abstract class ResultBuilder extends TokenReceiver {
 		
 		private Reader in;
-		private char[] buffer = new char[1024];
-		private PipedWriter toParser = new PipedWriter(); // TODO: use custom reader implementation instead of PipedReader/Writer, providing higher performance through better synchronization
-		private Thread parserThread;
+//		private char[] buffer = new char[1024];
+//		private PipedWriter toParser = new PipedWriter();
+//		private Thread parserThread;
+		private ParserInstance pi;
 		
 		private IOException exception = null;
 		
@@ -279,60 +279,7 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 		 */
 		public ResultBuilder(Reader in) throws IOException {
 			this.in = in;
-			
-			//	create extra thread parsing data from input bit by bit (as feed) and filling local data fields with it
-			final Reader fromSource = new PipedReader(this.toParser);
-			this.parserThread = new Thread() {
-				public void run() {
-					try {
-						parser.stream(fromSource, ResultBuilder.this);
-//						System.out.println("  - parsing finished");
-					}
-					catch (IOException ioe) {
-						ioe.printStackTrace(System.out);
-						exception = ioe;
-					}
-				}
-			};
-			this.parserThread.start();
-		}
-		
-		private boolean feedParser() throws IOException {
-			if (this.in == null) return false; // closed
-			
-			//	read some characters to feed to the parser
-			int read = this.in.read(this.buffer, 0, this.buffer.length);
-			
-			//	no more data available, clean up and indicate so
-			if (read == -1) {
-//				System.out.println("ResultBuilder: closing down ...");
-				
-				//	close down parser
-				this.toParser.flush();
-				this.toParser.close();
-//				System.out.println("  - parser stream closed");
-				
-				//	wait for parser to process remaining data
-				try {
-					this.parserThread.join();
-				} catch (InterruptedException ie) {}
-//				System.out.println("  - parser thread finished");
-				
-				//	close main input
-				this.in.close();
-				this.in = null;
-//				System.out.println("  - data input closed");
-				
-				//	report end of data
-				return false;
-			}
-			
-			//	feed parser and indicate so
-			else {
-				this.toParser.write(this.buffer, 0, read);
-				this.toParser.flush();
-				return true;
-			}
+			this.pi = parser.getInstance(in, this);
 		}
 		
 		/* (non-Javadoc)
@@ -373,8 +320,13 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 				throw this.exception;
 			
 			while (this.result == null) {
-				if (!this.feedParser())
+				if (this.pi.hasMoreTokens())
+					this.pi.consumeToken();
+				else {
+					this.in.close();
+					this.in = null;
 					return this.result;
+				}
 			}
 			
 			return this.result;
@@ -403,9 +355,12 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 		}
 		
 		private void fillElementBuffer() {
-			boolean gotMoreInput = true;
-			while (this.isElementBufferEmpty() && gotMoreInput) try {
-				gotMoreInput = this.feedParser();
+			while (this.isElementBufferEmpty()) try {
+				if (!this.pi.consumeToken()) {
+					this.in.close();
+					this.in = null;
+					break;
+				}
 			}
 			catch (IOException ioe) {
 				this.exception = ioe;
@@ -444,6 +399,7 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 		 */
 		public void storeToken(String token, int treeDepth) throws IOException {
 //			System.out.println("ResultBuilder: received token '" + token + "'");
+//			System.out.print(token);
 			
 			//	markup token
 			if (grammar.isTag(token)) {
@@ -524,7 +480,7 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 			
 			//	text data, store if some result element open
 			else if (this.elementDataStack.size() != 0) {
-				String value = token.trim();
+				String value = token.replaceAll("[\\r\\n]", "");
 				if (value.length() != 0)
 					this.elementDataBuffer.addElement(value);
 			}

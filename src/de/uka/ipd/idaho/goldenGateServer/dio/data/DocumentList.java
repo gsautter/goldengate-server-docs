@@ -565,19 +565,13 @@ public abstract class DocumentList implements GoldenGateDioConstants {
 				else return (docCount[0] - this.docsRetrieved);
 			}
 			public boolean hasNextDocument() {
-//				System.out.println("Asked for next document");
-				if (this.next != null) {
-//					System.out.println(" ==> got one in cache");
+				if (this.next != null)
 					return true;
-				}
-				else if (this.br == null) {
-//					System.out.println(" ==> got none, input closed");
+				else if (this.br == null)
 					return false;
-				}
 				
 				try {
 					this.next = this.br.readLine();
-//					System.out.println(" - got next line: " + this.next);
 					if (this.next != null) {
 						if (this.next.trim().length() == 0)
 							this.next = null;
@@ -598,7 +592,6 @@ public abstract class DocumentList implements GoldenGateDioConstants {
 								}
 							}
 							this.next = null;
-//							System.out.println(" ==> recursing");
 							return this.hasNextDocument();
 						}
 					}
@@ -615,18 +608,13 @@ public abstract class DocumentList implements GoldenGateDioConstants {
 						ioe.printStackTrace(System.out);
 					}
 					this.br = null;
-//					System.out.println(" ==> out of input");
 					return false;
 				}
-				else {
-//					System.out.println(" ==> retrieved one from stream");
-					return true;
-				}
+				else return true;
 			}
 			public DocumentListElement getNextDocument() {
 				if (!this.hasNextDocument())
 					return null;
-//				System.out.println("DioDocList: parsing next (" + this.docsRetrieved + ") from " + this.next);
 				String[] next = parseCsvLine(this.next, '"');
 				this.next = null;
 				DocumentListElement dle = new DocumentListElement();
@@ -636,7 +624,6 @@ public abstract class DocumentList implements GoldenGateDioConstants {
 				return dle;
 			}
 			protected void finalize() throws Throwable {
-//				System.out.println("Being finalized");
 				if (this.br != null) {
 					this.br.close();
 					this.br = null;

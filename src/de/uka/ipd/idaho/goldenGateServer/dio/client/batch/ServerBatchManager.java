@@ -35,6 +35,10 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.BufferedReader;
@@ -50,10 +54,12 @@ import java.util.Iterator;
 import java.util.Properties;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.PatternSyntaxException;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -62,6 +68,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.WindowConstants;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -71,6 +78,7 @@ import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.AnnotationInputStream;
+import de.uka.ipd.idaho.gamta.util.swing.ProgressMonitorDialog;
 import de.uka.ipd.idaho.goldenGate.DocumentEditorDialog;
 import de.uka.ipd.idaho.goldenGate.GoldenGATE;
 import de.uka.ipd.idaho.goldenGate.plugins.AbstractGoldenGatePlugin;
@@ -193,7 +201,6 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 	}
 	
 	private JMenuItem openBatchDialogMain = null;
-//	private JMenuItem openBatchDialogTools = null;
 	private ToolsMenuItem openBatchDialogTools = null;
 	private BatchRunDialog batchDialog = null;
 	private void openServerBatch() {
@@ -238,7 +245,12 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 			this.dataPanel = new BatchDataPanel();
 			this.dataPanel.addChangeListener(new ChangeListener() {
 				public void stateChanged(ChangeEvent ce) {
-					updateBatchData();
+					Thread ubdThread = new Thread() {
+						public void run() {
+							updateBatchData();
+						}
+					};
+					ubdThread.start();
 				}
 			});
 			
@@ -348,6 +360,8 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 		}
 		
 		private GoldenGateDioClient dioClient;
+		private DocumentListBuffer docList;
+		private String docListKey = "";
 		private DocumentProcessor processor;
 		
 		private TreeMap allDocData = new TreeMap();
@@ -368,20 +382,33 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 			//	check if all objects valid
 			if (this.isBatchRunnable()) {
 				
-				//	TODO enable filtering, similar to DIO document load list
-				
-				//	TODO observe loading list
-				
 				//	list documents to process
+				ProgressMonitorDialog pmd = null;
 				try {
-					DocumentList dl = this.dioClient.getDocumentList();
-					DocumentListBuffer dlb = new DocumentListBuffer(dl);
-					for (int d = 0; d < dlb.size(); d++) {
-						StringTupel docData = dlb.get(d);
+					
+					//	(re)load document list from server if necessary
+					String docListKey = (authManager.getUser() + "@" + authManager.getHost());
+					if ((this.docList == null) || !this.docListKey.equals(docListKey)) {
+						pmd = new ProgressMonitorDialog(DialogPanel.getTopWindow(), "Loading Document List");
+						pmd.setSize(400, 100);
+						pmd.setLocationRelativeTo(this);
+						pmd.popUp(false);
+						pmd.setInfo("Getting document list from GoldenGATE DIO ...");
+						DocumentList dl = this.dioClient.getDocumentList();
+						this.docList = new DocumentListBuffer(dl, pmd);
+						this.docListKey = docListKey;
+						pmd.close();
+						pmd = null;
+					}
+					
+					//	filter documents
+					this.allDocData.clear();
+					for (int d = 0; d < this.docList.size(); d++) {
+						StringTupel docData = this.docList.get(d);
 						
 						//	check if document checked out
 						String checkoutUser = docData.getValue(GoldenGateDioConstants.CHECKOUT_USER_ATTRIBUTE);
-						if ((checkoutUser == null) || checkoutUser.equals("") || checkoutUser.equals(authManager.getUser()))
+						if (((checkoutUser == null) || checkoutUser.equals("") || checkoutUser.equals(authManager.getUser())) && this.dataPanel.matchesFilter(docData))
 							this.allDocData.put(docData.getValue(GoldenGateDioConstants.DOCUMENT_ID_ATTRIBUTE), docData);
 					}
 				}
@@ -390,6 +417,11 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 					ioe.printStackTrace(System.out);
 					this.dioClient = null;
 					return;
+				}
+				finally {
+					if (pmd != null)
+						pmd.close();
+					pmd = null;
 				}
 				
 				//	load IDs already processed
@@ -967,16 +999,33 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 		}
 	}
 	
+	private static final String doNotFilterFieldName = "<Do Not Filter>";
+	private static final String[] filterFields = {
+		doNotFilterFieldName,
+		GoldenGateDioConstants.EXTERNAL_IDENTIFIER_ATTRIBUTE,
+		GoldenGateDioConstants.DOCUMENT_NAME_ATTRIBUTE,
+		GoldenGateDioConstants.DOCUMENT_AUTHOR_ATTRIBUTE,
+		GoldenGateDioConstants.DOCUMENT_DATE_ATTRIBUTE,
+		GoldenGateDioConstants.DOCUMENT_TITLE_ATTRIBUTE,
+		GoldenGateDioConstants.CHECKIN_USER_ATTRIBUTE,
+		GoldenGateDioConstants.UPDATE_USER_ATTRIBUTE,
+	};
+	
 	private class BatchDataPanel extends JPanel {
 		
 		private JButton loginButton = new JButton("Login");
 		private AuthenticatedClient authClient = null;
 		GoldenGateDioClient dioClient = null;
 		
+		private JComboBox filterFieldSelector = new JComboBox(filterFields);
+		private String filterField = doNotFilterFieldName;
+		private JTextField filterPatternField = new JTextField();
+		private String filterPattern = "";
+		
 		ProcessorSelectorPanel processorSelector;
 		
 		BatchDataPanel() {
-			super(new GridLayout(2, 1, 0, 3), true);
+			super(new GridLayout(3, 1, 0, 3), true);
 			
 			this.loginButton.setBorder(BorderFactory.createRaisedBevelBorder());
 			this.loginButton.addActionListener(new ActionListener() {
@@ -986,6 +1035,47 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 			});
 			this.add(this.loginButton);
 			
+			this.filterFieldSelector.setSelectedItem(doNotFilterFieldName);
+			this.filterFieldSelector.addItemListener(new ItemListener() {
+				public void itemStateChanged(ItemEvent ie) {
+					String ff = ((String) filterFieldSelector.getSelectedItem());
+					if (!filterField.equals(ff)) {
+						filterField = ff;
+						filterPatternField.setEnabled(!doNotFilterFieldName.equals(filterField));
+						stateChanged();
+					}
+				}
+			});
+			this.filterPatternField.setBorder(BorderFactory.createLoweredBevelBorder());
+			this.filterPatternField.setEnabled(false);
+			this.filterPatternField.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent e) {
+					String fp = filterPatternField.getText().trim();
+					if (!filterPattern.equals(fp)) {
+						filterPattern = fp;
+						stateChanged();
+					}
+				}
+			});
+			this.filterPatternField.addFocusListener(new FocusAdapter() {
+				public void focusLost(FocusEvent fe) {
+					String fp = filterPatternField.getText().trim();
+					if (!filterPattern.equals(fp)) {
+						filterPattern = fp;
+						stateChanged();
+					}
+				}
+			});
+			
+			JPanel filterFieldPanel = new JPanel(new BorderLayout());
+			filterFieldPanel.add(new JLabel("Only Process Documents Whose ", JLabel.RIGHT), BorderLayout.WEST);
+			filterFieldPanel.add(this.filterFieldSelector, BorderLayout.CENTER);
+			filterFieldPanel.add(new JLabel(" Attribute Matches ", JLabel.CENTER), BorderLayout.EAST);
+			JPanel filterPanel = new JPanel(new BorderLayout());
+			filterPanel.add(filterFieldPanel, BorderLayout.WEST);
+			filterPanel.add(this.filterPatternField, BorderLayout.CENTER);
+			this.add(filterPanel);
+			
 			this.processorSelector = new ProcessorSelectorPanel();
 			this.add(this.processorSelector);
 		}
@@ -994,6 +1084,8 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 			super.setEnabled(enabled);
 			this.processorSelector.setEnabled(enabled);
 			this.loginButton.setEnabled(enabled);
+			this.filterFieldSelector.setEnabled(enabled);
+			this.filterPatternField.setEnabled(enabled && !doNotFilterFieldName.equals(this.filterFieldSelector.getSelectedItem()));
 		}
 		
 		boolean isComplete() {
@@ -1057,6 +1149,19 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 			else {
 				this.dioClient = new GoldenGateDioClient(this.authClient);
 				this.loginButton.setText("Logged in to " + authManager.getHost() + " (click to log out)");
+				return true;
+			}
+		}
+		
+		boolean matchesFilter(StringTupel st) {
+			if (doNotFilterFieldName.equals(this.filterField))
+				return true;
+			if ("".equals(this.filterPattern))
+				return true;
+			try {
+				return st.getValue(this.filterField, "").matches(this.filterPattern);
+			}
+			catch (PatternSyntaxException pse) {
 				return true;
 			}
 		}
@@ -1169,7 +1274,7 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 				if (dp != null) {
 					this.processorName = dp.getName();
 					this.processorProviderClassName = dp.getProviderClassName();
-					this.processorLabel.setText(dp.getTypeLabel() + ": " + dp.getName() + " (double click to edit)");
+					this.processorLabel.setText(" " + dp.getTypeLabel() + ": " + dp.getName() + " (double click to edit)");
 					this.stateChanged();
 				}
 			}
@@ -1183,7 +1288,7 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 				if (dp != null) {
 					this.processorName = dp.getName();
 					this.processorProviderClassName = dp.getProviderClassName();
-					this.processorLabel.setText(dp.getTypeLabel() + ": " + dp.getName() + " (double click to edit)");
+					this.processorLabel.setText(" " + dp.getTypeLabel() + ": " + dp.getName() + " (double click to edit)");
 					this.stateChanged();
 				}
 			}

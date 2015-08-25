@@ -605,11 +605,15 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 	public static final class DcStatistics extends StringRelation {
 		private final String[] fields;
 		
+		/** the timestamp of the last update to the underlying statistics tables */
+		public final long lastUpdated;
+		
 		/** Constructor
 		 * @param fields the query fields the statistics was created for
 		 */
-		public DcStatistics(String[] fields) {
+		public DcStatistics(String[] fields, long lastUpdated) {
 			this.fields = fields;
+			this.lastUpdated = lastUpdated;
 		}
 		
 		/**
@@ -652,6 +656,9 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		public void writeData(Writer w) throws IOException {
 			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
 			
+			bw.write("" + this.lastUpdated);
+			bw.newLine();
+			
 			StringVector writeKeys = new StringVector();
 			writeKeys.addContent(this.fields);
 			writeCsvData(bw, this, '"', writeKeys);
@@ -681,12 +688,15 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		public static DcStatistics readStatistics(Reader r) throws IOException {
 			BufferedReader br = ((r instanceof BufferedReader) ? ((BufferedReader) r) : new BufferedReader(r));
 			
+			String lastUpdateStr = br.readLine();
+			long lastUpdate = Long.parseLong(lastUpdateStr);
+			
 			String fieldLine = br.readLine();
 			String[] fields = fieldLine.split("\\\"\\,\\\"");
 			fields[0] = fields[0].substring(1);
 			fields[fields.length-1] = fields[fields.length-1].substring(0, (fields[fields.length-1].length()-1));
 			
-			DcStatistics stat = new DcStatistics(fields);
+			DcStatistics stat = new DcStatistics(fields, lastUpdate);
 			
 			StringVector keys = new StringVector();
 			keys.addContent(fields);

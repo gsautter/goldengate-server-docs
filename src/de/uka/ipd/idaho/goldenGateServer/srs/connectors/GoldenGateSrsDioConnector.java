@@ -30,6 +30,8 @@ package de.uka.ipd.idaho.goldenGateServer.srs.connectors;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
@@ -39,9 +41,9 @@ import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateSer
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.dio.util.AsynchronousDioAction;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSRS;
-import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentList;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
 /**
@@ -199,7 +201,7 @@ public class GoldenGateSrsDioConnector extends AbstractGoldenGateServerComponent
 				String docId = docData.getValue(DOCUMENT_ID_ATTRIBUTE);
 				
 				//	check if document in SRS
-				DocumentList dl = srs.getDocumentList(docId);
+				de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentList dl = srs.getDocumentList(docId);
 				if (dl.hasNextElement()) {
 					this.log("    - document already stored in SRS");
 					return;
@@ -241,6 +243,131 @@ public class GoldenGateSrsDioConnector extends AbstractGoldenGateServerComponent
 		ca = this.diffAction;
 		cal.add(ca);
 		
+		//	add filtered update actions (document ID, external ID, year of publication, checkin user)
+		cal.add(new FilteredUpdateAction(GoldenGateDIO.DOCUMENT_ID_ATTRIBUTE));
+		cal.add(new FilteredUpdateAction(GoldenGateDIO.EXTERNAL_IDENTIFIER_ATTRIBUTE));
+		cal.add(new FilteredUpdateAction(GoldenGateDIO.DOCUMENT_DATE_ATTRIBUTE));
+		cal.add(new FilteredUpdateAction(GoldenGateDIO.CHECKIN_USER_ATTRIBUTE));
+		
+		//	finally ...
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
 	}
+	
+	private LinkedHashSet updateDocIDs = new LinkedHashSet();
+	private FilteredUpdateThread updateThread = null;
+	
+	private class FilteredUpdateAction implements ComponentActionConsole  {
+		private String filterField;
+		private String command;
+		FilteredUpdateAction(String filterField) {
+			this.command = ("update" + filterField.substring(0, 1).toUpperCase() + filterField.substring(1));
+			this.filterField = filterField;
+		}
+		public String getActionCommand() {
+			return this.command;
+		}
+		public String[] getExplanation() {
+			String[] explanation = {(this.command + " <" + this.filterField + ">"), 
+					("Update all documents with a specific " + this.filterField + ":"),
+					("- <" + this.filterField + "> : the " + this.filterField + " of the document(s) to update")};
+			return explanation;
+		}
+		public void performActionConsole(String[] arguments) {
+			
+			//	display queue size for no arguments
+			if (arguments.length == 0) {
+				System.out.println(" " + updateDocIDs.size() + " document pending for update.");
+				return;
+			}
+			
+			//	report error
+			if (arguments.length != 1) {
+				System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the " + this.filterField + " to update as the only argument.");
+				return;
+			}
+			
+			//	clear queue ('STOP' for a filter value is pretty unlikely, especially as we're matching case insensitive)
+			if ("STOP".equals(arguments[0])) {
+				synchronized (updateDocIDs) {
+					updateDocIDs.clear();
+				}
+				System.out.println(" Update queue cleared.");
+				return;
+			}
+			
+			//	parse filter value
+			String[] filterValues = arguments[0].toLowerCase().split("\\s+");
+			
+			//	run through document list and schedule matches
+			de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList dl = dio.getDocumentListFull();
+			int updateDocCount = 0;
+			while (dl.hasNextDocument()) {
+				DocumentListElement dle = dl.getNextDocument();
+				String filterFieldValue = ((String) dle.getAttribute(this.filterField));
+				if (filterFieldValue == null)
+					continue;
+				filterFieldValue = filterFieldValue.toLowerCase();
+				int fvo = 0;
+				for (int f = 0; f < filterValues.length; f++)
+					if ((fvo = filterFieldValue.indexOf(filterValues[f], fvo)) == -1) {
+						dle = null;
+						break;
+					}
+				if (dle != null) synchronized (updateDocIDs) {
+					updateDocIDs.add(dle.getAttribute(GoldenGateDIO.DOCUMENT_ID_ATTRIBUTE));
+					updateDocCount++;
+				}
+			}
+			System.out.println(" Scheduled " + updateDocCount + " to update");
+			
+			//	start updater thread if none is running
+			synchronized (updateDocIDs) {
+				if ((updateDocIDs.size() != 0) && ((updateThread == null) || !updateThread.isAlive())) {
+					updateThread = new FilteredUpdateThread();
+					updateThread.start();
+				}
+			}
+		}
+	}
+	
+	private class FilteredUpdateThread extends Thread {
+		public void run() {
+			while (true) {
+				
+				//	get next document ID to update (use new iterator each time to avoid concurrent modification)
+				String docId;
+				synchronized (updateDocIDs) {
+					Iterator didit = updateDocIDs.iterator();
+					if (didit.hasNext()) {
+						docId = ((String) didit.next());
+						didit.remove();
+					}
+					else {
+						updateThread = null;
+						return;
+					}
+				}
+				
+				//	get and update document
+				try {
+					QueriableAnnotation doc = dio.getDocument(docId);
+					srs.storeDocument(doc, new EventLogger() {
+						public void writeLog(String logEntry) {
+							if (logEntry != null)
+								System.out.println("    - " + logEntry);
+						}
+					});
+				}
+				catch (Exception e) {
+					System.out.println("Error updating document  '" + docId + "': " + e.getMessage());
+					e.printStackTrace(System.out);
+				}
+				
+				//	give the others some time
+				try {
+					Thread.sleep(2000);
+				} catch (InterruptedException ie) {}
+			}
+		}
+	};
 }

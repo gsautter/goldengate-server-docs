@@ -72,6 +72,8 @@ public abstract class AbstractSrsWebPortalServlet extends GgServerClientServlet 
 		
 		//	get SRS access point
 		this.srsClient = new GoldenGateSrsClient(this.serverConnection);
+		//	TODO try and obtain cache folder from configuration rather than always use hard coded location
+		//	==> facilitates using RAM disc cache
 		this.srsClient.setCacheFolder(new File(new File(this.webInfFolder, "caches"), "srsData"));
 		
 		//	configure GAMTA

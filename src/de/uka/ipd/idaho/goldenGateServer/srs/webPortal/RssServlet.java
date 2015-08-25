@@ -61,7 +61,7 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentListElement;
  * parameters in the config file of the servlet:
  * <ul>
  * <li><b>rssGenerationInterval</b>: the number of seconds between two
- * generations of the feed files. A smaller interval propages updates faster,
+ * generations of the feed files. A smaller interval propagates updates faster,
  * wheras a larger interval keeps generation costs lower. The default value of
  * this parameter is 86,400 seconds, so the feed files are generated once a day.</li>
  * <li><b>feedName</b>: this parameter is actually a prefix identifying the
@@ -96,13 +96,13 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentListElement;
 public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPortalConstants {
 	
 	/**
-	 * Descriptor of an individual RSS feed. This class baers a series of
+	 * Descriptor of an individual RSS feed. This class bears a series of
 	 * parameters for controlling the feed produced:
 	 * <ul>
 	 * <li><b>name</b>: the name of the feed, must be alphanumeric. This name is
 	 * the prefix identifying the remaining configuration data in the
 	 * surrounding servlet's config file. It also serves as the prefix for the
-	 * feed cache file. The invokation path '&lt;name&gt;.rss' has to be mapped
+	 * feed cache file. The invocation path '&lt;name&gt;.rss' has to be mapped
 	 * to the surrounding servlet in order for the feed to work, where
 	 * &lt;name&gt; is the actual value of the name parameter. In the
 	 * surrounding servlet's config file, the remaining parameters have to be
@@ -132,7 +132,7 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 	 * retrieving the complete documents described by the items in the RSS feed.
 	 * If retrieving the documents for the feed involves an XSLT transformation,
 	 * it is a good idea to use XsltServlet and using the feed name as a
-	 * configured XSLT name over there, mapped to the URL of the desited XSLT
+	 * configured XSLT name over there, mapped to the URL of the desired XSLT
 	 * stylesheet.</li>
 	 * </ul>
 	 * 

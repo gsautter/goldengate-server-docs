@@ -29,6 +29,7 @@ package de.uka.ipd.idaho.goldenGateServer.dcs.client;
 
 import java.io.IOException;
 import java.util.Properties;
+import java.util.TreeMap;
 
 import javax.servlet.ServletException;
 
@@ -70,10 +71,12 @@ public abstract class GoldenGateDcsClientServlet extends GgServerHtmlServlet {
 		
 		//	clean up field cache to trigger re-fetch
 		this.fieldSet = null;
+		this.fieldsByName.clear();
 		this.fieldLabels.clear();
 	}
 	
 	private StatFieldSet fieldSet;
+	private TreeMap fieldsByName = new TreeMap();
 	private Properties fieldLabels = new Properties();
 	
 	/**
@@ -90,6 +93,8 @@ public abstract class GoldenGateDcsClientServlet extends GgServerHtmlServlet {
 			for (int g = 0; g < fieldGroups.length; g++) {
 				StatField[] fields = fieldGroups[g].getFields();
 				for (int f = 0; f < fields.length; f++) {
+					this.fieldsByName.put(fields[f].fullName, fields[f]);
+					this.fieldsByName.put(fields[f].statColName, fields[f]);
 					this.fieldLabels.setProperty(fields[f].fullName, fields[f].label);
 					this.fieldLabels.setProperty(fields[f].statColName, fields[f].label);
 				}
@@ -99,12 +104,28 @@ public abstract class GoldenGateDcsClientServlet extends GgServerHtmlServlet {
 	}
 	
 	/**
+	 * Retrieve the field with a given name. If there is no field with the
+	 * argument name, this method returns null.
+	 * @param fieldName the field name
+	 * @return the field
+	 */
+	protected StatField getField(String fieldName) {
+		if (this.fieldsByName.isEmpty()) try {
+			this.getFieldSet();
+		} catch (IOException ioe) {}
+		return ((fieldName == null) ? null : ((StatField) this.fieldsByName.get(fieldName)));
+	}
+	
+	/**
 	 * Retrieve the label of a field with a given name. If there is no label
 	 * for the argument field name, this method returns the field name proper.
 	 * @param fieldName the field name
 	 * @return the label
 	 */
 	protected String getFieldLabel(String fieldName) {
+		if (this.fieldLabels.isEmpty()) try {
+			this.getFieldSet();
+		} catch (IOException ioe) {}
 		return ((fieldName == null) ? null : this.fieldLabels.getProperty(fieldName, fieldName));
 	}
 	

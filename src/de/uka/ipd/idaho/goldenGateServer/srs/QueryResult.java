@@ -173,13 +173,13 @@ public class QueryResult {
 	 */
 	public QueryResultElement[] getContentArray() {
 		QueryResultElement[] res = new QueryResultElement[this.elements.size()];
-		for (int i = 0; i < this.elements.size(); i++)
-			res[i] = ((QueryResultElement) this.elements.get(i));
+		for (int e = 0; e < this.elements.size(); e++)
+			res[e] = ((QueryResultElement) this.elements.get(e));
 		return res;
 	}
 	
 	/**
-	 * Prune all ResultElements that's relevance is less than the specified threshold.
+	 * Prune all ResultElements whose relevance is less than the specified threshold.
 	 */
 	public void pruneByRelevance(double threshold) {
 		if ((threshold > 0) && (threshold <= 1)) {
@@ -392,7 +392,7 @@ public class QueryResult {
 	}
 	
 	/**
-	 * Merge two query result, keeping only the elements contained in both of them.
+	 * Merge two query results, keeping only the elements contained in both of them.
 	 * @param 	queryResult1			the first QueryResult to be merged
 	 * @param 	queryResult2			the second QueryResult to be merged
 	 * @param 	relevanceCombination	the mode to combine the relevance values
@@ -439,47 +439,46 @@ public class QueryResult {
 		}
 		
 		//	get contant arrays
-		QueryResultElement[] qre1 = queryResult1.getContentArray();
-		QueryResultElement[] qre2 = queryResult2.getContentArray();
+		QueryResultElement[] qres1 = queryResult1.getContentArray();
+		QueryResultElement[] qres2 = queryResult2.getContentArray();
 		
 		//	sort content arrays for the full outer sort join
-		Arrays.sort(qre1, idSortOrder);
-		Arrays.sort(qre2, idSortOrder);
+		Arrays.sort(qres1, idSortOrder);
+		Arrays.sort(qres2, idSortOrder);
 		
 		int index1 = 0;
 		int index2 = 0;
 		
-		while ((index1 < qre1.length) || (index2 < qre2.length)) {
-//			int c;
-			long c;
-			if ((index1 < qre1.length) && (index2 < qre2.length))
-				c = qre1[index1].docNr - qre2[index2].docNr;
-			else if (index1 < qre1.length)
+		while ((index1 < qres1.length) || (index2 < qres2.length)) {
+			int c;
+			if ((index1 < qres1.length) && (index2 < qres2.length))
+				c = idSortOrder.compare(qres1[index1], qres2[index2]);
+			else if (index1 < qres1.length)
 				c = -1;
 			else c = 1;
 			QueryResultElement qre;
 			
 			//	ResultElements with matching IDs, join them
 			if (c == 0) {
-				qre = new QueryResultElement(qre1[index1].docNr, getCombinedRelevance(qre1[index1].relevance, queryResult1.mergeCount, qre2[index2].relevance, queryResult2.mergeCount, relevanceCombination));
-				result.addResultElement(qre);
+				qre = new QueryResultElement(qres1[index1].docNr, getCombinedRelevance(qres1[index1].relevance, queryResult1.mergeCount, qres2[index2].relevance, queryResult2.mergeCount, relevanceCombination));
 				index1++;
 				index2++;
 			}
 			
 			//	ID of r1 is smaller QueryResultElement, increment index1
 			else if (c < 0) {
-				qre = new QueryResultElement(qre1[index1].docNr, getCombinedRelevance(qre1[index1].relevance, queryResult1.mergeCount, getMergeDummyRelevance(qre1[index1].relevance, relevanceCombination), 1, relevanceCombination));
-				result.addResultElement(qre);
+				qre = new QueryResultElement(qres1[index1].docNr, getCombinedRelevance(qres1[index1].relevance, queryResult1.mergeCount, getMergeDummyRelevance(qres1[index1].relevance, relevanceCombination), 1, relevanceCombination));
 				index1++;
 			}
 			
 			//	ID of r2 is smaller QueryResultElement, increment index2
 			else {
-				qre = new QueryResultElement(qre2[index2].docNr, getCombinedRelevance(qre2[index2].relevance, queryResult2.mergeCount, getMergeDummyRelevance(qre2[index2].relevance, relevanceCombination), 1, relevanceCombination));
-				result.addResultElement(qre);
+				qre = new QueryResultElement(qres2[index2].docNr, getCombinedRelevance(qres2[index2].relevance, queryResult2.mergeCount, getMergeDummyRelevance(qres2[index2].relevance, relevanceCombination), 1, relevanceCombination));
 				index2++;
 			}
+			
+			//	store combined element
+			result.addResultElement(qre);
 		}
 		
 		return result;
@@ -517,23 +516,22 @@ public class QueryResult {
 		QueryResult result = new QueryResult(maxSize, (queryResult2.keepSorted || queryResult1.keepSorted));
 		result.mergeCount = queryResult1.mergeCount + queryResult2.mergeCount;
 		
-		QueryResultElement[] qre1 = queryResult1.getContentArray();
-		QueryResultElement[] qre2 = queryResult2.getContentArray();
+		QueryResultElement[] qres1 = queryResult1.getContentArray();
+		QueryResultElement[] qres2 = queryResult2.getContentArray();
 		
-		Arrays.sort(qre1, idSortOrder);
-		Arrays.sort(qre2, idSortOrder);
+		Arrays.sort(qres1, idSortOrder);
+		Arrays.sort(qres2, idSortOrder);
 		
 		int index1 = 0;
 		int index2 = 0;
 		
-		while ((index1 < qre1.length) && (index2 < qre2.length)) {
-//			int c = qre1[index1].docNr - qre2[index2].docNr;
-			long c = qre1[index1].docNr - qre2[index2].docNr;
+		while ((index1 < qres1.length) && (index2 < qres2.length)) {
+			int c = idSortOrder.compare(qres1[index1], qres2[index2]);
 			
 			//	ResultElements with matching IDs, join them
 			if (c == 0) {
-				QueryResultElement re = new QueryResultElement(qre1[index1].docNr, getCombinedRelevance(qre1[index1].relevance, queryResult1.mergeCount, qre2[index2].relevance, queryResult2.mergeCount, relevanceCombination));
-				result.addResultElement(re);
+				QueryResultElement qre = new QueryResultElement(qres1[index1].docNr, getCombinedRelevance(qres1[index1].relevance, queryResult1.mergeCount, qres2[index2].relevance, queryResult2.mergeCount, relevanceCombination));
+				result.addResultElement(qre);
 				index1++;
 				index2++;
 			}

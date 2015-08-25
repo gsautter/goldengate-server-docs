@@ -49,6 +49,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Properties;
+import java.util.TreeSet;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -188,7 +189,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 	/** @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
 	protected void doPost(final HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-		System.out.println("Handling request from " + request.getRemoteAddr());
+//		System.out.println("Handling request from " + request.getRemoteAddr());
 		StringVector paramCollector = new StringVector();
 		Enumeration paramEnum = request.getParameterNames();
 		while (paramEnum.hasMoreElements())
@@ -953,10 +954,9 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 					
 					//	switch to single document mode if only one document in result
 					BufferedDocumentResult bufDocRes = new BufferedDocumentResult(docRes);
-					DocumentResult docSearchRes = bufDocRes.getDocumentResult();
 					DocumentResultElement soleResDre = null;
-					while (docSearchRes.hasNextElement()) {
-						DocumentResultElement loopDre = docSearchRes.getNextDocumentResultElement();
+					for (DocumentResult loopDocRes = bufDocRes.getDocumentResult(); loopDocRes.hasNextElement();) {
+						DocumentResultElement loopDre = loopDocRes.getNextDocumentResultElement();
 						if (soleResDre == null)
 							soleResDre = loopDre;
 						else {
@@ -966,6 +966,50 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 					}
 					if (soleResDre != null) {
 						response.sendRedirect(request.getContextPath() + "/html/" + soleResDre.documentId);
+						return;
+					}
+					
+					//	TODO switch to summary mode if only one master document and page range about covered (the latter to avoid showing summary where not desired)
+					String soleMasterDocId = null;
+					int minMasterPageNumber = Integer.MAX_VALUE;
+					int maxMasterPageNumber = 0;
+					TreeSet resPageNumbers = new TreeSet();
+					int minPageNumber = Integer.MAX_VALUE;
+					int maxPageNumber = 0;
+					for (DocumentResult loopDocRes = bufDocRes.getDocumentResult(); loopDocRes.hasNextElement();) {
+						DocumentResultElement loopDre = loopDocRes.getNextDocumentResultElement();
+						String masterDocId = ((String) loopDre.getAttribute(MASTER_DOCUMENT_ID_ATTRIBUTE));
+						if (masterDocId == null) {
+							soleMasterDocId = null;
+							break;
+						}
+						else if (soleMasterDocId == null)
+							soleMasterDocId = masterDocId;
+						else if (!soleMasterDocId.equals(masterDocId)) {
+							soleMasterDocId = null;
+							break;
+						}
+						try {
+							int masterPageNumber = Integer.parseInt((String) loopDre.getAttribute(MASTER_PAGE_NUMBER_ATTRIBUTE));
+							minMasterPageNumber = Math.min(minMasterPageNumber, masterPageNumber);
+							int masterLastPageNumber = Integer.parseInt((String) loopDre.getAttribute(MASTER_LAST_PAGE_NUMBER_ATTRIBUTE));
+							maxMasterPageNumber = Math.max(maxMasterPageNumber, masterLastPageNumber);
+							int pageNumber = Integer.parseInt((String) loopDre.getAttribute(PAGE_NUMBER_ATTRIBUTE));
+							minPageNumber = Math.min(minPageNumber, pageNumber);
+							int lastPageNumber = Integer.parseInt((String) loopDre.getAttribute(LAST_PAGE_NUMBER_ATTRIBUTE));
+							maxPageNumber = Math.max(maxPageNumber, lastPageNumber);
+							for (int pn = pageNumber; pn <= lastPageNumber; pn++)
+								resPageNumbers.add(new Integer(pn));
+						}
+						catch (RuntimeException re) {
+							soleMasterDocId = null;
+							break;
+						}
+					}
+					if ((maxPageNumber < minPageNumber) || (maxMasterPageNumber < minMasterPageNumber) || (resPageNumbers.size() < (maxPageNumber - minPageNumber) /* cuts some slack for one missing page number */) || (((maxPageNumber - minPageNumber + 1) * 2) < (maxMasterPageNumber - minMasterPageNumber + 1)))
+						soleMasterDocId = null;
+					if (soleMasterDocId != null) {
+						response.sendRedirect(request.getContextPath() + "/summary/" + soleMasterDocId);
 						return;
 					}
 					
@@ -1280,7 +1324,6 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 				catch (Exception e) {
 					this.writeExceptionAsXmlComment(("exception including statistics"), e);
 				}
-				
 			}
 			
 			//	thesaurus search result
@@ -1312,9 +1355,12 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 					}
 					else {
 						String[] attributeNames = this.document.getAttributeNames();
-						for (int a = 0; a < attributeNames.length; a++)
+						for (int a = 0; a < attributeNames.length; a++) {
 							if (this.document.document.getDocumentProperty(attributeNames[a]) == null)
 								this.document.document.setDocumentProperty(attributeNames[a], ((String) this.document.getAttribute(attributeNames[a])));
+						}
+						if (FORCE_CACHE.equals(this.request.getParameter(CACHE_CONTROL_PARAMETER)))
+							this.document.document.setAttribute(CACHE_CONTROL_PARAMETER, FORCE_CACHE);
 						layout.includeResultDocument(this.document, this);
 					}
 				}

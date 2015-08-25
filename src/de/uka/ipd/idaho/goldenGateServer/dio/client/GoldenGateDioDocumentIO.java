@@ -1479,7 +1479,6 @@ reduce document list loading effort:
 				public void actionPerformed(ActionEvent ae) {
 					if ((cache != null) && (dioClient != null))
 						cache.cleanup(dioClient);
-//					loadException = null;
 					dispose();
 				}
 			});
@@ -2217,7 +2216,6 @@ reduce document list loading effort:
 	
 	private class UploadProtocolDialog extends JFrame {
 		private String[] uploadProtocol = new String[0];
-		private int uploadProtocolSize = 0;
 		private JTable protocolList;
 		private JButton closeButton;
 		UploadProtocolDialog(String title, String label, String[] up) {
@@ -2278,12 +2276,11 @@ reduce document list loading effort:
 			this.setUploadProtocol(up);
 		}
 		void setUploadProtocol(String[] up) {
-			if (this.uploadProtocolSize == this.uploadProtocol.length)
+			if (this.uploadProtocol.length == up.length)
 				return;
 			this.uploadProtocol = up;
 			this.protocolList.validate();
 			this.protocolList.repaint();
-			this.uploadProtocolSize = this.uploadProtocol.length;
 			if ((this.uploadProtocol.length != 0) && (UPDATE_COMPLETE.equals(this.uploadProtocol[this.uploadProtocol.length-1]) || DELETION_COMPLETE.equals(this.uploadProtocol[this.uploadProtocol.length-1]))) {
 				this.closeButton.setText("OK");
 				this.closeButton.validate();

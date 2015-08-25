@@ -37,6 +37,7 @@ import java.sql.SQLException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -120,7 +121,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	private static final int DOCUMENT_TITLE_COLUMN_LENGTH = 511;
 	private static final int DOCUMENT_KEYWORDS_COLUMN_LENGTH = 1023;
 	
-	private String externalIdentifierAttributeName = null;
+//	private String externalIdentifierAttributeName = null;
+	private String[] externalIdentifierAttributeNames = {};
 	
 	private int documentListSizeThreshold = 0;
 	
@@ -230,20 +232,33 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, CHECKOUT_USER_ATTRIBUTE);
 		
 		//	get external identifier setting
-		this.externalIdentifierAttributeName = this.configuration.getSetting(EXTERNAL_IDENTIFIER_ATTRIBUTE);
+//		this.externalIdentifierAttributeName = this.configuration.getSetting(EXTERNAL_IDENTIFIER_ATTRIBUTE);
+		String externalIdentifierAttributeNames = this.configuration.getSetting(EXTERNAL_IDENTIFIER_ATTRIBUTE);
+		if (externalIdentifierAttributeNames != null)
+			this.externalIdentifierAttributeNames = externalIdentifierAttributeNames.split("\\s+");
 		
 		//	verify external identifier (might have been set after first documents were stored)
-		if (this.externalIdentifierAttributeName != null) {
-			System.out.println("  - external document identifier set to '" + this.externalIdentifierAttributeName + "', checking database ...");
+		if (this.externalIdentifierAttributeNames.length != 0) {
+			System.out.println("  - external document identifier set to " + Arrays.toString(this.externalIdentifierAttributeNames) + ", checking database ...");
 			
-			String externalIdentifierName = this.externalIdentifierAttributeName;
-			if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
-				externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
+//			String externalIdentifierName = this.externalIdentifierAttributeName;
+//			if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
+//				externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
+			StringBuffer externalIdentifierNameList = new StringBuffer();
+			for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
+				String externalIdentifierName = this.externalIdentifierAttributeNames[i];
+				if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
+					externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
+				if (externalIdentifierNameList.length() != 0)
+					externalIdentifierNameList.append(", ");
+				externalIdentifierNameList.append("'" + EasyIO.sqlEscape(externalIdentifierName) + "'");
+			}
 			
 			// assemble query
 			String testQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
 					" FROM " + DOCUMENT_TABLE_NAME +
-					" WHERE " + EXTERNAL_IDENTIFIER_NAME + " NOT LIKE '" + EasyIO.prepareForLIKE(externalIdentifierName) + "'" +
+//					" WHERE " + EXTERNAL_IDENTIFIER_NAME + " NOT LIKE '" + EasyIO.prepareForLIKE(externalIdentifierName) + "'" +
+					" WHERE " + EXTERNAL_IDENTIFIER_NAME + " NOT IN (" + externalIdentifierNameList + ")" +
 					";";
 			
 			//	get IDs of documents with missing or outdated external identifier
@@ -275,9 +290,23 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 					ioe.printStackTrace(System.out);
 					continue;
 				}
-				String externalIdentifier = docAttributes.getProperty(this.externalIdentifierAttributeName, "");
-				if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
-					externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+//				String externalIdentifier = docAttributes.getProperty(this.externalIdentifierAttributeName, "");
+//				if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
+//					externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+				String externalIdentifier = null;
+				String externalIdentifierName = null;
+				for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
+					externalIdentifier = docAttributes.getProperty(this.externalIdentifierAttributeNames[i]);
+					if (externalIdentifier == null)
+						continue;
+					externalIdentifierName = this.externalIdentifierAttributeNames[i];
+					if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
+						externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+				}
+				if ((externalIdentifier == null) || (externalIdentifierName == null)) {
+					externalIdentifier = "";
+					externalIdentifierName = "";
+				}
 				
 				String updateQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
 						" SET " + 
@@ -864,16 +893,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					doc.setAttribute(DOCUMENT_NAME_ATTRIBUTE, docName);
 
-//					final StringVector log = new StringVector();
-					final UpdateProtocol up = new UpdateProtocol(((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID())), false);
+					UpdateProtocol up = new UpdateProtocol(((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID())), false);
 					int version;
 					try {
-//						version = uploadDocument(user, doc, new EventLogger() {
-//							public void writeLog(String logEntry) {
-//								if (logEntry != null)
-//									log.addElement(logEntry);
-//							}
-//						}, externalIdentifierMode);
 						version = uploadDocument(user, doc, up, externalIdentifierMode);
 						up.setHead(docName, version);
 					}
@@ -893,11 +915,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					output.write("Document '" + docName + "' stored as version " + version);
 					output.newLine();
-//
-//					for (int l = 0; l < log.size(); l++) {
-//						output.write(log.get(l));
-//						output.newLine();
-//					}
 				}
 				catch (IOException ioe) {
 					output.write(ioe.getMessage());
@@ -1134,16 +1151,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					doc.setAttribute(DOCUMENT_NAME_ATTRIBUTE, docName);
 
-//					final StringVector log = new StringVector();
-					final UpdateProtocol up = new UpdateProtocol(docId, false);
+					UpdateProtocol up = new UpdateProtocol(docId, false);
 					int version;
 					try {
-//						version = updateDocument(user, docId, doc, new EventLogger() {
-//							public void writeLog(String logEntry) {
-//								if (logEntry != null)
-//									log.addElement(logEntry);
-//							}
-//						}, externalIdentifierMode);
 						version = updateDocument(user, docId, doc, up, externalIdentifierMode);
 						up.setHead(docName, version);
 					}
@@ -1163,11 +1173,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 					output.write("Document '" + docName + "' stored as version " + version);
 					output.newLine();
-//					
-//					for (int l = 0; l < log.size(); l++) {
-//						output.write(log.get(l));
-//						output.newLine();
-//					}
 				}
 				catch (IOException ioe) {
 					output.write(ioe.getMessage());
@@ -1202,22 +1207,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				
 				try {
 					String docId = input.readLine();
-//					final StringVector log = new StringVector();
 					final UpdateProtocol up = new UpdateProtocol(docId, true);
-//					deleteDocument(uaa.getUserNameForSession(sessionId), docId, new EventLogger() {
-//						public void writeLog(String logEntry) {
-//							log.addElement(logEntry);
-//						}
-//					});
 					deleteDocument(uaa.getUserNameForSession(sessionId), docId, up);
 					
 					output.write(DELETE_DOCUMENT);
 					output.newLine();
-//
-//					for (int l = 0; l < log.size(); l++) {
-//						output.write(log.get(l));
-//						output.newLine();
-//					}
 					for (int e = 0; e < up.size(); e++) {
 						output.write((String) up.get(e));
 						output.newLine();
@@ -1291,8 +1285,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				return WATCH_FOLDER_COMMAND;
 			}
 			public String[] getExplanation() {
-				String[] explanation = { WATCH_FOLDER_COMMAND + " ", "Watch a folder for new documents to be added to this GoldenGATE DIO's storage:",
-						"- : the folder to watch, either relative to the DIO's data path, or absolute." };
+				String[] explanation = { WATCH_FOLDER_COMMAND + " <folderName>", "Watch a folder for new documents to be added to this GoldenGATE DIO's storage:",
+						"- <folderName>: the folder to watch, either relative to the DIO's data path, or absolute." };
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
@@ -1610,9 +1604,19 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		//	get external identifier of document
+//		String externalIdentifier = null;
+//		if (this.externalIdentifierAttributeName != null)
+//			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeName));
 		String externalIdentifier = null;
-		if (this.externalIdentifierAttributeName != null)
-			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeName));
+		String externalIdentifierName = null;
+		for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
+			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeNames[i]));
+			if (externalIdentifier == null)
+				continue;
+			externalIdentifierName = this.externalIdentifierAttributeNames[i];
+			if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
+				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+		}
 		
 		//	external identifier present, check conflicts if required
 		if ((externalIdentifier != null) && EXTERNAL_IDENTIFIER_MODE_CHECK.equals(externalIdentifierMode)) {
@@ -1622,7 +1626,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			
 			//	we do have conflicts?
 			if (conflictList.hasNextDocument())
-				throw new DuplicateExternalIdentifierException(this.externalIdentifierAttributeName, externalIdentifier, conflictList);
+//				throw new DuplicateExternalIdentifierException(this.externalIdentifierAttributeName, externalIdentifier, conflictList);
+				throw new DuplicateExternalIdentifierException(externalIdentifierName, externalIdentifier, conflictList);
 		}
 		
 
@@ -1661,7 +1666,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 		//	store external identifier if present
 		if (externalIdentifier != null) {
-			String externalIdentifierName = this.externalIdentifierAttributeName;
+//			String externalIdentifierName = this.externalIdentifierAttributeName;
 			if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
 				externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
 			fields.append(", " + EXTERNAL_IDENTIFIER_NAME);
@@ -1835,9 +1840,19 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		//	get external identifier of document
+//		String externalIdentifier = null;
+//		if (this.externalIdentifierAttributeName != null)
+//			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeName));
 		String externalIdentifier = null;
-		if (this.externalIdentifierAttributeName != null)
-			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeName));
+		String externalIdentifierName = null;
+		for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
+			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeNames[i]));
+			if (externalIdentifier == null)
+				continue;
+			externalIdentifierName = this.externalIdentifierAttributeNames[i];
+			if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
+				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+		}
 		
 		
 		//	external identifier present, check conflicts if required
@@ -1848,7 +1863,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			
 			//	we do have conflicts?
 			if (conflictList.hasNextDocument()) {
-				DuplicateExternalIdentifierException deie = new DuplicateExternalIdentifierException(this.externalIdentifierAttributeName, externalIdentifier, conflictList);
+//				DuplicateExternalIdentifierException deie = new DuplicateExternalIdentifierException(this.externalIdentifierAttributeName, externalIdentifier, conflictList);
+				DuplicateExternalIdentifierException deie = new DuplicateExternalIdentifierException(externalIdentifierName, externalIdentifier, conflictList);
 				DocumentListElement[] conflictDocs = deie.getConflictingDocuments();
 				
 				//	check if conflict has been ignored before
@@ -1856,7 +1872,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				for (int c = 0; c < conflictDocs.length; c++)
 					if (docId.equals(conflictDocs[c].getAttribute(DOCUMENT_ID_ATTRIBUTE))) {
 						newDuplicate = false;
-						c = conflictDocs.length;
+						break;
 					}
 				
 				//	if not, throw the exception
@@ -1875,7 +1891,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 		//	store external identifier if present
 		if (externalIdentifier != null) {
-			String externalIdentifierName = this.externalIdentifierAttributeName;
+//			String externalIdentifierName = this.externalIdentifierAttributeName;
 			if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
 				externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
 			assignments.addElement(EXTERNAL_IDENTIFIER_NAME + " = '" + EasyIO.sqlEscape(externalIdentifierName) + "'");
@@ -1943,7 +1959,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				
 				//	store external identifier if present
 				if (externalIdentifier != null) {
-					String externalIdentifierName = this.externalIdentifierAttributeName;
+//					String externalIdentifierName = this.externalIdentifierAttributeName;
 					if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
 						externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
 					fields.append(", " + EXTERNAL_IDENTIFIER_NAME);
@@ -2479,7 +2495,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * Retrieve the meta data for a specific document. The attributes of the
 	 * returned document list element correspond to those held in a document
 	 * list retrieved via one of the getDocumentList() methods for a user
-	 * without administrative priviledges. If a document with the specified ID
+	 * without administrative privileges. If a document with the specified ID
 	 * does not exist, this method returns null.
 	 * @param docId the ID of the document to retrieve the meta data for
 	 * @return the meta data for the document with the specified ID
@@ -2585,7 +2601,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * time, last update user, last update time, and most recent version. The
 	 * list includes all available documents, regardless of their checkout
 	 * state. That means all of the documents on the list can be retrieved from
-	 * the getDocument() method for read access, but none is guarantied to be
+	 * the getDocument() method for read access, but none is guaranteed to be
 	 * available for checkout and editing.
 	 * @return a list of meta data for the document available through this DIO
 	 */
@@ -2685,7 +2701,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * Retrieve a list of meta data for the document available through this DIO.
 	 * The list includes the document ID, document name, checkin user, checkin
 	 * time, last update user, last update time, and most recent version. If the
-	 * specified user has administrative priviledges, checked-out documents are
+	 * specified user has administrative privileges, checked-out documents are
 	 * included in the list, and the list also provides the checkout user and
 	 * checkout status of every document. Otherwise, the list only includes
 	 * documents that can be checked out, i.e., ones that are not checked out,
@@ -2694,7 +2710,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * their checkout state.
 	 * @param userName the user to retrieve the list for (used for filtering
 	 *            based on document's checkout states, has no effect if the
-	 *            specified user has administrative priviledges)
+	 *            specified user has administrative privileges)
 	 * @return a list of meta data for the document available through this DIO
 	 */
 	public DocumentList getDocumentList(String userName) {
@@ -2705,7 +2721,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * Retrieve a list of meta data for the document available through this DIO.
 	 * The list includes the document ID, document name, checkin user, checkin
 	 * time, last update user, last update time, and most recent version. If the
-	 * specified user has administrative priviledges, checked-out documents are
+	 * specified user has administrative privileges, checked-out documents are
 	 * included in the list, and the list also provides the checkout user and
 	 * checkout status of every document. Otherwise, the list only includes
 	 * documents that can be checked out, i.e., ones that are not checked out,
@@ -2714,7 +2730,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * their checkout state.
 	 * @param userName the user to retrieve the list for (used for filtering
 	 *            based on document's checkout states, has no effect if the
-	 *            specified user has administrative priviledges)
+	 *            specified user has administrative privileges)
 	 * @param headOnly if set to true, this method returns an empty list, only
 	 *            containing the header data (field names and attribute value
 	 *            summaries)
@@ -2761,7 +2777,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * Retrieve a list of meta data for the document available through this DIO.
 	 * The list includes the document ID, document name, checkin user, checkin
 	 * time, last update user, last update time, and most recent version. If the
-	 * specified user has administrative priviledges, checked-out documents are
+	 * specified user has administrative privileges, checked-out documents are
 	 * included in the list, and the list also provides the checkout user and
 	 * checkout status of every document. Otherwise, the list only includes
 	 * documents that can be checked out, i.e., ones that are not checked out,
@@ -2770,7 +2786,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * their checkout state.
 	 * @param userName the user to retrieve the list for (used for filtering
 	 *            based on document's checkout states, has no effect if the
-	 *            specified user has administrative priviledges)
+	 *            specified user has administrative privileges)
 	 * @param filter a properties object containing filter predicates for the
 	 *            document list
 	 * @return a list of meta data for the document available through this DIO
@@ -2803,7 +2819,7 @@ in the long haul, ask DIO extensions to provide SQL snippets and column names to
 	 * Retrieve a list of meta data for the document available through this DIO.
 	 * The list includes the document ID, document name, checkin user, checkin
 	 * time, last update user, last update time, and most recent version. If the
-	 * specified user has administrative priviledges, checked-out documents are
+	 * specified user has administrative privileges, checked-out documents are
 	 * included in the list, and the list also provides the checkout user and
 	 * checkout status of every document. Otherwise, the list only includes
 	 * documents that can be checked out, i.e., ones that are not checked out,
@@ -2812,7 +2828,7 @@ in the long haul, ask DIO extensions to provide SQL snippets and column names to
 	 * their checkout state.
 	 * @param userName the user to retrieve the list for (used for filtering
 	 *            based on document's checkout states, has no effect if the
-	 *            specified user has administrative priviledges)
+	 *            specified user has administrative privileges)
 	 * @param headOnly if set to true, this method returns an empty list, only
 	 *            containing the header data (field names and attribute value
 	 *            summaries)

@@ -596,6 +596,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 			return false;
 		}
 	};
+	
 	/**
 	 * GoldenGATE DIO specific document storage event, adding types for
 	 * checkout and release.

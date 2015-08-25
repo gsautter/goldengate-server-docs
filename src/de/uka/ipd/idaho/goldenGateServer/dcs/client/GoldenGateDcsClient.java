@@ -31,7 +31,13 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.net.URLEncoder;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection;
@@ -59,6 +65,7 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	public GoldenGateDcsClient(ServerConnection serverConnection, String dcsLetterCode) {
 		this.serverConnection = serverConnection;
 		this.dcsLetterCode = dcsLetterCode;
+		this.cache = getCache(this.dcsLetterCode);
 	}
 	
 	/**
@@ -105,6 +112,43 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @throws IOException
 	 */
 	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) throws IOException {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, true);
+	}
+	
+	/**
+	 * Compile and retrieve a statistics from the data stored in the backing
+	 * DCS instance. Ordering is ascending for strings, but descending for
+	 * numbers. The <code>DocCount</code> aggregate field is contained in every
+	 * statistics.
+	 * @param outputFields the fields to include in the statistics
+	 * @param groupingFields the fields to use for grouping
+	 * @param orderingFields the fields to use for ordering
+	 * @param fieldPredicates filter predicates against individual fields
+	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
+	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param allowCache allow returning cached results?
+	 * @return the requested statistics, packed in a string relation
+	 * @throws IOException
+	 */
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, boolean allowCache) throws IOException {
+		
+		//	generate cache key
+		String cacheKey = "" + Integer.toString(Arrays.hashCode(outputFields), 16) +
+				"-" + Integer.toString(Arrays.hashCode(groupingFields), 16) +
+				"-" + Integer.toString(Arrays.hashCode(orderingFields), 16) +
+				"-" + ((fieldPredicates == null) ? "0" : Integer.toString(fieldPredicates.hashCode(), 16)) +
+				"-" + ((fieldAggregates == null) ? "0" : Integer.toString(fieldAggregates.hashCode(), 16)) +
+				"-" + ((aggregatePredicates == null) ? "0" : Integer.toString(aggregatePredicates.hashCode(), 16)) +
+				"";
+		
+		//	do cache lookup if allowed to
+		if (allowCache) {
+			DcStatistics stats = ((DcStatistics) this.cache.get(cacheKey));
+			if (stats != null)
+				return stats;
+		}
+		
+		//	get statistics from backend
 		Connection con = null;
 		try {
 			con = this.serverConnection.getConnection();
@@ -153,13 +197,43 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 			
 			BufferedReader br = con.getReader();
 			String error = br.readLine();
-			if ((this.dcsLetterCode + GET_STATISTICS_COMMAND_SUFFIX).equals(error))
-				return DcStatistics.readStatistics(br);
+			if ((this.dcsLetterCode + GET_STATISTICS_COMMAND_SUFFIX).equals(error)) {
+				DcStatistics stats = DcStatistics.readStatistics(br);
+				this.cache.put(cacheKey, stats);
+				return stats;
+			}
+			
 			else throw new IOException(error);
 		}
 		finally {
 			if (con != null)
 				con.close();
 		}
+	}
+	
+	private Map cache;
+	
+	private static final int initCacheSize = 128;
+	private static final int maxCacheSize = 256;
+	private static Map cachesByDcsLetterCode = Collections.synchronizedMap(new HashMap(2));
+	private static synchronized Map getCache(String dcsLetterCode) {
+		Map cache = ((Map) cachesByDcsLetterCode.get(dcsLetterCode));
+		if (cache == null) {
+			cache = Collections.synchronizedMap(new LinkedHashMap(initCacheSize, 0.9f, true) {
+				private long statsLastUpdated = 0;
+				public synchronized Object put(Object key, Object value) {
+					if (this.statsLastUpdated < ((DcStatistics) value).lastUpdated) {
+						this.clear();
+						this.statsLastUpdated = ((DcStatistics) value).lastUpdated;
+					}
+					return super.put(key, value);
+				}
+				protected boolean removeEldestEntry(Entry eldest) {
+					return (this.size() > maxCacheSize);
+				}
+			});
+			cachesByDcsLetterCode.put(dcsLetterCode, cache);
+		}
+		return cache;
 	}
 }

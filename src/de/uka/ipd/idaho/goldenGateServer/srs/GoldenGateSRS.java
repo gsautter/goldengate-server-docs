@@ -1196,6 +1196,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 */
 	public int storeDocument(QueriableAnnotation masterDoc, EventLogger logger) throws IOException {
 		String masterDocId = masterDoc.getAttribute(DOCUMENT_ID_ATTRIBUTE, masterDoc.getAnnotationID()).toString();
+		masterDocId = normalizeId(masterDocId);
 		long updateTime = -1;
 		try {
 			updateTime = Long.parseLong(masterDoc.getAttribute(UPDATE_TIME_ATTRIBUTE, "-1").toString());
@@ -1274,6 +1275,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			String docId = ((String) docs[d].getAttribute(DOCUMENT_ID_ATTRIBUTE, ""));
 			if (docId.length() == 0)
 				continue;
+			docId = normalizeId(docId);
 			validIDs.addElement(docId);
 			long docStorageStart = System.currentTimeMillis();
 			
@@ -1736,6 +1738,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 */
 	public int deleteDocument(String userName, String masterDocId, EventLogger logger) throws IOException {
 		
+		//	normalize UUID
+		masterDocId = normalizeId(masterDocId);
+		
 		//	initialize counter
 		int deleteCount = 0;
 		
@@ -2017,6 +2022,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	request for sub document list
 		else {
+			masterDocID = normalizeId(masterDocID);
 			
 			StringBuffer query = new StringBuffer("SELECT ");
 			for (int f = 0; f < documentListQueryFields.length; f++) {
@@ -2272,7 +2278,16 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		MASTER_PAGE_NUMBER_ATTRIBUTE,
 		MASTER_LAST_PAGE_NUMBER_ATTRIBUTE
 	};
-	private DocumentResult searchDocuments(Query query, boolean includeUpdateHistory) throws IOException {
+	
+	/**
+	 * Search documents. The elements of the returned document result contain
+	 * both the basic document meta data and the documents themselves.
+	 * @param query the query containing the search parameters
+	 * @param includeUpdateHistory include all update users and timestamps?
+	 * @return a document result to iterate over the matching documents
+	 * @throws IOException
+	 */
+	public DocumentResult searchDocuments(Query query, boolean includeUpdateHistory) throws IOException {
 		if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: doing document search ...");
 		
 		//	get document numbers
@@ -2293,7 +2308,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		else if (minRelevance < 0) minRelevance = 0;
 		
 		//	do duplicate and relevance based elimination
-		QueryResult relevanceResult = doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
+		QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
 		
 		//	catch empty result
 		if (relevanceResult.size() == 0) return new DocumentResult() {
@@ -2410,7 +2425,15 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		};
 	}
 	
-	private DocumentResult searchDocumentDetails(Query query, boolean includeUpdateHistory) throws IOException {
+	/**
+	 * Search documents. The elements of the returned document result contain
+	 * both the basic document meta data and the documents themselves.
+	 * @param query the query containing the search parameters
+	 * @param includeUpdateHistory include all update users and timestamps?
+	 * @return a document result to iterate over the matching documents
+	 * @throws IOException
+	 */
+	public DocumentResult searchDocumentDetails(Query query, boolean includeUpdateHistory) throws IOException {
 		
 		//	get result
 		final DocumentResult fullDr = searchDocuments(query, includeUpdateHistory);
@@ -2507,7 +2530,15 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		MASTER_PAGE_NUMBER_ATTRIBUTE,
 		MASTER_LAST_PAGE_NUMBER_ATTRIBUTE,
 	};
-	private DocumentResult searchDocumentData(Query query) throws IOException {
+	
+	/**
+	 * Search document data. The elements of the returned document result
+	 * contain the basic document meta data, but not the documents themselves.
+	 * @param query the query containing the search parameters
+	 * @return a document result to iterate over the matching documents
+	 * @throws IOException
+	 */
+	public DocumentResult searchDocumentData(Query query) throws IOException {
 		return ((DocumentResult) this.searchDocumentData(query, true));
 	}
 	
@@ -2532,7 +2563,16 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		UPDATE_TIME_ATTRIBUTE,
 		DOCUMENT_SOURCE_LINK_ATTRIBUTE,
 	};
-	private IndexResult searchDocumentIndex(Query query) throws IOException {
+	
+	/**
+	 * Search document data in an unranked index style fashion. The elements of
+	 * the returned index result contain the basic document meta data, but not
+	 * the documents themselves.
+	 * @param query the query containing the search parameters
+	 * @return an index result to iterate over the matching documents
+	 * @throws IOException
+	 */
+	public IndexResult searchDocumentIndex(Query query) throws IOException {
 		return ((IndexResult) this.searchDocumentData(query, false));
 	}
 	
@@ -2553,14 +2593,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		if (DEBUG_INDEX_SEARCH || DEBUG_DOCUMENT_SEARCH) System.out.println("  - sub index names are " + subIndexNames.concatStrings(","));
 		
 		//	get minimum sub result size
-		int srms;
+		int requestSubResultMinSize;
 		try {
-			srms = Integer.parseInt(query.getValue(SUB_RESULT_MIN_SIZE, "0"));
+			requestSubResultMinSize = Integer.parseInt(query.getValue(SUB_RESULT_MIN_SIZE, "0"));
 		}
 		catch (NumberFormatException nfe) {
-			srms = 0;
+			requestSubResultMinSize = 0;
 		}
-		final int subResultMinSize = (subIndexNames.isEmpty() ? 0 : Math.max(srms, 0));
+		final int subResultMinSize = (subIndexNames.isEmpty() ? 0 : Math.max(requestSubResultMinSize, 0));
 		
 		//	got query for ranked result
 		if (rankedResult) {
@@ -2583,7 +2623,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			 * relevant results might be eliminated, shrinking the final result
 			 * too severely)
 			 */
-			QueryResult relevanceResult = doRelevanceElimination(docNrResult, minRelevance, ((subResultMinSize == 0) ? queryResultPivotIndex : 0));
+			QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, ((subResultMinSize == 0) ? queryResultPivotIndex : 0));
 			if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrResult.size() + " result document numbers after relevance elimination");
 			
 			//	catch empty result
@@ -3025,7 +3065,15 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			DOCUMENT_ID_ATTRIBUTE,
 			RELEVANCE_ATTRIBUTE
 		};
-	private DocumentResult searchDocumentIDs(Query query) throws IOException {
+	
+	/**
+	 * Search document IDs. The elements of the returned document result only
+	 * contain document identifiers and relevance values.
+	 * @param query the query containing the search parameters
+	 * @return a document result to iterate over the matching documents
+	 * @throws IOException
+	 */
+	public DocumentResult searchDocumentIDs(Query query) throws IOException {
 		if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: doing document ID search ...");
 		
 		//	get document numbers
@@ -3045,7 +3093,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		else if (minRelevance < 0) minRelevance = 0;
 		
 		//	do duplicate and relevance based elimination
-		QueryResult relevanceResult = doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
+		QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
 		if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + relevanceResult.size() + " duplicate free, relevance sorted result document numbers");
 		
 		//	catch empty result
@@ -3186,7 +3234,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		for (int i = 0; i < this.indexers.length; i++) {
 			query.setIndexNameMask(this.indexers[i].getIndexName());
 			QueryResult qr = this.indexers[i].processQuery(query);
-			if (qr != null) query.addPartialResult(qr);
+			if (qr != null) {
+				query.addPartialResult(qr);
+				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + qr.size() + " results from " + this.indexers[i].getIndexName());
+			}
+			else if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got no results from " + this.indexers[i].getIndexName());
 			query.setIndexNameMask(null);
 		}
 		
@@ -3229,7 +3281,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	do document data filtering
 		QueryResult docDataResult = null;
-		if ((modifiedSince != 0) || (modifiedBefore != 0)) {
+		if ((modifiedSince != 0) || (modifiedBefore != 0) || (user != null)) {
 			docDataResult = new QueryResult();
 			String docDataQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + 
 					" FROM " + DOCUMENT_TABLE_NAME + 
@@ -3299,6 +3351,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			if (docDataResult != null)
 				result = QueryResult.merge(result, docDataResult, QueryResult.USE_MIN, 0);
 			
+			//	throw out relevance 0 results
+			result.pruneByRelevance(Double.MIN_VALUE);
+			
 			//	return result
 			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers in result");
 			return result;
@@ -3306,35 +3361,43 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	ranked result
 		else {
-			QueryResult docNrResult = null;
 			
-			//	merge retrieval results from individual this.indexers
-			QueryResult qr1 = null;
-			QueryResult qr2 = null;
+			//	merge retrieval results from individual indexers
+			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - merging " + partialDocNrResults.size() + " partial results, mode is " + queryResultMergeMode);
 			while (partialDocNrResults.size() > 1) {
-				qr1 = ((QueryResult) partialDocNrResults.removeFirst());
-				qr2 = ((QueryResult) partialDocNrResults.removeFirst());
-				partialDocNrResults.addLast(QueryResult.merge(qr1, qr2, queryResultMergeMode, 0));
+				QueryResult qr1 = ((QueryResult) partialDocNrResults.removeFirst());
+				QueryResult qr2 = ((QueryResult) partialDocNrResults.removeFirst());
+				QueryResult mqr = QueryResult.merge(qr1, qr2, queryResultMergeMode, 0);
+				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + mqr.size() + " document numbers in merge result");
+				partialDocNrResults.addLast(mqr);
 			}
-			docNrResult = ((QueryResult) partialDocNrResults.removeFirst());
+			QueryResult result = ((QueryResult) partialDocNrResults.removeFirst());
+			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers in final merge result");
 			
-			//	apply timestamp filter if given
-			if (docDataResult != null)
-				docNrResult = QueryResult.merge(docNrResult, docDataResult, QueryResult.USE_MIN, 0);
+			//	apply user and timestamp filter if given
+			if (docDataResult != null) {
+				result = QueryResult.merge(result, docDataResult, QueryResult.USE_MIN, 0);
+				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers after merging in document data");
+			}
 			
 			//	no results left after merge
-			if (docNrResult.size() == 0)
+			if (result.size() == 0)
 				return new QueryResult();
 			
+			//	throw out relevance 0 results
+			result.pruneByRelevance(Double.MIN_VALUE);
+			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers after relevance pruning");
+			
 			//	sort & return joint result
-			docNrResult.sortByRelevance(true);
-			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + docNrResult.size() + " document numbers in result");
-			return docNrResult;
+			result.sortByRelevance(true);
+			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers in result");
+			return result;
 		}
 	}
 	
 	private final QueryResult doRelevanceElimination(QueryResult baseResult, double minRelevance, int resultPivotIndex) {
-		if (baseResult.size() == 0) return baseResult;
+		if (baseResult.size() == 0)
+			return baseResult;
 		
 		baseResult.sortByRelevance(true);
 		if (resultPivotIndex <= 0)
@@ -3346,18 +3409,26 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		for (int r = 0; r < baseResult.size(); r++) {
 			QueryResultElement qre = baseResult.getResult(r);
 			
-			//	omit all documents less relevant than the pivot document
-			if ((reducedResult.size() < resultPivotIndex) || (qre.relevance >= lastRelevance)) {
+			//	no more QREs with sufficiently high relevance to expect, we're done here
+			if (qre.relevance < minRelevance)
+				break;
+			
+			//	we're beyond the pivot QRE, and current QRE is less relevant than latter, we're done here
+			if ((resultPivotIndex <= reducedResult.size()) && (qre.relevance < lastRelevance))
+				break;
+			
+			//	we're beyond 100 and beyond thrice the pivot index, this is enough
+			if ((100 <= reducedResult.size()) && ((resultPivotIndex * 3) <= reducedResult.size()))
+				break;
+			
+			//	avoid duplicates
+			if (resultDocNumbers.add(new Long(qre.docNr))) {
 				
-				//	omit document less relevant than the minimum relevance
-				if ((qre.relevance >= minRelevance) && resultDocNumbers.add(new Long(qre.docNr))) {
-					
-					//	store result element
-					reducedResult.addResultElement(qre);
-					
-					//	remember last relevance for delaying cutoff
-					lastRelevance = qre.relevance;
-				}
+				//	store result element
+				reducedResult.addResultElement(qre);
+				
+				//	remember last relevance for delaying cutoff
+				lastRelevance = qre.relevance;
 			}
 		}
 		

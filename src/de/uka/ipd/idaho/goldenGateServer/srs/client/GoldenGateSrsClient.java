@@ -596,7 +596,6 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		if (allowCache) {
 			Reader cacheReader = this.getCacheReader(GET_XML_DOCUMENT, docId.hashCode());
 			if (cacheReader != null)
-//				return Utils.readDocument(cacheReader);
 				return GenericGamtaXML.readDocument(cacheReader);
 		}
 		
@@ -613,23 +612,18 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		String error = br.readLine();
 		if (GET_XML_DOCUMENT.equals(error)) {
 			final Reader dataReader = this.wrapDataReader(new ConnectionGuardReader(br, con), GET_XML_DOCUMENT, docId.hashCode());
-//			return Utils.readDocument(new Reader() {
-//				public void close() throws IOException {
-//					dataReader.close();
-//				}
-//				public int read(char[] cbuf, int off, int len) throws IOException {
-//					int read = dataReader.read(cbuf, off, len);
-//					if (read == -1) this.close();
-//					return read;
-//				}
-//			});
 			return GenericGamtaXML.readDocument(new Reader() {
+				private boolean closed = false;
 				public void close() throws IOException {
 					dataReader.close();
+					this.closed = true;
 				}
 				public int read(char[] cbuf, int off, int len) throws IOException {
+					if (this.closed)
+						return -1;
 					int read = dataReader.read(cbuf, off, len);
-					if (read == -1) this.close();
+					if (read == -1)
+						this.close();
 					return read;
 				}
 			});
