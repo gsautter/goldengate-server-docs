@@ -1,2 +1,4 @@
 RESULT_MERGE_MODE = "USE_MIN";
 RESULT_PIVOT_INDEX = "1";
+
+documentFolderName = "./Documents";

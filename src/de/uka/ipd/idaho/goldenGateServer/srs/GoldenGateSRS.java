@@ -191,8 +191,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		System.out.println("  - database connection established");
 		
 		
+		//	get document storage folder
+		String docFolderName = this.configuration.getSetting("documentFolderName", "Documents");
+		while (docFolderName.startsWith("./"))
+			docFolderName = docFolderName.substring("./".length());
+		File docFolder = (((docFolderName.indexOf(":\\") == -1) && (docFolderName.indexOf(":/") == -1) && !docFolderName.startsWith("/")) ? new File(this.dataPath, docFolderName) : new File(docFolderName));
+		
 		//	initialize document store
-		this.dst = new DocumentStore(new File(this.dataPath, "Documents"), this.configuration.getSetting("DocumentEncoding"));
+		this.dst = new DocumentStore(docFolder, this.configuration.getSetting("documentEncoding"));
 		System.out.println("  - got document store");
 		
 		
