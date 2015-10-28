@@ -462,7 +462,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		}
 		
 		
-		//	get maximum document list size for non-admn users
+		//	get maximum document list size for non-admin users
 		try {
 			this.documentListSizeThreshold = Integer.parseInt(this.configuration.getSetting("documentListSizeThreshold", "0"));
 		} catch (NumberFormatException nfe) {}

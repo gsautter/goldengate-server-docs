@@ -95,13 +95,13 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 	public static final String DELETION_COMPLETE = "Document deletion complete";
 	
 	
-	/** the permission for uploading new documents to the DIO*/
+	/** the permission for uploading new documents to the DIO */
 	public static final String UPLOAD_DOCUMENT_PERMISSION = "DIO.UploadDocument";
 	
-	/** the permission for updating existing documents in the DIO*/
+	/** the permission for updating existing documents in the DIO */
 	public static final String UPDATE_DOCUMENT_PERMISSION = "DIO.UpdateDocument";
 	
-	/** the permission for deleting documents from the DIO*/
+	/** the permission for deleting documents from the DIO */
 	public static final String DELETE_DOCUMENT_PERMISSION = "DIO.DeleteDocument";
 	
 	
@@ -292,7 +292,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * registered extensions before actually getting the document. This
 		 * method may modify the document by adding or removing attributes, and
 		 * it may throw an IOException to prevent the checkout operation
-		 * alltogether. Before invoking this method, DIO sets all necessary
+		 * altogether. Before invoking this method, DIO sets all necessary
 		 * attributes with the argument document reader, but does not read from
 		 * it yet. This means that this method can still modify the reader's
 		 * attributes. Implementations returning the argument reader should not
@@ -315,7 +315,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * with all registered extensions before actually checking out the
 		 * document. This method may modify the document by adding or removing
 		 * attributes, and it may throw an IOException to prevent the checkout
-		 * operation alltogether. Before invoking this method, DIO sets all
+		 * operation altogether. Before invoking this method, DIO sets all
 		 * necessary attributes with the argument document reader, but does not
 		 * read from it yet. This means that this method can still modify the
 		 * reader's attributes. Implementations returning the argument reader
@@ -340,7 +340,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * all registered extensions before actually storing the argument
 		 * document. This method may modify the document by adding or removing
 		 * attributes, and it may throw an IOException to prevent the update
-		 * operation alltogether. This default implementation does nothing, sub
+		 * operation altogether. This default implementation does nothing, sub
 		 * classes are welcome to overwrite it as needed.<br>
 		 * Note: an update differs from an upload in that it can modify an
 		 * existing document. A new document is created only if no document with
@@ -612,7 +612,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		
 		/**
 		 * Specialized storage listener for GoldenGATE DIO, receiving notifications of
-		 * document checkout and release opreations, besides update and delete
+		 * document checkout and release operations, besides update and delete
 		 * operations.
 		 * 
 		 * @author sautter

@@ -315,7 +315,7 @@ public abstract class GoldenGateDcsExplorerServlet extends GoldenGateDcsClientSe
 			//	get stats from backend
 			DcStatistics stats = dcsc.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), new String[0], fieldPredicates, fieldAggregates, new Properties());
 			
-			//	send Javascript
+			//	send JavaScript
 			response.setContentType("application/json");
 			response.setCharacterEncoding("UTF-8");
 			BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), "UTF-8"));
