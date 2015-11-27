@@ -154,35 +154,26 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 			return;
 		}
 		
+		//	this involves getting the actual data
+		if ("/chartData.js".equalsIgnoreCase(pathInfo)) {
+			response.setCharacterEncoding("UTF-8");
+			response.setContentType("text/html");
+			response.setHeader("Cache-Control", "no-cache");
+			this.sendChartData(request, response);
+			return;
+		}
+		
 		//	request for chart configuration page
 		response.setCharacterEncoding("UTF-8");
 		response.setContentType("text/html");
 		this.sendHtmlPage(new ChartBuilderPageBuilder(this, request, response));
 	}
 	
-	private void sendChartBuilderJavaScript(HttpServletRequest request, HttpServletResponse response) throws IOException {
-		
-		//	use request query string (less cache control parameter) as cache key for JavaScript (readily does the trick in generated pages with static query string templates, which are likely the lion's share of requests) 
-		final String jsCacheKey = request.getQueryString().replaceAll("\\&cacheControl=[^\\&]+", "");
-		boolean allowCache = !"force".equals(request.getParameter("cacheControl"));
-		
-		//	use cache if allowed to
-		if (allowCache) {
-			JsCacheEntry jsCacheEntry = ((JsCacheEntry) this.jsCache.get(jsCacheKey));
-			if (jsCacheEntry != null) {
-				BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), "UTF-8"));
-				bw.write(jsCacheEntry.js);
-				bw.flush();
-				return;
-			}
-		}
+	private DcStatChartData getChartData(HttpServletRequest request) throws IOException {
 		
 		//	read chart parameters
-		String chartId = request.getParameter("chartId");
 		String chartType = request.getParameter("type");
-		Settings chartProperties = chartTypeProperties.getSubset(chartType);
-		String[] chartOptions = chartProperties.getSetting("chartOptionNames", "").trim().split("\\s+");
-		Settings chartOptionDefaults = chartProperties.getSubset("chartOptionDefaults");
+		Settings chartProperties = this.chartTypeProperties.getSubset(chartType);
 		
 		//	collect query parameters
 		StringVector outputFields = new StringVector();
@@ -207,9 +198,6 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 			valueField = null;
 		String valueSumField = null;
 		boolean gotMultiFieldInput = false;
-		
-		//	collect debug output
-		StringWriter debugData = new StringWriter();
 		
 		//	get values for multi-field series
 		if ((valueField == null) || (valueField.length() == 0)) {
@@ -263,10 +251,8 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		}
 		
 		//	if we don't have any fields by now, we'll never have any ...
-		if (outputFields.isEmpty()) {
-			response.sendError(HttpServletResponse.SC_BAD_REQUEST, "No data fields selected.");
-			return;
-		}
+		if (outputFields.isEmpty())
+			return null;
 		
 		//	read series data
 		String seriesField = request.getParameter("series");
@@ -343,15 +329,11 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		}
 		
 		//	fetch data from backing TCS
+		boolean allowCache = !"force".equals(request.getParameter("cacheControl"));
 		DcStatistics stats = this.getDcsStats(outputFields.toStringArray(), groupingFields.toStringArray(), orderingFields.toStringArray(), fieldPredicates, fieldAggregates, aggregatePredicates, valueSumField, groupField, allowCache);
-//	
-//		//	write raw stats data as comment (for debug purposes)
-//		debugData.write("/*\r\n");
-//		stats.writeData(debugData);
-//		debugData.write("*/\r\n");
 		
 		//	organize statistics data
-		DcStatChartData chartData = new DcStatChartData(valueField);
+		DcStatChartData chartData = new DcStatChartData(stats, seriesField, groupField, valueField);
 		if (artificialGroups != null) {
 			String[] artificialGroupLabels = artificialGroups.split("\\s*\\;\\s*");
 			for (int g = 0; g < artificialGroupLabels.length; g++) {
@@ -429,28 +411,129 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 				}
 		}
 		
+		//	finally ...
+		return chartData;
+	}
+	
+	private void sendChartData(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		
+		//	use request query string (less cache control parameter) as cache key for JavaScript (readily does the trick in generated pages with static query string templates, which are likely the lion's share of requests) 
+		String jsCacheKey = ("DATA " + request.getQueryString().replaceAll("\\&cacheControl=[^\\&]+", ""));
+		boolean allowCache = !"force".equals(request.getParameter("cacheControl"));
+		
+		//	use cache if allowed to
+		if (allowCache) {
+			JsCacheEntry jsCacheEntry = ((JsCacheEntry) this.jsCache.get(jsCacheKey));
+			if (jsCacheEntry != null) {
+				BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), "UTF-8"));
+				bw.write(jsCacheEntry.js);
+				bw.flush();
+				return;
+			}
+		}
+		
+		//	get raw chart data
+		DcStatChartData chartData = this.getChartData(request);
+		if (chartData == null) {
+			response.sendError(HttpServletResponse.SC_BAD_REQUEST, "No data fields selected.");
+			return;
+		}
+		
+		//	read chart parameters
+		String chartType = request.getParameter("type");
+		Settings chartProperties = this.chartTypeProperties.getSubset(chartType);
+		
+		//	(re-)get parameters
+		boolean translateMonthNumbers = "yes".equals(request.getParameter("translateMonthNumbers"));
+		boolean isChartGroupable = "true".equals(chartProperties.getSetting("valuesGroupable", "true"));
+		
+		//	generate rendering JavaScript
+		final StringWriter jsCacheWriter = new StringWriter();
+		BufferedWriter bw = new BufferedWriter(new FilterWriter(new OutputStreamWriter(response.getOutputStream(), "UTF-8")) {
+			public void write(int c) throws IOException {
+				super.write(c);
+				jsCacheWriter.write(c);
+			}
+			public void write(char[] cbuf, int off, int len) throws IOException {
+				super.write(cbuf, off, len);
+				jsCacheWriter.write(cbuf, off, len);
+			}
+			public void write(String str, int off, int len) throws IOException {
+				super.write(str, off, len);
+				jsCacheWriter.write(str, off, len);
+			}
+		});
+		
+		//	write chart data array
+		bw.write("["); bw.newLine();
+		chartData.writeJsonArrayContent(bw, ("number".equals(chartProperties.getSetting("groupFieldType", "string")) && this.numericFields.contains(chartData.groupField) && !"B".equals(request.getParameter("groupCutoff")) && (!chartData.groupField.toLowerCase().endsWith("month") || !translateMonthNumbers)), isChartGroupable, this);
+		bw.write("]"); bw.newLine();
+		
+		//	send & cache data
+		bw.flush();
+		this.jsCache.put(jsCacheKey, new JsCacheEntry(jsCacheWriter.toString(), this.statsLastUpdated));
+	}
+	
+	private void sendChartBuilderJavaScript(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		
+		//	use request query string (less cache control parameter) as cache key for JavaScript (readily does the trick in generated pages with static query string templates, which are likely the lion's share of requests) 
+		String jsCacheKey = ("SCRIPT " + request.getQueryString().replaceAll("\\&cacheControl=[^\\&]+", ""));
+		boolean allowCache = !"force".equals(request.getParameter("cacheControl"));
+		
+		//	use cache if allowed to
+		if (allowCache) {
+			JsCacheEntry jsCacheEntry = ((JsCacheEntry) this.jsCache.get(jsCacheKey));
+			if (jsCacheEntry != null) {
+				BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), "UTF-8"));
+				bw.write(jsCacheEntry.js);
+				bw.flush();
+				return;
+			}
+		}
+		
+		//	get raw chart data
+		DcStatChartData chartData = this.getChartData(request);
+		if (chartData == null) {
+			response.sendError(HttpServletResponse.SC_BAD_REQUEST, "No data fields selected.");
+			return;
+		}
+		
+		//	collect debug output
+		StringWriter debugData = new StringWriter();
+		
+		//	read chart parameters
+		String chartId = request.getParameter("chartId");
+		String chartType = request.getParameter("type");
+		Settings chartProperties = this.chartTypeProperties.getSubset(chartType);
+		String[] chartOptions = chartProperties.getSetting("chartOptionNames", "").trim().split("\\s+");
+		Settings chartOptionDefaults = chartProperties.getSubset("chartOptionDefaults");
+		
+		//	(re-)get parameters
+		boolean translateMonthNumbers = "yes".equals(request.getParameter("translateMonthNumbers"));
+		boolean isChartGroupable = "true".equals(chartProperties.getSetting("valuesGroupable", "true"));
+		
 		//	enforce cutoffs, or bucketize
-		if ((seriesField != null) && !"multiField".equals(seriesField)) {
+		if ((chartData.seriesField != null) && !"multiField".equals(chartData.seriesField)) {
 			String seriesCutoff = request.getParameter("seriesCutoff");
 			if ((seriesCutoff == null) || (seriesCutoff.length() == 0) || "0".equals(seriesCutoff)) {}
 			else if ("B".equals(seriesCutoff)) {
 				String buckets = request.getParameter("seriesBuckets");
 				boolean truncate = "true".equals(request.getParameter("truncateSeriesBuckets"));
 				if ((buckets != null) && (buckets.length() != 0))
-					chartData.bucketizeSeries(buckets, truncate, this.numericFields.contains(seriesField), (translateMonthNumbers && seriesField.toLowerCase().endsWith("month")));
+					chartData.bucketizeSeries(buckets, truncate, this.numericFields.contains(chartData.seriesField), (translateMonthNumbers && chartData.seriesField.toLowerCase().endsWith("month")));
 			}
 			else try {
 				chartData.pruneSeries(Integer.parseInt(seriesCutoff));
 			} catch (NumberFormatException nfe) {}
 		}
-		if ((groupField != null) && !"multiField".equals(groupField)) {
+		if ((chartData.groupField != null) && !"multiField".equals(chartData.groupField)) {
 			String groupCutoff = request.getParameter("groupCutoff");
 			if ((groupCutoff == null) || (groupCutoff.length() == 0) || "0".equals(groupCutoff)) {}
 			else if ("B".equals(groupCutoff)) {
 				String buckets = request.getParameter("groupBuckets");
 				boolean truncate = "true".equals(request.getParameter("truncateGroupBuckets"));
 				if ((buckets != null) && (buckets.length() != 0))
-					chartData.bucketizeGroups(buckets, truncate, this.numericFields.contains(groupField), (translateMonthNumbers && groupField.toLowerCase().endsWith("month")));
+					chartData.bucketizeGroups(buckets, truncate, this.numericFields.contains(chartData.groupField), (translateMonthNumbers && chartData.groupField.toLowerCase().endsWith("month")));
 			}
 			else try {
 				chartData.pruneGroups(Integer.parseInt(groupCutoff));
@@ -459,11 +542,11 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		
 		//	get customization parameters
 		boolean addDataSumToTitle = "true".equals(request.getParameter("addDataSumToTitle"));
-		
-		//	write raw stats data as comment (for debug purposes)
-		debugData.write("/*\r\n");
-		stats.writeData(debugData);
-		debugData.write("*/\r\n");
+//		
+//		//	write raw stats data as comment (for debug purposes)
+//		debugData.write("/*\r\n");
+//		chartData.sourceData.writeData(debugData);
+//		debugData.write("*/\r\n");
 		
 		//	generate rendering JavaScript
 		final StringWriter jsCacheWriter = new StringWriter();
@@ -486,12 +569,12 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		//	write chart data array
 		bw.write("function drawChart" + chartId + "() {"); bw.newLine();
 		bw.write("  var chartData = google.visualization.arrayToDataTable(["); bw.newLine();
-		chartData.writeJsonArrayContent(bw, ("number".equals(chartProperties.getSetting("groupFieldType", "string")) && this.numericFields.contains(groupField) && !"B".equals(request.getParameter("groupCutoff")) && (!groupField.toLowerCase().endsWith("month") || !translateMonthNumbers)), isChartGroupable, this);
+		chartData.writeJsonArrayContent(bw, ("number".equals(chartProperties.getSetting("groupFieldType", "string")) && this.numericFields.contains(chartData.groupField) && !"B".equals(request.getParameter("groupCutoff")) && (!chartData.groupField.toLowerCase().endsWith("month") || !translateMonthNumbers)), isChartGroupable, this);
 		bw.write("  ]);"); bw.newLine();
 		
 		//	write chart options
 		bw.write("  var chartOptions = {"); bw.newLine();
-		this.writeChartOptions(bw, chartOptions, request, chartOptionDefaults, chartData.value, addDataSumToTitle, (chartData.seriesByName.isEmpty() && (chartData.groupsByName.isEmpty() || "multiField".equals(groupField))));
+		this.writeChartOptions(bw, chartOptions, request, chartOptionDefaults, chartData.value, addDataSumToTitle, (chartData.seriesByName.isEmpty() && (chartData.groupsByName.isEmpty() || "multiField".equals(chartData.groupField))));
 		bw.write("  };"); bw.newLine();
 		bw.write("  var chart = new google.visualization." + chartProperties.getSetting("chartClassName") + "(document.getElementById('chartDiv" + chartId + "'));"); bw.newLine();
 		bw.write("  chart.draw(chartData, chartOptions);"); bw.newLine();
@@ -1015,7 +1098,7 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		stats.writeData(System.out);
 		
 		//	organize statistics data
-		DcStatChartData chartData = new DcStatChartData(valueField);
+		DcStatChartData chartData = new DcStatChartData(stats, seriesField, groupField, valueField);
 		if (artificialGroups != null) {
 			String[] artificialGroupLabels = artificialGroups.split("\\s*\\;\\s*");
 			for (int g = 0; g < artificialGroupLabels.length; g++) {
@@ -1280,11 +1363,22 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 	}
 	
 	private static class DcStatChartData {
+		final DcStatistics sourceData;
+		
+		String seriesField;
+		String groupField;
+		
+		boolean translateMonthNumbers;
+		
 		LinkedHashMap seriesByName = new LinkedHashMap();
 		LinkedHashMap groupsByName = new LinkedHashMap();
 		String valueField;
 		int value = 0;
-		DcStatChartData(String valueField) {
+		
+		DcStatChartData(DcStatistics stats, String seriesField, String groupField, String valueField) {
+			this.sourceData = stats;
+			this.seriesField = seriesField;
+			this.groupField = groupField;
 			this.valueField = valueField;
 		}
 		void addSeries(String name, String label) {

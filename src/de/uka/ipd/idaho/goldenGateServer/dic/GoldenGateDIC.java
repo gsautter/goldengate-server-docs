@@ -411,11 +411,11 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				System.out.println("   - document stored");
 			}
 			catch (DuplicateExternalIdentifierException deie) {
-				System.out.println("   - document stored before");
+				System.out.println("   - document stored before (1): " + deie.getMessage());
 			}
 			catch (IOException ioe) {
 				if (ioe.getMessage().startsWith("Document already exists,"))
-					System.out.println("   - document stored before");
+					System.out.println("   - document stored before (2): " + ioe.getMessage());
 				else throw ioe;
 			}
 			
