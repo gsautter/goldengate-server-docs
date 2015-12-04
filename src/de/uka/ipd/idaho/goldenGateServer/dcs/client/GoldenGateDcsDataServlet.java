@@ -163,11 +163,11 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 		
 		//	JSON output
 		if ("JSON".equals(format)) {
-			bw.write("{\"fields\": ["); bw.newLine();
+			bw.write("{\"fields\": [");
 			for (int f = 0; f < statFields.length; f++)
 				bw.write(((f == 0) ? "" : ", ") + "\"" + statFields[f] + "\"");
 			bw.write("],"); bw.newLine();
-			bw.write("{\"labels\": {"); bw.newLine();
+			bw.write("\"labels\": {"); bw.newLine();
 			for (int f = 0; f < statFields.length; f++) {
 				bw.write("\"" + statFields[f] + "\": \"" + this.getFieldLabel(statFields[f]) + "\"" + (((f+1) < statFields.length) ? "," : "")); bw.newLine();
 			}
