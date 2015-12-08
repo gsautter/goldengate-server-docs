@@ -112,7 +112,7 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @throws IOException
 	 */
 	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) throws IOException {
-		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, true);
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, -1, true);
 	}
 	
 	/**
@@ -131,9 +131,53 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @throws IOException
 	 */
 	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, boolean allowCache) throws IOException {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, -1, allowCache);
+	}
+	
+	/**
+	 * Compile and retrieve a statistics from the data stored in the backing
+	 * DCS instance. Ordering is ascending for strings, but descending for
+	 * numbers. The <code>DocCount</code> aggregate field is contained in every
+	 * statistics.
+	 * @param outputFields the fields to include in the statistics
+	 * @param groupingFields the fields to use for grouping
+	 * @param orderingFields the fields to use for ordering
+	 * @param fieldPredicates filter predicates against individual fields
+	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
+	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param limit the maximum number of output rows (-1 returns all rows)
+	 * @return the requested statistics, packed in a string relation
+	 * @throws IOException
+	 */
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, int limit) throws IOException {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, limit, true);
+	}
+	
+	/**
+	 * Compile and retrieve a statistics from the data stored in the backing
+	 * DCS instance. Ordering is ascending for strings, but descending for
+	 * numbers. The <code>DocCount</code> aggregate field is contained in every
+	 * statistics.
+	 * @param outputFields the fields to include in the statistics
+	 * @param groupingFields the fields to use for grouping
+	 * @param orderingFields the fields to use for ordering
+	 * @param fieldPredicates filter predicates against individual fields
+	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
+	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param limit the maximum number of output rows (-1 returns all rows)
+	 * @param allowCache allow returning cached results?
+	 * @return the requested statistics, packed in a string relation
+	 * @throws IOException
+	 */
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, int limit, boolean allowCache) throws IOException {
+		
+		//	normalize limit
+		if (limit < 1)
+			limit = -1;
 		
 		//	generate cache key
-		String cacheKey = "" + Integer.toString(Arrays.hashCode(outputFields), 16) +
+		String cacheKey = "" + limit +
+				"-" + Integer.toString(Arrays.hashCode(outputFields), 16) +
 				"-" + Integer.toString(Arrays.hashCode(groupingFields), 16) +
 				"-" + Integer.toString(Arrays.hashCode(orderingFields), 16) +
 				"-" + ((fieldPredicates == null) ? "0" : Integer.toString(fieldPredicates.hashCode(), 16)) +
@@ -155,6 +199,8 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 			BufferedWriter bw = con.getWriter();
 			
 			bw.write(this.dcsLetterCode + GET_STATISTICS_COMMAND_SUFFIX);
+			bw.newLine();
+			bw.write("" + limit);
 			bw.newLine();
 			for (int f = 0; f < outputFields.length; f++) {
 				if (f != 0) bw.write(" ");

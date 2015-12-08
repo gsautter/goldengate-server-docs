@@ -225,6 +225,19 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				return (letterCode + GET_STATISTICS_COMMAND_SUFFIX);
 			}
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
+//				int limit;
+//				String[] outputFields;
+//				String inputLine = input.readLine();
+//				try { // TODO_ne switch to code below, and remove this after some grace period
+//					limit = Integer.parseInt(inputLine);
+//					outputFields = input.readLine().split("\\s+");
+//				}
+//				catch (NumberFormatException nfe) {
+//					System.out.println("DocumentCollectionStatistics: invalid row limit '" + inputLine + "'");
+//					limit = -1;
+//					outputFields = inputLine.split("\\s+");
+//				}
+				int limit = Integer.parseInt(input.readLine());
 				String[] outputFields = input.readLine().split("\\s+");
 				String[] groupingFields = input.readLine().split("\\s+");
 				String[] orderingFields = input.readLine().split("\\s");
@@ -264,7 +277,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					}
 				}
 				
-				DcStatistics stat = getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates);
+				DcStatistics stat = getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, limit);
 				
 				output.write(letterCode + GET_STATISTICS_COMMAND_SUFFIX);
 				output.newLine();
@@ -307,7 +320,40 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		this.io.close();
 	}
 	
-	private DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) {
+	/**
+	 * Compile and retrieve a statistics from the data stored in the backing
+	 * DCS instance. Ordering is ascending for strings, but descending for
+	 * numbers. The <code>DocCount</code> aggregate field is contained in every
+	 * statistics.
+	 * @param outputFields the fields to include in the statistics
+	 * @param groupingFields the fields to use for grouping
+	 * @param orderingFields the fields to use for ordering
+	 * @param fieldPredicates filter predicates against individual fields
+	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
+	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @return the requested statistics, packed in a string relation
+	 * @throws IOException
+	 */
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, -1);
+	}
+	
+	/**
+	 * Compile and retrieve a statistics from the data stored in the backing
+	 * DCS instance. Ordering is ascending for strings, but descending for
+	 * numbers. The <code>DocCount</code> aggregate field is contained in every
+	 * statistics.
+	 * @param outputFields the fields to include in the statistics
+	 * @param groupingFields the fields to use for grouping
+	 * @param orderingFields the fields to use for ordering
+	 * @param fieldPredicates filter predicates against individual fields
+	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
+	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param limit the maximum number of output rows (-1 returns all rows)
+	 * @return the requested statistics, packed in a string relation
+	 * @throws IOException
+	 */
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, int limit) {
 		System.out.println(this.getExporterName() + ": processing query:");
 		System.out.println(" - output fields: " + Arrays.toString(outputFields));
 		System.out.println(" - grouping fields: " + Arrays.toString(groupingFields));
@@ -378,6 +424,11 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		
 		//	assemble ordering fields
 		for (int f = 0; f < orderingFields.length; f++) {
+			boolean defaultOrder = true;
+			if (orderingFields[f].startsWith("-")) {
+				defaultOrder = false;
+				orderingFields[f] = orderingFields[f].substring("-".length());
+			}
 			StatField field = ((StatField) this.fieldsByFullName.get(orderingFields[f]));
 			if (field == null)
 				continue;
@@ -388,7 +439,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					dataType = StatField.INTEGER_TYPE;
 			}
 			if (orderFieldSet.add(field.fullName) && outputFieldSet.contains(field.fullName))
-				orderFieldString.append(", " + field.statColName + (StatField.STRING_TYPE.equals(dataType) ? " ASC" : " DESC"));
+				orderFieldString.append(", " + field.statColName + ((StatField.STRING_TYPE.equals(dataType) == defaultOrder) ? " ASC" : " DESC"));
 		}
 		
 		//	assemble filter predicates
@@ -506,7 +557,8 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		 * - HEX hash of sorted GROUP field string (grouping is commutative TODO use it)
 		 * - HEX hash of sorted HAVING string (predicates are commutative TODO use it)
 		 */
-		String statsCacheKey = "" + Integer.toString(outputFieldString.toString().hashCode(), 16) +
+		String statsCacheKey = "" + limit +
+				"-" + Integer.toString(outputFieldString.toString().hashCode(), 16) +
 				"-" + Integer.toString(orderFieldString.toString().hashCode(), 16) +
 				"-" + Integer.toString(whereString.toString().hashCode(), 16) +
 				"-" + Integer.toString(groupFieldString.toString().hashCode(), 16) +
@@ -518,14 +570,37 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		if (stats != null)
 			return stats;
 		
+		//	create row limit clause
+		/* TODO implement limitation clause distinction for MS SQL Server, Oracle, etc.
+		 * see: http://en.wikipedia.org/wiki/Select_%28SQL%29#FETCH_FIRST_clause */
+		String topClause;
+		String limitClause;
+		if (limit < 1) {
+			topClause = "";
+			limitClause = "";
+		}
+//		else if (this.io.limitIsTop()) {
+//			topClause = ("TOP " + limit + " ");
+//			limitClause = "";
+//		}
+//		else if (this.io.limitIsSupported()) {
+//			topClause = "";
+//			limitClause = (" LIMIT " + limit);
+//		}
+		else {
+			topClause = "";
+			limitClause = "";
+		}
+		
 		//	assemble query
-		String query = "SELECT " + outputFieldString.toString() +
+		String query = "SELECT " + topClause + outputFieldString.toString() +
 				" FROM " + tableString.toString() +
 				" WHERE " + whereString.toString() +
 				" AND " + joinWhereString.toString() +
 				" GROUP BY " + groupFieldString.toString() +
 				" HAVING " + havingString.toString() +
 				" ORDER BY " + orderFieldString.toString() +
+				limitClause +
 				";";
 		System.out.println(this.getExporterName() + ": stats query is " + query);
 		
@@ -549,6 +624,9 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				for (int f = 1 /* skip the dummy */; (f < sqr.getColumnCount()) && ((f-1) < statFields.size()); f++)
 					st.setValue(statFields.get(f-1), sqr.getString(f));
 				stats.addElement(st);
+				//	catch databases that don't support the limit clause
+				if ((limit > 0) && (stats.size() >= limit))
+					break;
 			}
 			
 			//	cache statistics

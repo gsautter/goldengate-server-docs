@@ -222,6 +222,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 	}
 	
 	private DcStatistics getStats(HttpServletRequest request) throws IOException {
+		int limit = -1;
 		StringVector outputFields = new StringVector();
 		StringVector groupingFields = new StringVector();
 		StringVector orderingFields = new StringVector();
@@ -259,6 +260,9 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				for (int v = 0; v < paramValues.length; v++)
 					aggregatePredicates.setProperty(fieldName, paramValues[v]);
 			}
+			if ("limit".equals(paramName)) try {
+				limit = Integer.parseInt(paramValues[0]);
+			} catch (NumberFormatException nfe) {}
 		}
 		outputFields.removeDuplicateElements();
 		groupingFields.removeDuplicateElements();
@@ -269,7 +273,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 			return null;
 		
 		//	get data
-		return this.dcsClient.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), orderingFields.toStringArray(), fieldPredicates, fieldAggregates, aggregatePredicates, !"force".equals(request.getParameter("cacheControl")));
+		return this.dcsClient.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), orderingFields.toStringArray(), fieldPredicates, fieldAggregates, aggregatePredicates, limit, !"force".equals(request.getParameter("cacheControl")));
 	}
 	
 	/* (non-Javadoc)
@@ -410,7 +414,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("</tr>");
 				this.writeLine("<tr>");
 				this.writeLine("<td class=\"statFieldTableHeader\">Output?</td>");
-				this.writeLine("<td class=\"statFieldTableHeader\">Order?</td>");
+				this.writeLine("<td class=\"statFieldTableHeader\">Order? (Desc?)</td>");
 				this.writeLine("<td class=\"statFieldTableHeader\">Field Name</td>");
 				this.writeLine("<td class=\"statFieldTableHeader\">Filter on Values</td>");
 				this.writeLine("<td class=\"statFieldTableHeader\">Operation</td>");
@@ -428,6 +432,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 						
 						this.write("<td class=\"statFieldOptionTableCell\">");
 						this.write("<input type=\"checkbox\" class=\"selectedFieldOption\" id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_order\" name=\"" + fieldGroups[g].name + "_" + fields[f].name + "_order\" value=\"order\" />");
+						this.write("(<input type=\"checkbox\" class=\"selectedFieldOption\" id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_orderDesc\" name=\"" + fieldGroups[g].name + "_" + fields[f].name + "_orderDesc\" value=\"true\" />)");
 						this.writeLine("</td>");
 						
 						this.writeLine("<td class=\"statFieldOptionTableCell\">" + IoTools.prepareForHtml(fields[f].label) + "</td>");
@@ -461,6 +466,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("<tr id=\"statButtonRow\">");
 				this.write("<td class=\"statFieldTableCell\" colspan=\"6\">");
 				this.write("<button value=\"Get Statistics\" class=\"statButton\" id=\"getStatButton\" onclick=\"return updateStats();\">Get Statistics</button>");
+				this.write("Maximum Rows: <input type=\"text\" class=\"selectedFieldOption\" id=\"limit\" name=\"limit\" />");
 				this.writeLine("</td>");
 				this.writeLine("</tr>");
 				
@@ -487,6 +493,15 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 			}
 			protected void writePageHeadExtensions() throws IOException {
 				this.writeLine("<script type=\"text/javascript\">");
+				
+				/* TODO improve this JavaScript stuff:
+				 * - send fields as JSON objects ...
+				 * - ... with all the required properties as attributes
+				 * - generate field table rows on demand (we know how to do that now) ...
+				 * - ... and point from objects to DOM nodes
+				 * - rewrite functions to modify objects directly ...
+				 * - ... and use their pointers to DOM nodes
+				 */
 				
 				//	list field names
 				this.write("var fieldNames = new Array(");
@@ -588,6 +603,8 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				
 				//	build statistics URL
 				this.writeLine("function buildStatUrl() {");
+				this.writeLine("  var limitStr = getById('limit').value;");
+				this.writeLine("  var limit = ((parseInt(limitStr) > 0) ? parseInt(limitStr) : -1);");
 				this.writeLine("  var outputFields = '';");
 				this.writeLine("  var groupingFields = '';");
 				this.writeLine("  var orderingFields = '';");
@@ -600,7 +617,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("    if (getById(fieldNames[f] + '_output').checked)");
 				this.writeLine("      outputFields = (outputFields + ((outputFields.length == 0) ? '' : '+') + dataFieldNames[fieldNames[f]]);");
 				this.writeLine("    if (getById(fieldNames[f] + '_order').checked)");
-				this.writeLine("      orderingFields = (orderingFields + ((orderingFields.length == 0) ? '' : '+') + dataFieldNames[fieldNames[f]]);");
+				this.writeLine("      orderingFields = (orderingFields + ((orderingFields.length == 0) ? '' : '+') + (getById(fieldNames[f] + '_orderDesc').checked ? '-' : '') + dataFieldNames[fieldNames[f]]);");
 				this.writeLine("    var aggregate = getById(fieldNames[f] + '_fa').value;");
 				this.writeLine("    if (aggregate == 'group')");
 				this.writeLine("      groupingFields = (groupingFields + ((groupingFields.length == 0) ? '' : '+') + dataFieldNames[fieldNames[f]]);");
@@ -620,6 +637,8 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("    statUrl = (statUrl + '&groupingFields=' + groupingFields);");
 				this.writeLine("  if (orderingFields.length != 0)");
 				this.writeLine("    statUrl = (statUrl + '&orderingFields=' + orderingFields);");
+				this.writeLine("  if (limit != -1)");
+				this.writeLine("    statUrl = (statUrl + '&limit=' + limit);");
 				this.writeLine("  return (statUrl + fieldPredicateString + fieldAggregateString + aggregatePredicateString);");
 				this.writeLine("}");
 				
