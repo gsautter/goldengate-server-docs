@@ -31,8 +31,10 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.net.URLDecoder;
 import java.sql.SQLException;
 import java.text.DateFormat;
@@ -55,6 +57,11 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.transform.stream.StreamSource;
+
 import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
 import de.uka.ipd.idaho.easyIO.SqlQueryResult;
@@ -66,6 +73,9 @@ import de.uka.ipd.idaho.gamta.util.gPath.GPathVariableResolver;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
 import de.uka.ipd.idaho.goldenGateServer.dst.GoldenGateServerDocConstants;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
+import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
+import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
+import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
@@ -95,7 +105,13 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	private TreeMap fieldGroupsByName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 	private TreeMap fieldsByFullName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 	
+	private Properties fieldLabels = new Properties();
+	
 	private long lastUpdate = System.currentTimeMillis();
+	
+	private FormattedStaticStatExport[] staticStatExports = null;
+	private long staticStatExportsDue = -1;
+	private StaticStatExportThread staticStatExportThread = null;
 	
 	/**
 	 * @param letterCode the letter code to use
@@ -121,14 +137,18 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		//	load field set
 		try {
 			this.fieldSet = StatFieldSet.readFieldSet(new BufferedReader(new InputStreamReader(new FileInputStream(new File(this.dataPath, "fields.xml")))));
+			this.fieldLabels.setProperty("DocCount", this.fieldSet.docCountLabel);
 			this.fieldGroups = this.fieldSet.getFieldGroups();
 			for (int g = 0; g < this.fieldGroups.length; g++) {
 				this.fieldGroupsByName.put(this.fieldGroups[g].name, this.fieldGroups[g]);
 				if ("doc".equals(this.fieldGroups[g].name))
 					this.docFieldGroup = this.fieldGroups[g];
 				StatField[] fgFields = this.fieldGroups[g].getFields();
-				for (int f = 0; f < fgFields.length; f++)
+				for (int f = 0; f < fgFields.length; f++) {
 					this.fieldsByFullName.put(fgFields[f].fullName, fgFields[f]);
+					this.fieldLabels.setProperty(fgFields[f].fullName, fgFields[f].label);
+					this.fieldLabels.setProperty(fgFields[f].statColName, fgFields[f].label);
+				}
 			}
 		}
 		catch (IOException ioe) {
@@ -196,7 +216,20 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			this.io.setForeignKey(stds[t].getTableName(), DOCUMENT_ID_ATTRIBUTE, dtd.getTableName(), DOCUMENT_ID_ATTRIBUTE);
 			this.io.setForeignKey(stds[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE, dtd.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
 		}
+		
+		//	load static exports
+		try {
+			this.staticStatExports = this.loadStaticStatExports();
+		}
+		catch (IOException ioe) {
+			System.out.println("Exception loading static exports: " + ioe.getMessage());
+			ioe.printStackTrace(System.out);
+		}
 	}
+	
+	private static final String RELOAD_STATIC_EXPORTS_COMMAND = "reloadStatic";
+	
+	private static final String UPDATE_STATIC_EXPORTS_COMMAND = "updateStatic";
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.wcs.GoldenGateWCS#getActions()
@@ -283,6 +316,46 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				output.newLine();
 				stat.writeData(output);
 				output.flush();
+			}
+		};
+		cal.add(ca);
+		
+		//	reload static export definitions
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return RELOAD_STATIC_EXPORTS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = { RELOAD_STATIC_EXPORTS_COMMAND, "Reload the static statistics export definitions." };
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0)
+					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else try {
+					staticStatExports = loadStaticStatExports();
+				}
+				catch (IOException ioe) {
+					System.out.println("Exception reloading static exports: " + ioe.getMessage());
+					ioe.printStackTrace(System.out);
+				}
+			}
+		};
+		cal.add(ca);
+		
+		//	execute static exports
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return UPDATE_STATIC_EXPORTS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = { UPDATE_STATIC_EXPORTS_COMMAND, "Trigger an update for static statistics exports" };
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length == 0)
+					updateStaticStatExports(true);
+				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -711,6 +784,9 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		//	clear cache & update timestamp
 		this.cache.clear();
 		this.lastUpdate = System.currentTimeMillis();
+		
+		//	trigger update for static exports
+		this.updateStaticStatExports(false);
 	}
 	
 	private static class UtcDateFormat extends SimpleDateFormat {
@@ -849,6 +925,9 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			System.out.println("DocumentCollectionStatistics: exception cleaning statistics table: " + sqle.getMessage());
 			System.out.println("  Query was: " + query);
 		}
+		
+		//	trigger update for static exports
+		this.updateStaticStatExports(false);
 	}
 	
 	private static class Predicate {
@@ -1285,6 +1364,281 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			return parseBracketInterval(intString, isNumeric);
 		}
 	}
+	
+	private abstract class StaticStatExport {
+		final String destination;
+		StaticStatExport(String destination) {
+			this.destination = destination;
+		}
+		abstract void exportStaticStat() throws IOException;
+	}
+	
+	private class FormattedStaticStatExport extends StaticStatExport {
+		private final String format;
+		
+		private String csvSeparator = null;
+		private String xmlRootTag = null;
+		private String xmlRowTag = null;
+		private String xmlFieldTag = null;
+		private ArrayList xmlDerivatives;
+		private String jsonVariableName = null;
+		private boolean jsonIncludeFields = false;
+		private boolean jsonIncludeLabels = false;
+		
+		private final int limit;
+		private String[] outputFields;
+		private String[] groupingFields;
+		private String[] orderingFields;
+		private Properties fieldPredicates;
+		private Properties fieldAggregates;
+		private Properties aggregatePredicates;
+		
+		FormattedStaticStatExport(String destination, String format, int limit) {
+			super(destination);
+			this.format = format;
+			this.limit = limit;
+		}
+		
+		void exportStaticStat() throws IOException {
+			
+			//	get statistics & fields
+			DcStatistics stats = getStatistics(this.outputFields, this.groupingFields, this.orderingFields, this.fieldPredicates, this.fieldAggregates, this.aggregatePredicates, this.limit);
+			
+			//	create export file & writer
+			File destCreateFile = new File(this.destination + ".exporting");
+			BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(destCreateFile), "UTF-8"));
+			
+			//	write statistics, dependent on format
+			if ("CSV".equals(this.format))
+				stats.writeAsCSV(bw, true, this.csvSeparator);
+			else if ("XML".equals(this.format))
+				stats.writeAsXML(bw, this.xmlRootTag, this.xmlRowTag, this.xmlFieldTag);
+			else if ("JSON".equals(this.format))
+				stats.writeAsJSON(bw, this.jsonVariableName, this.jsonIncludeFields, (this.jsonIncludeLabels ? fieldLabels : null), false);
+			
+			//	finish export
+			bw.flush();
+			bw.close();
+			
+			//	activate export result (replace old one with it)
+			File destFile = new File(this.destination);
+			if (destFile.exists())
+				destFile.delete();
+			destCreateFile.renameTo(destFile);
+			
+			//	export XML derivatives
+			if ("XML".equals(this.format)) {
+				for (int d = 0; d < this.xmlDerivatives.size(); d++) try {
+					((StaticStatExport) this.xmlDerivatives.get(d)).exportStaticStat();
+				}
+				catch (IOException ioe) {
+					System.out.println("Exception running derivative static export to '" + ((StaticStatExport) this.xmlDerivatives.get(d)).destination + "': " + ioe.getMessage());
+					ioe.printStackTrace();
+				}
+			}
+		}
+	}
+	
+	private class DerivativeStaticStatExport extends StaticStatExport {
+		private StaticStatExport parent;
+		private Transformer transformer;
+		DerivativeStaticStatExport(String destination, StaticStatExport parent, Transformer transformer) {
+			super(destination);
+			this.parent = parent;
+			this.transformer = transformer;
+		}
+		void exportStaticStat() throws IOException {
+			
+			//	get source file from parent
+			File sourceFile = new File(this.parent.destination);
+			BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(sourceFile), "UTF-8"));
+			
+			//	create export file & writer
+			File destCreateFile = new File(this.destination + ".exporting");
+			BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(destCreateFile), "UTF-8"));
+			
+			//	do export (transform XML result of parent)
+			try {
+				this.transformer.transform(new StreamSource(br), new StreamResult(bw));
+			}
+			catch (TransformerException te) {
+				System.out.println("Export to '" + this.destination + "' failed: " + te.getMessage());
+				te.printStackTrace(System.out);
+			}
+			
+			//	finish export
+			bw.flush();
+			bw.close();
+			
+			//	activate export result (replace old one with it)
+			File destFile = new File(this.destination);
+			if (destFile.exists())
+				destFile.delete();
+			destCreateFile.renameTo(destFile);
+			
+		}
+	}
+	
+	private FormattedStaticStatExport[] loadStaticStatExports() throws IOException {
+		BufferedReader sseBr = new BufferedReader(new InputStreamReader(new FileInputStream(new File(this.dataPath, "staticExports.xml")), "UTF-8"));
+		final ArrayList sseList = new ArrayList();
+		StatFieldSet.parser.stream(sseBr, new TokenReceiver() {
+			private FormattedStaticStatExport fsse = null;
+			private StringVector outputFields = null;
+			private StringVector groupingFields = null;
+			private StringVector orderingFields = null;
+			private Properties fieldPredicates = null;
+			private Properties fieldAggregates = null;
+			private Properties aggregatePredicates = null;
+			public void storeToken(String token, int treeDepth) throws IOException {
+				if (!StatFieldSet.grammar.isTag(token))
+					return;
+				String type = StatFieldSet.grammar.getType(token);
+				
+				if ("export".equals(type)) {
+					
+					if (StatFieldSet.grammar.isEndTag(token)) {
+						if (this.fsse != null) {
+							this.fsse.outputFields = this.outputFields.toStringArray();
+							this.fsse.groupingFields = this.groupingFields.toStringArray();
+							this.fsse.orderingFields = this.orderingFields.toStringArray();
+							this.fsse.fieldPredicates = this.fieldPredicates;
+							this.fsse.fieldAggregates = this.fieldAggregates;
+							this.fsse.aggregatePredicates = this.aggregatePredicates;
+							sseList.add(this.fsse);
+						}
+						this.fsse = null;
+						this.outputFields = null;
+						this.groupingFields = null;
+						this.orderingFields = null;
+						this.fieldPredicates = null;
+						this.fieldAggregates = null;
+						this.aggregatePredicates = null;
+					}
+					
+					else {
+						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, StatFieldSet.grammar);
+						String destination = tnas.getAttribute("destination");
+						String format = tnas.getAttribute("format");
+						String limitStr = tnas.getAttribute("limit", "-1");
+						if ((destination == null) || (format == null) || !limitStr.matches("\\-?[0-9]+"))
+							return;
+						this.fsse = new FormattedStaticStatExport(destination, format, Integer.parseInt(limitStr));
+						if ("CSV".equals(this.fsse.format))
+							this.fsse.csvSeparator = tnas.getAttribute("separator", ",");
+						else if ("XML".equals(this.fsse.format)) {
+							this.fsse.xmlRootTag = tnas.getAttribute("rootTag", "statistics");
+							this.fsse.xmlRowTag = tnas.getAttribute("rowTag", "statData");
+							this.fsse.xmlFieldTag = tnas.getAttribute("fieldTag", "statField");
+							this.fsse.xmlDerivatives = new ArrayList(2);
+						}
+						else if ("JSON".equals(this.fsse.format)) {
+							this.fsse.jsonVariableName = tnas.getAttribute("variableName");
+							this.fsse.jsonIncludeFields = "true".equals(tnas.getAttribute("includeFields", "true"));
+							this.fsse.jsonIncludeLabels = "true".equals(tnas.getAttribute("includeLabels", "true"));
+						}
+						this.outputFields = new StringVector();
+						this.groupingFields = new StringVector();
+						this.orderingFields = new StringVector();
+						this.fieldPredicates = new Properties();
+						this.fieldAggregates = new Properties();
+						this.aggregatePredicates = new Properties();
+					}
+				}
+				
+				else if (this.fsse == null)
+					return;
+				
+				else if ("field".equals(type)) {
+					TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, StatFieldSet.grammar);
+					String name = tnas.getAttribute("name");
+					if (name == null)
+						return;
+					boolean isOutput = "true".equals(tnas.getAttribute("output", "true"));
+					if (isOutput)
+						this.outputFields.addElement(name);
+					String predicate = tnas.getAttribute("predicate");
+					if (predicate != null)
+						this.fieldPredicates.setProperty(name, predicate);
+					String aggregate = tnas.getAttribute("aggregate");
+					if (";count;count-distinct;min;max;sum;avg;".indexOf(";" + aggregate.toLowerCase() + ";") != -1)
+						this.fieldAggregates.setProperty(name, aggregate);
+					String aggregatePredicate = tnas.getAttribute("aggregatePredicate");
+					if (aggregatePredicate != null)
+						this.aggregatePredicates.setProperty(name, aggregatePredicate);
+					String sortOrder = tnas.getAttribute("sort");
+					if (sortOrder != null)
+						this.orderingFields.addElement(("desc".equalsIgnoreCase(sortOrder) ? "-" : "") + name);
+				}
+				
+				else if ("derivative".equals(type) && "XML".equals(this.fsse.format)) {
+					TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, StatFieldSet.grammar);
+					String destination = tnas.getAttribute("destination");
+					if (destination == null)
+						return;
+					String xslt = tnas.getAttribute("xslt");
+					if (xslt != null) try {
+						Transformer transformer = XsltUtils.getTransformer(new File(dataPath, xslt));
+						this.fsse.xmlDerivatives.add(new DerivativeStaticStatExport(destination, this.fsse, transformer));
+					}
+					catch (IOException ioe) {
+						System.out.println("Exception creating export to '" + destination + "': " + ioe.getMessage());
+						ioe.printStackTrace(System.out);
+					}
+				}
+			}
+			public void close() throws IOException {}
+		});
+		
+		return ((FormattedStaticStatExport[]) sseList.toArray(new FormattedStaticStatExport[sseList.size()]));
+	}
+	
+	private class StaticStatExportThread extends Thread {
+		StaticStatExportThread() {
+			staticStatExportThread = this;
+			this.start();
+		}
+		public void run() {
+			try {
+				
+				//	wait until exports are due (might move on as new updates happen)
+				while (true) {
+					if (staticStatExportsDue < 0)
+						return;
+					long time = System.currentTimeMillis();
+					if (staticStatExportsDue <= time)
+						break;
+					else try {
+						sleep(time - staticStatExportsDue);
+					} catch (InterruptedException ie) {}
+				}
+				
+				//	do exports
+				for (int x = 0; x < staticStatExports.length; x++) try {
+					staticStatExports[x].exportStaticStat();
+				}
+				catch (Exception e) {
+					System.out.println("Exception running static export to '" + staticStatExports[x].destination + "': " + e.getMessage());
+					e.printStackTrace(System.out);
+				}
+			}
+			finally {
+				staticStatExportThread = null;
+			}
+		}
+	}
+	
+	private void updateStaticStatExports(boolean immediately) {
+		this.staticStatExportsDue = (System.currentTimeMillis() + (immediately ? 0 : (1000 * 60 * 2)));
+		if (this.staticStatExportThread == null)
+			this.staticStatExportThread = new StaticStatExportThread();
+	}
+//	
+//	//	TEST FOR STATIC EXPORTS
+//	public static void main(String[] args) throws Exception {
+//		
+//	}
+//	
 //	
 //	//	TEST FOR PREDICATE PARSING
 //	public static void main(String[] args) throws Exception {

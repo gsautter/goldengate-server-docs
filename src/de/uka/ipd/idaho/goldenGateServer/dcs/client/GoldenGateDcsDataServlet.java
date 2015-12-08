@@ -45,7 +45,6 @@ import de.uka.ipd.idaho.goldenGateServer.dcs.GoldenGateDcsConstants.StatFieldSet
 import de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder;
 import de.uka.ipd.idaho.htmlXmlUtil.accessories.IoTools;
 import de.uka.ipd.idaho.stringUtils.StringVector;
-import de.uka.ipd.idaho.stringUtils.csvHandler.StringRelation;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
 /**
@@ -134,55 +133,25 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 		
 		//	CSV output
 		if ("CSV".equals(format)) {
-			String separator = request.getParameter("separator");
-			if ((separator == null) || (separator.length() != 1))
-				separator = ",";
-			StringRelation.writeCsvData(bw, stats, separator.charAt(0), '"');
+			stats.writeAsCSV(bw, true, request.getParameter("separator"));
+			return;
+		}
+		
+		//	XML output
+		if ("XML".equals(format)) {
+			stats.writeAsXML(bw, "statistics", "statData", null);
 			return;
 		}
 		
 		//	get fields
 		String[] statFields = stats.getFields();
 		
-		//	XML output
-		if ("XML".equals(format)) {
-			bw.write("<statistics");
-			for (int f = 0; f < statFields.length; f++)
-				bw.write(" " + statFields[f] + "=\"" + StatFieldSet.grammar.escape(this.getFieldLabel(statFields[f])) + "\"");
-			bw.write(">"); bw.newLine();
-			for (int t = 0; t < stats.size(); t++) {
-				StringTupel st = stats.get(t);
-				bw.write("<statData");
-				for (int f = 0; f < statFields.length; f++)
-					bw.write(" " + statFields[f] + "=\"" + StatFieldSet.grammar.escape(st.getValue(statFields[f], "")) + "\"");
-				bw.write("/>"); bw.newLine();
-			}
-			bw.write("</statistics>"); bw.newLine();
-			return;
-		}
-		
 		//	JSON output
 		if ("JSON".equals(format)) {
-			bw.write("{\"fields\": [");
+			Properties statFieldsToLabels = new Properties();
 			for (int f = 0; f < statFields.length; f++)
-				bw.write(((f == 0) ? "" : ", ") + "\"" + statFields[f] + "\"");
-			bw.write("],"); bw.newLine();
-			bw.write("\"labels\": {"); bw.newLine();
-			for (int f = 0; f < statFields.length; f++) {
-				bw.write("\"" + statFields[f] + "\": \"" + this.getFieldLabel(statFields[f]) + "\"" + (((f+1) < statFields.length) ? "," : "")); bw.newLine();
-			}
-			bw.write("},"); bw.newLine();
-			bw.write("\"data\": ["); bw.newLine();
-			for (int t = 0; t < stats.size(); t++) {
-				StringTupel st = stats.get(t);
-				bw.write("{"); bw.newLine();
-				for (int f = 0; f < statFields.length; f++) {
-					bw.write("\"" + statFields[f] + "\": \"" + st.getValue(statFields[f], "") + "\"" + (((f+1) < statFields.length) ? "," : "")); bw.newLine();
-				}
-				bw.write("}" + (((t+1) < stats.size()) ? "," : "")); bw.newLine();
-			}
-			bw.write("]"); bw.newLine();
-			bw.write("}"); bw.newLine();
+				statFieldsToLabels.setProperty(statFields[f], this.getFieldLabel(statFields[f]));
+			stats.writeAsJSON(bw, null, true, statFieldsToLabels, true);
 			return;
 		}
 		

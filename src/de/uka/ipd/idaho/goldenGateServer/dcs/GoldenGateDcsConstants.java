@@ -38,6 +38,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Properties;
 
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
@@ -60,6 +61,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.grammars.Grammar;
 import de.uka.ipd.idaho.htmlXmlUtil.grammars.StandardGrammar;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringRelation;
+import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
 /**
  * Constant bearer for GoldenGATE DCS
@@ -703,6 +705,187 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			addCsvData(stat, br, '"', false, keys);
 			
 			return stat;
+		}
+		
+		/**
+		 * Write this statistics to some writer in CSV format.
+		 * @param w the Writer to write to
+		 * @param writeHeaderRow add the header row?
+		 * @param separator the separator to use (defaults to ',')
+		 * @throws IOException
+		 */
+		public void writeAsCSV(Writer w, boolean writeHeaderRow, String separator) throws IOException {
+			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
+			if ((separator == null) || (separator.length() != 1))
+				separator = ",";
+			StringRelation.writeCsvData(bw, this, separator.charAt(0), '"', writeHeaderRow);
+			if (bw != w)
+				bw.flush();
+		}
+		
+		/**
+		 * Write this statistics to some writer in tab separated text format.
+		 * @param w the Writer to write to
+		 * @param writeHeaderRow add the header row?
+		 * @throws IOException
+		 */
+		public void writeAsTabText(Writer w, boolean writeHeaderRow) throws IOException {
+			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
+			String[] fields = this.getFields();
+			
+			if (writeHeaderRow) {
+				for (int f = 0; f < fields.length; f++) {
+					if (f != 0)
+						bw.write('\t');
+					bw.write(fields[f]);
+				}
+				bw.newLine();
+			}
+			
+			for (int t = 0; t < this.size(); t++) {
+				StringTupel st = this.get(t);
+				for (int f = 0; f < fields.length; f++) {
+					if (f != 0)
+						bw.write('\t');
+					bw.write(st.getValue(fields[f], ""));
+				}
+				bw.newLine();
+			}
+			
+			if (bw != w)
+				bw.flush();
+		}
+		
+		/**
+		 * Write this statistics to some writer in XML format. The exact format
+		 * of the XML depends on the arguments: If the field tag name is null,
+		 * the data resides in the attributes of otherwise empty row tags, with
+		 * the field names as the attribute names. Otherwise, each field is a
+		 * separate element with the same tag name, and the data field names
+		 * are in a 'name' attribute to each field tag.
+		 * @param w the Writer to write to
+		 * @param rootTag the root tag name
+		 * @param rowTag the row tag name
+		 * @param fieldTag the field tag name
+		 * @throws IOException
+		 */
+		public void writeAsXML(Writer w, String rootTag, String rowTag, String fieldTag) throws IOException {
+			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
+			String[] fields = this.getFields();
+			
+			bw.write("<" + rootTag + ">");
+			bw.newLine();
+			
+			for (int t = 0; t < this.size(); t++) {
+				StringTupel st = this.get(t);
+				if (fieldTag == null) {
+					bw.write("<" + rowTag);
+					for (int f = 0; f < fields.length; f++)
+						bw.write(" " + fields[f] + "=\"" + StatFieldSet.grammar.escape(st.getValue(fields[f], "")) + "\"");
+					bw.write("/>");
+					bw.newLine();
+				}
+				else {
+					bw.write("<" + rowTag + ">");
+					bw.newLine();
+					for (int f = 0; f < fields.length; f++) {
+						bw.write("<" + fieldTag + " name=\"" + fields[f] + "\">");
+						bw.write(StatFieldSet.grammar.escape(st.getValue(fields[f], "")));
+						bw.write("</" + fieldTag + ">");
+						bw.newLine();
+					}
+					bw.write("</" + rowTag + ">");
+					bw.newLine();
+				}
+			}
+			
+			bw.write("</" + rootTag + ">");
+			bw.newLine();
+			
+			if (bw != w)
+				bw.flush();
+		}
+		
+		/**
+		 * Write this statistics to some writer in JSON format. The exact
+		 * format of the JSON depends on the arguments: If either of fields
+		 * array or labels object are included, the output is an object with at
+		 * most 3 properties: fields, labels, and data. If neither are
+		 * included, the output is either a plain array, or even a plain object
+		 * if the statistics only comprises a single row and the respective
+		 * flag is set to false. Further, if the variable name is not null or
+		 * empty, the JSON object (whichever is created) will be assigned to
+		 * a JavaScript variable with the argument name. This is to simplify
+		 * access in JavaScript environments.
+		 * @param w the Writer to write to
+		 * @param assignToVariable the JavaScript variable to assign the JSON
+		 *        object to, for easier access from scripts
+		 * @param includeFields include an array with the field names?
+		 * @param fieldsToLabels mapping of field names to field labels (null
+		 *        omits labels altogether)
+		 * @param singleRecordAsArray write a single record as a single array
+		 *        element, or as a plain object?
+		 * @throws IOException
+		 */
+		public void writeAsJSON(Writer w, String assignToVariable, boolean includeFields, Properties fieldsToLabels, boolean singleRecordAsArray) throws IOException {
+			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
+			String[] fields = this.getFields();
+			
+			if (assignToVariable != null)
+				bw.write("var " + assignToVariable + " = ");
+			
+			if (includeFields || (fieldsToLabels != null))
+				bw.write("{"); // open container object
+			
+			if (includeFields) {
+				bw.write("\"fields\": [");
+				for (int f = 0; f < fields.length; f++)
+					bw.write(((f == 0) ? "" : ", ") + "\"" + fields[f] + "\"");
+				bw.write("],");
+				bw.newLine();
+			}
+			if (fieldsToLabels != null) {
+				bw.write("\"labels\": {"); bw.newLine();
+				for (int f = 0; f < fields.length; f++) {
+					bw.write("\"" + fields[f] + "\": \"" + fieldsToLabels.getProperty(fields[f], fields[f]) + "\"" + (((f+1) < fields.length) ? "," : ""));
+					bw.newLine();
+				}
+				bw.write("},"); bw.newLine();
+			}
+			
+			if (includeFields || (fieldsToLabels != null))
+				bw.write("\"data\": ["); // open array in 'data' object property
+			else if (singleRecordAsArray || (this.size() > 1))
+				bw.write("["); // open standalone array
+			bw.newLine();
+			
+			for (int t = 0; t < this.size(); t++) {
+				StringTupel st = this.get(t);
+				bw.write("{"); bw.newLine();
+				for (int f = 0; f < fields.length; f++) {
+					bw.write("\"" + fields[f] + "\": \"" + st.getValue(fields[f], "") + "\"" + (((f+1) < fields.length) ? "," : ""));
+					bw.newLine();
+				}
+				bw.write("}" + (((t+1) < this.size()) ? "," : ""));
+				bw.newLine();
+			}
+			
+			if (includeFields || (fieldsToLabels != null)) {
+				bw.write("]"); // close array in object property
+				bw.newLine();
+				bw.write("}"); // close container object
+				bw.newLine();
+			}
+			else if (singleRecordAsArray || (this.size() > 1)) {
+				bw.write("]"); // close standalone array
+				bw.newLine();
+			}
+			
+			if (assignToVariable != null)
+				bw.write(";"); // finish variable assignment
+			
+			if (bw != w)
+				bw.flush();
 		}
 	}
 }
