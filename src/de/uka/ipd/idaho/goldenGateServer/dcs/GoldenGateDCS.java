@@ -1529,7 +1529,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 						else if ("XML".equals(this.fsse.format)) {
 							this.fsse.xmlRootTag = tnas.getAttribute("rootTag", "statistics");
 							this.fsse.xmlRowTag = tnas.getAttribute("rowTag", "statData");
-							this.fsse.xmlFieldTag = tnas.getAttribute("fieldTag", "statField");
+							this.fsse.xmlFieldTag = tnas.getAttribute("fieldTag", null /* statField */); // have field tag default to null to switch it off by default
 							this.fsse.xmlDerivatives = new ArrayList(2);
 						}
 						else if ("JSON".equals(this.fsse.format)) {
@@ -1563,6 +1563,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					String aggregate = tnas.getAttribute("aggregate");
 					if (";count;count-distinct;min;max;sum;avg;".indexOf(";" + aggregate.toLowerCase() + ";") != -1)
 						this.fieldAggregates.setProperty(name, aggregate);
+					else this.groupingFields.addElement(name);
 					String aggregatePredicate = tnas.getAttribute("aggregatePredicate");
 					if (aggregatePredicate != null)
 						this.aggregatePredicates.setProperty(name, aggregatePredicate);
@@ -1578,7 +1579,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 						return;
 					String xslt = tnas.getAttribute("xslt");
 					if (xslt != null) try {
-						Transformer transformer = XsltUtils.getTransformer(new File(dataPath, xslt));
+						Transformer transformer = XsltUtils.getTransformer(new File(dataPath, xslt), false);
 						this.fsse.xmlDerivatives.add(new DerivativeStaticStatExport(destination, this.fsse, transformer));
 					}
 					catch (IOException ioe) {
@@ -1609,7 +1610,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					if (staticStatExportsDue <= time)
 						break;
 					else try {
-						sleep(time - staticStatExportsDue);
+						sleep(Math.max(1, (time - staticStatExportsDue)) /* make sure there is no negative timeout (we are not synchronized, so due time might change) */);
 					} catch (InterruptedException ie) {}
 				}
 				
