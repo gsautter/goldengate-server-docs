@@ -72,7 +72,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	
 	private static final GPath authorPath = new GPath("//mods:name[.//mods:roleTerm = 'Author']/mods:namePart");
 	
-	private static final int EXT_ID_LENGTH = 32;
+	private static final int EXT_ID_LENGTH = 128;
 	private static final int EXT_ID_TYPE_LENGTH = 32;
 	private static final int TITLE_LENGTH = 256;
 	private static final int AUTHOR_LENGTH = 128;
@@ -422,10 +422,12 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 						ire.setAttribute(EXT_ID_ATTRIBUTE, elementData[1]);
 					if (elementData.length > 2)
 						ire.setAttribute(EXT_ID_TYPE_ATTRIBUTE, elementData[2]);
-					for (int a = 0; a < this.resultAttributes.length; a++)
+					for (int a = 0; a < this.resultAttributes.length; a++) {
+						if ((a+3) >= elementData.length)
+							break;
 						if (elementData[a + 3] != null)
 							ire.setAttribute(this.resultAttributes[a], elementData[a + 3]);
-					
+					}
 					return ire;
 				}
 			};
@@ -579,15 +581,18 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		//	get data
 		QueriableAnnotation[] modsHeader = doc.getAnnotations("mods:mods");
 		RefData ref;
-		if (modsHeader.length == 0)
-			ref = null;
+		if (modsHeader.length == 0) {
+			ref = BibRefUtils.modsAttributesToRefData(doc);
+			if (!ref.hasAttribute(AUTHOR_ANNOTATION_TYPE) || !ref.hasAttribute(YEAR_ANNOTATION_TYPE) || !ref.hasAttribute(TITLE_ANNOTATION_TYPE))
+				ref = null;
+		}
 		else {
 			ref = BibRefUtils.modsXmlToRefData(modsHeader[0]);
 			if (this.refTypeSystem.classify(ref) == null)
 				ref = null;
 		}
 		
-		//	get details from attributes if MODS header not given
+		//	try and get details from attributes if MODS header not given
 		if (ref == null) {
 			extId = doc.getAttribute(EXT_ID_ATTRIBUTE, "").toString().trim();
 			extIdType = doc.getAttribute(EXT_ID_TYPE_ATTRIBUTE, "").toString().trim();
@@ -601,7 +606,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			lastPage = doc.getAttribute(LAST_PAGE_NUMBER_ATTRIBUTE, "0").toString().trim();
 		}
 		
-		//	get details from MODS header
+		//	get details from MODS header or attributes
 		else {
 			extId = "";
 			extIdType = "";
