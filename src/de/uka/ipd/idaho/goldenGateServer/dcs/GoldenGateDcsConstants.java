@@ -863,7 +863,7 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 				StringTupel st = this.get(t);
 				bw.write("{"); bw.newLine();
 				for (int f = 0; f < fields.length; f++) {
-					bw.write("\"" + fields[f] + "\": \"" + st.getValue(fields[f], "") + "\"" + (((f+1) < fields.length) ? "," : ""));
+					bw.write("\"" + fields[f] + "\": \"" + this.escapeForJson(st.getValue(fields[f], "")) + "\"" + (((f+1) < fields.length) ? "," : ""));
 					bw.newLine();
 				}
 				bw.write("}" + (((t+1) < this.size()) ? "," : ""));
@@ -886,6 +886,21 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			
 			if (bw != w)
 				bw.flush();
+		}
+		private String escapeForJson(String str) {
+			if (str == null)
+				return null;
+			StringBuffer escaped = new StringBuffer();
+			char ch;
+			for (int c = 0; c < str.length(); c++) {
+				ch = str.charAt(c);
+				if ((ch == '\\') || (ch == '"'))
+					escaped.append('\\');
+				if (ch < 32)
+					escaped.append(' ');
+				else escaped.append(ch);
+			}
+			return escaped.toString();
 		}
 	}
 }
