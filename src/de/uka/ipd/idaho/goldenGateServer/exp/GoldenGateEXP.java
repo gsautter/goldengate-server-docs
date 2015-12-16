@@ -507,6 +507,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		
 		//	diff documents with source
 		ca = new ComponentActionConsole() {
+			private Thread diffThread = null;
 			public String getActionCommand() {
 				return DIFF_DOCS_COMMAND;
 			}
@@ -518,63 +519,80 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
-				if (arguments.length != 0)
+				if (arguments.length != 0) {
 					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
-				else {
-					HashSet deleteDocIDs = new HashSet();
-					int retained = 0;
-					
-					//	get document IDs from own database table
-					String docIdQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
-							" FROM " + DATA_TABLE_NAME + 
-							";";
-					SqlQueryResult sqr = null;
+					return;
+				}
+				if (this.diffThread != null) {
+					System.out.println(" A document diff operation is already in progress.");
+					return;
+				}
+				this.diffThread = new Thread() {
+					public void run() {
+						try {
+							doDiff();
+						}
+						finally {
+							diffThread = null;
+						}
+					}
+				};
+				this.diffThread.start();
+			}
+			private void doDiff() {
+				
+				//	get document IDs from own database table
+				HashSet deleteDocIDs = new HashSet();
+				int retained = 0;
+				String docIdQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
+						" FROM " + DATA_TABLE_NAME + 
+						";";
+				SqlQueryResult sqr = null;
+				try {
+					sqr = io.executeSelectQuery(docIdQuery);
+					while (sqr.next()) try {
+						binding.getDocument(sqr.getString(0));
+						retained++;
+					}
+					catch (IOException ioe) {
+						if (ioe.getMessage().startsWith("Invalid document ID '" + sqr.getString(0) + "'"))
+							deleteDocIDs.add(sqr.getString(0));
+					}
+				}
+				catch (SQLException sqle) {
+					System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting deleted document IDs.");
+					System.out.println("  query was " + docIdQuery);
+				}
+				finally {
+					if (sqr != null)
+						sqr.close();
+				}
+				
+				//	flag obsolete documents as deleted
+				if (deleteDocIDs.size() != 0) {
+					StringBuffer docUpdateQuery = new StringBuffer("UPDATE " + DATA_TABLE_NAME + 
+							" SET " + DELETED_MARKER_COLUMN_NAME + " = 'D'" +
+							" WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN (");
+					for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();) {
+						String deleteDocId = ((String) idit.next());
+						docUpdateQuery.append("'" + deleteDocId + "'");
+						if (idit.hasNext())
+							docUpdateQuery.append(", ");
+					}
+					docUpdateQuery.append(");");
 					try {
-						sqr = io.executeSelectQuery(docIdQuery);
-						while (sqr.next()) try {
-							binding.getDocument(sqr.getString(0));
-							retained++;
-						}
-						catch (IOException ioe) {
-							if (ioe.getMessage().startsWith("Invalid document ID '" + sqr.getString(0) + "'"))
-								deleteDocIDs.add(sqr.getString(0));
-						}
+						io.executeUpdateQuery(docUpdateQuery.toString());
 					}
 					catch (SQLException sqle) {
-						System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting deleted document IDs.");
-						System.out.println("  query was " + docIdQuery);
+						System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while flagging documents as deleted.");
+						System.out.println("  query was " + docUpdateQuery.toString());
 					}
-					finally {
-						if (sqr != null)
-							sqr.close();
-					}
-					
-					//	flag obsolete documents as deleted
-					if (deleteDocIDs.size() != 0) {
-						StringBuffer docUpdateQuery = new StringBuffer("UPDATE " + DATA_TABLE_NAME + 
-								" SET " + DELETED_MARKER_COLUMN_NAME + " = 'D'" +
-								" WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN (");
-						for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();) {
-							String deleteDocId = ((String) idit.next());
-							docUpdateQuery.append("'" + deleteDocId + "'");
-							if (idit.hasNext())
-								docUpdateQuery.append(", ");
-						}
-						docUpdateQuery.append(");");
-						try {
-							io.executeUpdateQuery(docUpdateQuery.toString());
-						}
-						catch (SQLException sqle) {
-							System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while flagging documents as deleted.");
-							System.out.println("  query was " + docUpdateQuery.toString());
-						}
-					}
-					
-					//	trigger update events
-					for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();)
-						documentDeleted(((String) idit.next()), ((Properties) null)); // set attributes to null initially to prevent holding whole index table in memory for large console-triggered updates
-					System.out.println("Issued delete events for " + deleteDocIDs.size() + " documents, retained " + retained + " ones.");
 				}
+				
+				//	trigger update events
+				for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();)
+					documentDeleted(((String) idit.next()), ((Properties) null)); // set attributes to null initially to prevent holding whole index table in memory for large console-triggered updates
+				System.out.println("Issued delete events for " + deleteDocIDs.size() + " documents, retained " + retained + " ones.");
 			}
 		};
 		cal.add(ca);
