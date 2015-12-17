@@ -138,7 +138,7 @@ public class DefaultSearchPortalLayout extends SearchPortalLayout {
 	public void includeSearchForm(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder tr) throws IOException {
 		
 		//	open form
-		tr.storeToken(("<form method=\"GET\" name=\"" + SRS_SEARCH_FORM_NAME + "\" action=\"./" + DEFAULT_SEARCH_MODE + "\">"), 0);
+		tr.storeToken(("<form method=\"GET\" name=\"" + SRS_SEARCH_FORM_NAME + "\" action=\"" + tr.request.getContextPath() + "/" + DEFAULT_SEARCH_MODE + "\">"), 0);
 		
 		//	open master table
 		tr.storeToken(("<table border=\"2\" fame=\"box\" rules=\"none\" cellpadding=\"3\" bgcolor=\"" + this.tableEntryBackgroundColor + "\" bordercolor=\"" + this.tableBorderColor + "\" cellspacing=\"0\">"), 0);
@@ -2472,7 +2472,7 @@ public class DefaultSearchPortalLayout extends SearchPortalLayout {
 		for (int g = 0; g < fieldGroups.length; g++) {
 			
 			//	open form
-			tr.storeToken("<form method=\"GET\" action=\"./" + THESAURUS_SEARCH_MODE + "\">", 0);
+			tr.storeToken("<form method=\"GET\" action=\"" + tr.request.getContextPath() + "/" + THESAURUS_SEARCH_MODE + "\">", 0);
 			
 			//	open table row & table cell for field table
 			tr.storeToken("<tr>", 0);

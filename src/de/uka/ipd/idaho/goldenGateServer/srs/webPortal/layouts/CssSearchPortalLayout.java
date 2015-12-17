@@ -131,7 +131,7 @@ public class CssSearchPortalLayout extends SearchPortalLayout {
 	public void includeSearchForm(String formTitle, SearchFieldGroup[] fieldGroups, SearchFieldRow buttonRowFields, Properties fieldValues, HtmlPageBuilder tr) throws IOException {
 		
 		//	open form
-		tr.storeToken(("<form method=\"GET\" name=\"" + SRS_SEARCH_FORM_NAME + "\" action=\"./" + DEFAULT_SEARCH_MODE + "\">"), 0);
+		tr.storeToken(("<form method=\"GET\" name=\"" + SRS_SEARCH_FORM_NAME + "\" action=\"" + tr.request.getContextPath() + "/" + DEFAULT_SEARCH_MODE + "\">"), 0);
 		
 		//	compute overall width
 		int formWidth = 0;
@@ -330,8 +330,7 @@ public class CssSearchPortalLayout extends SearchPortalLayout {
 					
 					tr.storeToken("</select>", 0);
 				}
-				else
-					tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
+				else tr.storeToken(("<input id=\"" + fieldId + "\" class=\"" + inputClass + "\" name=\"" + fields[f].name + "\" value=\"" + fieldValues.getProperty(fields[f].name, fields[f].value) + "\">"), 0);
 				
 				//	add spacer
 				tr.storeToken("&nbsp;", 0);
@@ -2886,7 +2885,7 @@ public class CssSearchPortalLayout extends SearchPortalLayout {
 			else {
 				
 				//	open form
-				tr.storeToken("<form method=\"GET\" action=\"./" + THESAURUS_SEARCH_MODE + "\" class=\"thesaurusForm\">", 0);
+				tr.storeToken("<form method=\"GET\" action=\"" + tr.request.getContextPath() + "/" + THESAURUS_SEARCH_MODE + "\" class=\"thesaurusForm\">", 0);
 				
 				//	open table row & table cell for field table
 				tr.storeToken("<tr>", 0);
