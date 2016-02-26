@@ -55,7 +55,7 @@ public class GoldenGateDioEXP extends GoldenGateExpBinding {
 	
 	/**
 	 * Constructor
-	 * @param host the GoldenGATE EXP the binding belongs to
+	 * @param exp the GoldenGATE EXP the binding belongs to
 	 */
 	public GoldenGateDioEXP(GoldenGateEXP exp) {
 		super(exp);

@@ -34,6 +34,7 @@ import java.io.FilterWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.StringWriter;
+import java.io.UnsupportedEncodingException;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -55,8 +56,8 @@ import de.uka.ipd.idaho.goldenGateServer.dcs.client.charts.DcStatChartData;
 import de.uka.ipd.idaho.goldenGateServer.dcs.client.charts.DcStatChartEngine;
 import de.uka.ipd.idaho.goldenGateServer.dcs.client.charts.DcStatChartEngine.DcStatChartRequest;
 import de.uka.ipd.idaho.goldenGateServer.dcs.client.charts.DcStatChartEngine.EmptyQueryException;
-import de.uka.ipd.idaho.goldenGateServer.dcs.client.charts.renderers.GoogleCharts;
 import de.uka.ipd.idaho.goldenGateServer.dcs.client.charts.DcStatChartRenderer;
+import de.uka.ipd.idaho.goldenGateServer.dcs.client.charts.renderers.GoogleCharts;
 import de.uka.ipd.idaho.htmlXmlUtil.accessories.HtmlPageBuilder;
 
 /**
@@ -164,7 +165,7 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		//	this involves getting the actual data
 		if ("/chart.js".equalsIgnoreCase(pathInfo)) {
 			response.setCharacterEncoding("UTF-8");
-			response.setContentType("text/html");
+			response.setContentType("text/plain");
 			response.setHeader("Cache-Control", "no-cache");
 			this.sendChartBuilderJavaScript(request, response);
 			return;
@@ -173,7 +174,7 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		//	this involves getting the actual data
 		if ("/chartData.js".equalsIgnoreCase(pathInfo)) {
 			response.setCharacterEncoding("UTF-8");
-			response.setContentType("text/html");
+			response.setContentType("text/plain");
 			response.setHeader("Cache-Control", "no-cache");
 			this.sendChartData(request, response);
 			return;
@@ -208,7 +209,11 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 				return request.getParameterNames();
 			}
 			public String getParameter(String name) {
-				return request.getParameter(name);
+				String value = request.getParameter(name);
+				if (value != null)
+					value = checkEncoding(value);
+				return value;
+//				return request.getParameter(name);
 			}
 		};
 		
@@ -270,7 +275,11 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 				return request.getParameterNames();
 			}
 			public String getParameter(String name) {
-				return request.getParameter(name);
+				String value = request.getParameter(name);
+				if (value != null)
+					value = checkEncoding(value);
+				return value;
+//				return request.getParameter(name);
 			}
 		};
 		
@@ -307,6 +316,30 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 		//	send & cache JavaScript
 		bw.flush();
 		this.jsCache.put(jsCacheKey, new JsCacheEntry(jsCacheWriter.toString(), this.statsLastUpdated));
+	}
+	
+	private static String checkEncoding(String str) {
+		char[] strChars = str.toCharArray();
+		
+		//	check for 110xxxxx + 10xxxxxx pairs typical for UTF-8
+		int highPairs = 0;
+		int highBytes = 0;
+		for (int b = 0; b < str.length(); b++) {
+			if (((strChars[b] & 224 /* 111xxxxx */) == 192 /* 110xxxxx */) && ((b+1) < strChars.length) && (strChars[b+1] > 127)) {
+				highPairs++;
+				b++;
+			}
+			else if (strChars[b] > 127)
+				highBytes++;
+		}
+		
+		//	found pattern typical for UTF-8 mistaken for ISO-8859-1
+		if (highPairs > highBytes) try {
+			str = new String(str.getBytes("ISO-8859-1"), "UTF-8");
+		} catch (UnsupportedEncodingException use) {}
+		
+		//	finally ...
+		return str;
 	}
 	
 	private static final int initJsCacheSize = 128;

@@ -274,11 +274,11 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * all registered extensions before actually storing the argument
 		 * document. This method may modify the document by adding or removing
 		 * attributes, and it may throw an IOException to prevent the upload
-		 * operation alltogether. This default implementation does nothing, sub
+		 * operation altogether. This default implementation does nothing, sub
 		 * classes are welcome to overwrite it as needed.<br>
 		 * Note: an upload differs from an update in that it never modifies an
 		 * existing document, but always creates a new one. This implies that an
-		 * upload is never preceeded by a checkout. In addition, the uploading
+		 * upload is never preceded by a checkout. In addition, the uploading
 		 * user does not get the lock on the document, so no release is
 		 * necessary.
 		 * @param document the document the user is trying to store in DIO

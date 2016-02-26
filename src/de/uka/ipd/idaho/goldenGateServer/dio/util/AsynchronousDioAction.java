@@ -31,8 +31,8 @@ import java.io.File;
 import java.io.IOException;
 
 import de.uka.ipd.idaho.gamta.DocumentRoot;
+import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
-import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListBuffer;
 import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
@@ -42,11 +42,11 @@ import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
  * based on the document collection hosted in a GoldenGATE DIO. This class loads
  * the DIO document list and loops through it, observing all the required
  * runtime control methods. Sub classes have to implement solely the update()
- * method, which is meant to deal with individaul documents.
+ * method, which is meant to deal with individual documents.
  * 
  * @author sautter
  */
-public abstract class AsynchronousDioAction extends AsynchronousConsoleAction implements GoldenGateDioConstants {
+public abstract class AsynchronousDioAction extends AsynchronousConsoleAction implements LiteratureConstants {
 	
 	private GoldenGateDIO dio;
 	private String label;
@@ -77,7 +77,7 @@ public abstract class AsynchronousDioAction extends AsynchronousConsoleAction im
 	protected void performAction(String[] arguments) throws Exception {
 		
 		//	get document list
-		DocumentListBuffer dlb = new DocumentListBuffer(dio.getDocumentListFull());
+		DocumentListBuffer dlb = new DocumentListBuffer(this.dio.getDocumentListFull());
 		
 		//	notify loop round end (this is fine, as loading the document list might already have been considerable effort)
 		this.enteringMainLoop("0 of " + dlb.size() + " documents done");

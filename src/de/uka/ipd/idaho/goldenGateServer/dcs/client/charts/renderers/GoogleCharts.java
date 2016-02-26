@@ -128,6 +128,12 @@ public class GoogleCharts extends DcStatChartRenderer {
 				)
 			);
 		bw.write("  };"); bw.newLine();
+		
+		//	give page opportunity to customize options
+		bw.write("  if (window.customizeGoogleChartOptions)"); bw.newLine();
+		bw.write("    customizeGoogleChartOptions(chartOptions, '" + chartId + "', '" + chartType + "', " + chartData.getSeriesCount() + ", " + chartData.getGroupCount() + ");"); bw.newLine();
+		
+		//	create chart
 		bw.write("  var chart = new google.visualization." + chartProperties.getSetting("chartClassName") + "(document.getElementById('chartDiv" + chartId + "'));"); bw.newLine();
 		bw.write("  chart.draw(chartData, chartOptions);"); bw.newLine();
 		bw.write("}"); bw.newLine();

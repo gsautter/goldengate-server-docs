@@ -356,13 +356,13 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 					this.writeLine("<tr>");
 					this.writeLine("<td class=\"statFieldTableCell\">");
 					
-					this.writeLine("<table class=\"statFieldTable\" id=\"fieldSelectorTable_" + fieldGroups[g].name + "\">");
+					this.writeLine("<table class=\"statFieldGroupTable\" id=\"fieldSelectorTable_" + fieldGroups[g].name + "\">");
 					this.writeLine("<tr>");
-					this.writeLine("<td class=\"statFieldTableHeader\">" + IoTools.prepareForHtml(fieldGroups[g].label) + "</td>");
+					this.writeLine("<td class=\"statFieldGroupTableHeader\">" + IoTools.prepareForHtml(fieldGroups[g].label) + "</td>");
 					this.writeLine("</tr>");
 					
 					this.writeLine("<tr>");
-					this.writeLine("<td class=\"statFieldTableCell\">");
+					this.writeLine("<td class=\"statFieldGroupTableCell\">");
 					for (int f = 0; f < fields.length; f++)
 						this.writeLine("<button class=\"statFieldSelector\" id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_selector\" onclick=\"return toggleField('" + fieldGroups[g].name + "_" + fields[f].name + "');\">" + IoTools.prepareForHtml(fields[f].label) + "</button>");
 					this.writeLine("</td>");
@@ -382,12 +382,12 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("<td class=\"statFieldTableHeader\" colspan=\"6\">Fields to Use in Statistics</td>");
 				this.writeLine("</tr>");
 				this.writeLine("<tr>");
-				this.writeLine("<td class=\"statFieldTableHeader\">Output?</td>");
-				this.writeLine("<td class=\"statFieldTableHeader\">Order? (Desc?)</td>");
-				this.writeLine("<td class=\"statFieldTableHeader\">Field Name</td>");
-				this.writeLine("<td class=\"statFieldTableHeader\">Filter on Values</td>");
-				this.writeLine("<td class=\"statFieldTableHeader\">Operation</td>");
-				this.writeLine("<td class=\"statFieldTableHeader\">Filter on Operation Result</td>");
+				this.writeLine("<td class=\"statFieldOptionTableHeader\">Output?</td>");
+				this.writeLine("<td class=\"statFieldOptionTableHeader\">Order? (Desc?)</td>");
+				this.writeLine("<td class=\"statFieldOptionTableHeader\">Field Name</td>");
+				this.writeLine("<td class=\"statFieldOptionTableHeader\">Filter on Values</td>");
+				this.writeLine("<td class=\"statFieldOptionTableHeader\">Operation</td>");
+				this.writeLine("<td class=\"statFieldOptionTableHeader\">Filter on Operation Result</td>");
 				this.writeLine("</tr>");
 				
 				for (int g = 0; g < fieldGroups.length; g++) {
@@ -452,6 +452,9 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				
 				this.writeLine("<table id=\"statTable\" style=\"display: none;\"></table>");
 				this.writeLine("<script id=\"statJs\" type=\"text/javascript\" src=\"toCome\"></script>");
+			}
+			protected String getPageTitle(String title) {
+				return "Document Collection Statistics Explorer";
 			}
 			protected String[] getOnloadCalls() {
 				String[] olcs = {"storeFieldOptions()"};

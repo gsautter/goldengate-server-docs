@@ -119,6 +119,13 @@ public class DcStatChartData {
 				this.getGroup(groupName, (seriesName != null)).add(value, seriesName);
 		} catch (NumberFormatException nfe) {}
 	}
+	void removeEmptyGroups() {
+		for (Iterator git = this.groupsByName.keySet().iterator(); git.hasNext();) {
+			DcStatGroup dsg = this.getGroup(((String) git.next()), (this.seriesByName.size() != 0));
+			if (dsg.value == 0)
+				git.remove();
+		}
+	}
 	void pruneGroups(int cutoff) {
 		if (this.groupsByName.size() <= cutoff)
 			return;
@@ -140,6 +147,18 @@ public class DcStatChartData {
 			oDsg.addAll(dsg);
 		}
 		this.groupsByName.put(oDsg.name, oDsg);
+	}
+	void removeEmptySeries() {
+		for (Iterator sit = this.seriesByName.keySet().iterator(); sit.hasNext();) {
+			DcStatSeriesHead dssh = this.getSeriesHead((String) sit.next());
+			if (dssh.value != 0)
+				continue;
+			for (Iterator git = this.groupsByName.keySet().iterator(); git.hasNext();) {
+				DcStatGroup dsg = this.getGroup(((String) git.next()), (this.seriesByName.size() != 0));
+				dsg.renameSeries(dssh.name, "");
+			}
+			sit.remove();
+		}
 	}
 	void pruneSeries(int cutoff) {
 		if (this.seriesByName.size() <= cutoff)

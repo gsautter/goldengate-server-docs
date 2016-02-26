@@ -476,12 +476,13 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 		
 		//	assemble ordering fields
 		for (int f = 0; f < orderingFields.length; f++) {
+			String fieldName = orderingFields[f];
 			boolean defaultOrder = true;
-			if (orderingFields[f].startsWith("-")) {
+			if (fieldName.startsWith("-")) {
 				defaultOrder = false;
-				orderingFields[f] = orderingFields[f].substring("-".length());
+				fieldName = fieldName.substring("-".length());
 			}
-			StatField field = ((StatField) this.fieldsByFullName.get(orderingFields[f]));
+			StatField field = ((StatField) this.fieldsByFullName.get(fieldName));
 			if (field == null)
 				continue;
 			if (orderFieldString.containsField(field))

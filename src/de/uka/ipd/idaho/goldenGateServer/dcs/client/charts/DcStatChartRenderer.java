@@ -97,32 +97,40 @@ public abstract class DcStatChartRenderer {
 	 */
 	public void writeChartBuilderJavaScript(DcStatChartData chartData, DcStatChartRequest request, BufferedWriter bw) throws IOException {
 		
-		//	enforce cutoffs, or bucketize
-		if ((chartData.seriesField != null) && !"multiField".equals(chartData.seriesField)) {
-			String seriesCutoff = request.getParameter("seriesCutoff");
-			if ((seriesCutoff == null) || (seriesCutoff.length() == 0) || "0".equals(seriesCutoff)) {}
-			else if ("B".equals(seriesCutoff)) {
-				String buckets = request.getParameter("seriesBuckets");
-				boolean truncate = "true".equals(request.getParameter("truncateSeriesBuckets"));
-				if ((buckets != null) && (buckets.length() != 0))
-					chartData.bucketizeSeries(buckets, truncate, this.parent.isNumericField(chartData.seriesField), (chartData.translateMonthNumbers && chartData.seriesField.toLowerCase().endsWith("month")));
+		//	enforce cutoffs, bucketize, or remove empty series/groups (from multi-field dimensions only)
+		if (chartData.seriesField != null) {
+			if ("multiField".equals(chartData.seriesField))
+				chartData.removeEmptySeries();
+			else {
+				String seriesCutoff = request.getParameter("seriesCutoff");
+				if ((seriesCutoff == null) || (seriesCutoff.length() == 0) || "0".equals(seriesCutoff)) {}
+				else if ("B".equals(seriesCutoff)) {
+					String buckets = request.getParameter("seriesBuckets");
+					boolean truncate = "true".equals(request.getParameter("truncateSeriesBuckets"));
+					if ((buckets != null) && (buckets.length() != 0))
+						chartData.bucketizeSeries(buckets, truncate, this.parent.isNumericField(chartData.seriesField), (chartData.translateMonthNumbers && chartData.seriesField.toLowerCase().endsWith("month")));
+				}
+				else try {
+					chartData.pruneSeries(Integer.parseInt(seriesCutoff));
+				} catch (NumberFormatException nfe) {}
 			}
-			else try {
-				chartData.pruneSeries(Integer.parseInt(seriesCutoff));
-			} catch (NumberFormatException nfe) {}
 		}
-		if ((chartData.groupField != null) && !"multiField".equals(chartData.groupField)) {
-			String groupCutoff = request.getParameter("groupCutoff");
-			if ((groupCutoff == null) || (groupCutoff.length() == 0) || "0".equals(groupCutoff)) {}
-			else if ("B".equals(groupCutoff)) {
-				String buckets = request.getParameter("groupBuckets");
-				boolean truncate = "true".equals(request.getParameter("truncateGroupBuckets"));
-				if ((buckets != null) && (buckets.length() != 0))
-					chartData.bucketizeGroups(buckets, truncate, this.parent.isNumericField(chartData.groupField), (chartData.translateMonthNumbers && chartData.groupField.toLowerCase().endsWith("month")));
+		if (chartData.groupField != null) {
+			if ("multiField".equals(chartData.groupField))
+				chartData.removeEmptyGroups();
+			else {
+				String groupCutoff = request.getParameter("groupCutoff");
+				if ((groupCutoff == null) || (groupCutoff.length() == 0) || "0".equals(groupCutoff)) {}
+				else if ("B".equals(groupCutoff)) {
+					String buckets = request.getParameter("groupBuckets");
+					boolean truncate = "true".equals(request.getParameter("truncateGroupBuckets"));
+					if ((buckets != null) && (buckets.length() != 0))
+						chartData.bucketizeGroups(buckets, truncate, this.parent.isNumericField(chartData.groupField), (chartData.translateMonthNumbers && chartData.groupField.toLowerCase().endsWith("month")));
+				}
+				else try {
+					chartData.pruneGroups(Integer.parseInt(groupCutoff));
+				} catch (NumberFormatException nfe) {}
 			}
-			else try {
-				chartData.pruneGroups(Integer.parseInt(groupCutoff));
-			} catch (NumberFormatException nfe) {}
 		}
 		
 		//	write rendering facility specific JavaScript
