@@ -444,7 +444,7 @@ xsl:with-param select="expression"
 					tr.storeToken(token, treeDepth);
 				
 				else if (html.isSingularTag(token))
-					tr.storeToken(token, treeDepth);
+					tr.storeToken(html.unescape(token), treeDepth);
 				
 				else if (html.isTag(token))
 					tr.storeToken(html.unescape(token), treeDepth);

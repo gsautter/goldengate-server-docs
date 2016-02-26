@@ -357,7 +357,8 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 		private void fillElementBuffer() {
 			while (this.isElementBufferEmpty()) try {
 				if (!this.pi.consumeToken()) {
-					this.in.close();
+					if (this.in != null)
+						this.in.close();
 					this.in = null;
 					break;
 				}

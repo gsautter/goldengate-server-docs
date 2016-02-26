@@ -40,6 +40,7 @@ import java.io.Writer;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -62,7 +63,7 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentListElement;
  * <ul>
  * <li><b>rssGenerationInterval</b>: the number of seconds between two
  * generations of the feed files. A smaller interval propagates updates faster,
- * wheras a larger interval keeps generation costs lower. The default value of
+ * whereas a larger interval keeps generation costs lower. The default value of
  * this parameter is 86,400 seconds, so the feed files are generated once a day.</li>
  * <li><b>feedName</b>: this parameter is actually a prefix identifying the
  * group of parameters that represent one RSS feed to generate. There can be any
@@ -112,7 +113,7 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 	 * <li><b>maxItemAge</b>: the maximum age for an item to be included in the
 	 * RSS feed, in seconds; 0 or less means no limitation</li>
 	 * <li><b>maxItemCount</b>: the maximum number of items to include in the
-	 * RSS feed, counting from the newest backward; 0 or ess means no limitation
+	 * RSS feed, counting from the newest backward; 0 or less means no limitation
 	 * </li>
 	 * <li><b>maxRestrictAnd</b>: if both item age and item count filters are
 	 * active, take the more restrictive or the less restrictive one?</li>
@@ -322,14 +323,14 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 		
 		String invocationPath = request.getServletPath();
 		if (invocationPath.indexOf('.') == -1) {
-			response.sendError(HttpServletResponse.SC_NOT_FOUND);
+			response.sendError(HttpServletResponse.SC_NOT_FOUND, ("Feed '" + invocationPath + "' not found, available feeds are " + Arrays.toString(this.config.getSubsetPrefixes())));
 			return;
 		}
 		else invocationPath = invocationPath.substring(0, invocationPath.indexOf('.'));
 		
 		File feedFile = new File(this.rssFeedCacheFolder, (invocationPath + FEED_FILE_SUFFIX));
 		if (!feedFile.exists()) {
-			response.sendError(HttpServletResponse.SC_NOT_FOUND);
+			response.sendError(HttpServletResponse.SC_NOT_FOUND, ("Feed '" + invocationPath + "' not available right now, last generation was at " + this.generationTimestamp));
 			return;
 		}
 		
@@ -359,10 +360,15 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 			
 			//	try number comparison
 			try {
-				long i1 = Long.parseLong(s1);
-				long i2 = Long.parseLong(s2);
-//				return ((int) (i1 - i2)); // ascending order is a bad idea, as this gives the least interesting items first
-				return ((int) (i2 - i1));
+				long l1 = Long.parseLong(s1);
+				long l2 = Long.parseLong(s2);
+//				return ((int) (l1 - l2)); // ascending order is a bad idea, as this gives the least interesting items first
+//				return ((int) (l2 - l1)); // this is just as bad an idea because of overflows
+				if (l1 < l2)
+					return -1;
+				else if (l2 < l1)
+					return 1;
+				else return 0;
 			}
 			
 			//	do string comparison

@@ -92,6 +92,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 						try {
 							Thread.sleep(10 * 60 * 1000);
 						} catch (InterruptedException ie) {}
+						System.out.println("Running SRS Client cache cleanup");
 						
 						//	compute last collection update from master document list
 						long lastUpdate = 0;
@@ -107,6 +108,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 						catch (Throwable t) {
 							t.printStackTrace(System.out);
 						}
+						System.out.println("Last update time is " + lastUpdate);
 						
 						//	no documents, or communication error
 						if (lastUpdate == 0)
@@ -122,6 +124,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 				}
 			};
 			cacheCleaner.start();
+			System.out.println("GoldenGATE SRS Client cache cleaner created");
 		}
 	}
 	
@@ -146,8 +149,12 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 						}
 					}
 				}
+				System.out.println("Statistics and search fields cleaned");
 				
 				//	invalidate all cache files older than last update
+				int tRetainFileCount = 0;
+				int tCleanupFileCount = 0;
+				int tErrorFileCount = 0;
 				for (Iterator cfit = cacheFolderList.iterator(); cfit.hasNext();) {
 					File cacheFolder = ((File) cfit.next());
 					File[] cacheFiles = cacheFolder.listFiles(new FileFilter() {
@@ -155,15 +162,61 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 							return cacheFile.getName().endsWith(".cached");
 						}
 					});
+					int retainFileCount = 0;
+					int cleanupFileCount = 0;
+					int errorFileCount = 0;
 					for (int f = 0; f < cacheFiles.length; f++) {
-						if (cacheFiles[f].lastModified() < lastUpdate) try {
+						if (cacheFiles[f].lastModified() >= lastUpdate)
+							retainFileCount++;
+						else try {
 							cacheFiles[f].delete();
+							cleanupFileCount++;
 						}
 						catch (Exception e) {
 							System.out.println("Could not delete cache file '" + cacheFiles[f].getAbsolutePath() + "': " + e.getMessage());
+							errorFileCount++;
 						}
 					}
+					System.out.println("Cleaned up " + cleanupFileCount + " cache files, retained " + retainFileCount + ", failed to clean up " + errorFileCount);
+					tRetainFileCount += retainFileCount;
+					tCleanupFileCount += cleanupFileCount;
+					tErrorFileCount += errorFileCount;
 				}
+				System.out.println("In total cleaned up " + tCleanupFileCount + " cache files, retained " + tRetainFileCount + ", failed to clean up " + tErrorFileCount);
+				
+				//	invalidate all caching files older than 15 minutes (caching should never take that long)
+				final long currentTime = System.currentTimeMillis();
+				tRetainFileCount = 0;
+				tCleanupFileCount = 0;
+				tErrorFileCount = 0;
+				for (Iterator cfit = cacheFolderList.iterator(); cfit.hasNext();) {
+					File cacheFolder = ((File) cfit.next());
+					File[] cacheFiles = cacheFolder.listFiles(new FileFilter() {
+						public boolean accept(File cacheFile) {
+							return cacheFile.getName().endsWith(".caching");
+						}
+					});
+					int retainFileCount = 0;
+					int cleanupFileCount = 0;
+					int errorFileCount = 0;
+					for (int f = 0; f < cacheFiles.length; f++) {
+						if (cacheFiles[f].lastModified() >= (currentTime - (1000 * 60 * 15)))
+							retainFileCount++;
+						else try {
+							cacheFiles[f].delete();
+							cleanupFileCount++;
+						}
+						catch (Exception e) {
+							System.out.println("Could not delete stale caching file '" + cacheFiles[f].getAbsolutePath() + "': " + e.getMessage());
+							errorFileCount++;
+						}
+					}
+					System.out.println("Cleaned up " + cleanupFileCount + " stale caching files, retained " + retainFileCount + ", failed to clean up " + errorFileCount);
+					tRetainFileCount += retainFileCount;
+					tCleanupFileCount += cleanupFileCount;
+					tErrorFileCount += errorFileCount;
+				}
+				System.out.println("In total cleaned up " + tCleanupFileCount + " stale caching files, retained " + tRetainFileCount + ", failed to clean up " + tErrorFileCount);
 			}
 		};
 		cacheCleaner.start();
@@ -181,16 +234,16 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	/**
 	 * Test whether caching is enabled for this GoldenGATE SRS Client, i.e.,
 	 * whether the cache folder is set to a valid directory.
-	 * @return true is caching is anabled, false otherwise
+	 * @return true is caching is enabled, false otherwise
 	 */
 	public boolean isCachingEnabled() {
 		return (this.cacheFolder != null);
 	}
 	
 	/**
-	 * Make the GoldenGATE SRS Cleint know the folder to use for caching result
+	 * Make the GoldenGATE SRS Client know the folder to use for caching result
 	 * data. If the specified file is null or does not denote a directory, the
-	 * cache folder is set to null, disabeling caching. If caching is enabled
+	 * cache folder is set to null, disabling caching. If caching is enabled
 	 * (the cache folder is set to a non-null directory), search results (a)
 	 * will be cached so subsequent requests using the same query parameters can
 	 * be answered based on the cache and are therefore faster and (b) results
@@ -251,7 +304,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 				return null;
 		}
 		
-		//	create file & wrap reader around it
+		//	create file & wrap writer around it
 		try {
 			final File cachingFile = new File(this.cacheFolder, (command + "." + cacheEntryId + ".caching"));
 			
@@ -271,13 +324,14 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 			final File cacheFile = new File(this.cacheFolder, (command + "." + cacheEntryId + ".cached"));
 			final long cacheTimestamp = System.currentTimeMillis();
 			
-			//	create writer doing the works
+			//	create writer doing the work
 			return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(cachingFile), "UTF-8")) {
 				public void close() throws IOException {
 					super.flush();
 					super.close();
 					cachingFile.setLastModified(cacheTimestamp);
 					cachingFile.renameTo(cacheFile);
+					System.out.println("SRS Cache Writer closed, cache file is " + cachingFile.getName());
 				}
 			};
 		}
@@ -291,7 +345,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	}
 	
 	//	TODO use MD5 hash or document ID for cache entry name, not Java string hash (too high risk of collisions)
-	private Reader wrapDataReader(final Reader dataReader, String command, int cacheEntryId) {
+	private Reader wrapDataReader(Reader dataReader, String command, int cacheEntryId) {
 		Writer cacheWriter = this.getCacheWriter(command, cacheEntryId);
 		
 		//	cache disabled, or other error, return argument reader
@@ -310,11 +364,32 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 			this.con = con;
 		}
 		public void close() throws IOException {
-			this.data.close();
-			this.con.close();
+			if (this.data != null) {
+				this.data.close();
+				this.data = null;
+			}
+			if (this.con != null) {
+				this.con.close();
+				this.con = null;
+				System.out.println("SRS connection closed explicitly");
+			}
 		}
 		public int read(char[] cbuf, int off, int len) throws IOException {
-			return this.data.read(cbuf, off, len);
+			if (this.data == null)
+				return -1;
+			int read = this.data.read(cbuf, off, len);
+			if (read == -1) try {
+				this.data.close();
+				this.data = null;
+				this.con.close();
+				this.con = null;
+				System.out.println("SRS connection closed at end of input");
+			}
+			catch (Exception e) {
+				System.out.println("Error closing SRS connection " + e.getMessage());
+				e.printStackTrace(System.out);
+			}
+			return read;
 		}
 	}
 	
@@ -326,14 +401,35 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 			this.cache = cache;
 		}
 		public void close() throws IOException {
-			this.data.close();
-			this.cache.flush();
-			this.cache.close();
+			if (this.data != null) {
+				this.data.close();
+				this.data = null;
+			}
+			if (this.cache != null) {
+				this.cache.flush();
+				this.cache.close();
+				this.cache = null;
+				System.out.println("SRS Cache Writer closed explicitly");
+			}
 		}
 		public int read(char[] cbuf, int off, int len) throws IOException {
+			if (this.data == null)
+				return -1;
 			int read = this.data.read(cbuf, off, len);
 			if (read != -1)
 				this.cache.write(cbuf, off, read);
+			else try {
+				this.data.close();
+				this.data = null;
+				this.cache.flush();
+				this.cache.close();
+				this.cache = null;
+				System.out.println("SRS Cache Writer closed at end of input");
+			}
+			catch (Exception e) {
+				System.out.println("Error closing SRS Cache Writer " + e.getMessage());
+				e.printStackTrace(System.out);
+			}
 			return read;
 		}
 	}
