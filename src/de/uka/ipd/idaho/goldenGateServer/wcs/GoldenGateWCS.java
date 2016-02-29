@@ -36,6 +36,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PipedReader;
 import java.io.PipedWriter;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.io.Writer;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -97,7 +99,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.grammars.StandardGrammar;
  * data is left to users</li>
  * <li><b>&lt;wikiName&gt;.overwriteUserUpdates</b>: if set to true, Wiki
  * pages that have been modified by a user other than the one WCS uses for
- * connection are overwritten with the next update, thereby possibly destroving
+ * connection are overwritten with the next update, thereby possibly destroying
  * user edits (optional parameter, default is false); setting this parameter to
  * true makes sense mostly in scenarios where a Wiki is the web front-end for
  * presenting data, but cannot be edited by users</li>
@@ -171,11 +173,11 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		}
 		
 		void shutdown() {
-			if (this.wikiCon != null) try {
+			if (this.wikiCon != null) {
 				this.wikiCon.logout();
-				this.wikiCon = null;
 				System.out.println("  - logged out from Wiki " + this.wikiUrl);
-			} catch (IOException ioe) {}
+				this.wikiCon = null;
+			}
 		}
 	}
 	
@@ -193,7 +195,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 	
 	/**
 	 * This implementation loads the connected Wikis. Sub classes overwriting
-	 * this method thus have to make the super invokation.
+	 * this method thus have to make the super invocation.
 	 * @see de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent#initComponent()
 	 */
 	protected void initComponent() {
@@ -215,7 +217,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 	
 	private Wiki loadWiki(Settings wikiData) {
 		
-		//	load wiki address and account data
+		//	load Wiki address and account data
 		String wikiUrl = wikiData.getSetting("wikiUrl");
 		String wikiUser = wikiData.getSetting("wikiUser");
 		String wikiPassword = wikiData.getSetting("wikiPassword");
@@ -227,7 +229,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		if (xsltUrl == null)
 			return null;
 		
-		//	create wiki
+		//	create Wiki
 		Wiki wiki = new Wiki(wikiUrl, wikiUser, wikiPassword, xsltUrl);
 		
 		//	check whether to de-duplicate links (stupid Wikipedia rule ...)
@@ -266,7 +268,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		ArrayList cal = new ArrayList(Arrays.asList(super.getActions()));
 		ComponentAction ca;
 		
-		//	list connected wikis
+		//	list connected Wikis
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
 				return LIST_WIKIS_COMMAND;
@@ -316,7 +318,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		};
 		cal.add(ca);
 		
-		//	log out from some wiki, e.g. to force a re-login
+		//	log out from some Wiki, e.g. to force a re-login
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
 				return LOGOUT_WIKI_COMMAND;
@@ -487,7 +489,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 						return;
 					String buffer = this.buffer.toString().toString().trim();
 					if (buffer.startsWith("ERROR:"))
-						throw new IOException(buffer.substring("ERROR:".length()).trim());
+						throw new DocumentUnfitForExportException(buffer.substring("ERROR:".length()).trim());
 				}
 				
 				private StringBuffer buffer = new StringBuffer();
@@ -498,20 +500,34 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 					this.out.flush();
 					this.out.close();
 					System.out.println("Update writer closed");
+					
+					final boolean[] wikiSessionOK = {true};
 					parser.stream(new InputStreamReader(con.getInputStream(), "UTF-8"), new TokenReceiver() {
 						public void close() throws IOException {}
 						public void storeToken(String token, int treeDepth) throws IOException {
 							System.out.println(" -> " + token.trim());
 							if (grammar.isTag(token) && "edit".equals(grammar.getType(token))) {
-								System.out.println(token);
-								TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
-								String result = tnas.getAttribute("result");
-								if ("Success".equals(result))
-									System.out.println("Update Successful");
-								else System.out.println("Update Error: " + result);
+								if ("edit".equals(grammar.getType(token))) {
+									TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
+									String result = tnas.getAttribute("result");
+									if ("Success".equals(result))
+										System.out.println("Update Successful");
+									else System.out.println("Update Error: " + result);
+								}
+								else if ("error".equals(grammar.getType(token))) {
+									TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
+									String code = tnas.getAttribute("code");
+									if ("badtoken".equals(code)) {
+										logout();
+										wikiSessionOK[0] = false;
+									}
+								}
 							}
 						}
 					});
+					
+					if (!wikiSessionOK[0])
+						throw new InvalidWikiSessionException();
 				}
 				public void flush() throws IOException {
 					this.flushBuffer();
@@ -549,7 +565,6 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 			parser.stream(new InputStreamReader(con.getInputStream(), "UTF-8"), new TokenReceiver() {
 				public void close() throws IOException {}
 				public void storeToken(String token, int treeDepth) throws IOException {
-//					System.out.println(token);
 					if (grammar.isTag(token) && "page".equals(grammar.getType(token)) && !grammar.isEndTag(token)) {
 						System.out.println(token);
 						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
@@ -587,15 +602,20 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 			return updateUser[0];
 		}
 		
-		void logout() throws IOException {
-			HttpURLConnection con = this.getConnection();
-			sendQuery(con, "action=logout");
-			parser.stream(new InputStreamReader(con.getInputStream(), "UTF-8"), new TokenReceiver() {
-				public void close() throws IOException {}
-				public void storeToken(String token, int treeDepth) throws IOException {
-					System.out.println(token);
-				}
-			});
+		void logout() {
+			try {
+				HttpURLConnection con = this.getConnection();
+				sendQuery(con, "action=logout");
+				parser.stream(new InputStreamReader(con.getInputStream(), "UTF-8"), new TokenReceiver() {
+					public void close() throws IOException {}
+					public void storeToken(String token, int treeDepth) throws IOException {
+						System.out.println(token);
+					}
+				});
+			}
+			catch (IOException ioe) {
+				ioe.printStackTrace(System.out);
+			}
 			
 			this.lguserid = null;
 			this.lgusername = null;
@@ -679,7 +699,10 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		}
 		if (DEBUG_EXPORT) System.out.println("  - document prepared");
 		
-		//	forward updates to individual wikis
+		//	generate document XML only once
+		String docXmlLine = null;
+		
+		//	forward updates to individual Wikis
 		for (Iterator wit = this.wikis.keySet().iterator(); wit.hasNext();) {
 			final String wikiName = ((String) wit.next());
 			Wiki wiki = ((Wiki) this.wikis.get(wikiName));
@@ -693,12 +716,11 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				continue;
 			}
 			
-			//	catch wiki-specific IO exceptions locally so they do not disturb upload to other wikis
 			try {
 				
 				//	get connection
-				WikiConnection wc = wiki.getWikiConnection();
-				if (wc == null) {
+				WikiConnection wikiCon = wiki.getWikiConnection();
+				if (wikiCon == null) {
 					if (DEBUG_EXPORT)
 						System.out.println("  - no connection to " + wikiName);
 					continue;
@@ -706,8 +728,8 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				
 				//	check if Wiki article was updated by other user
 				if (!wiki.overwriteUserUpdates) {
-					String updateUser = wc.getUpdateUser(title);
-					if ((updateUser != null) && !wc.lgusername.equals(updateUser)) {
+					String updateUser = wikiCon.getUpdateUser(title);
+					if ((updateUser != null) && !wikiCon.lgusername.equals(updateUser)) {
 						if (DEBUG_EXPORT)
 							System.out.println("  - cannot update document due to user edits");
 						continue;
@@ -715,257 +737,276 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				}
 				
 				//	check if Wiki article exists
-				if (wiki.createOnly && wc.checkExists(title)) {
+				if (wiki.createOnly && wikiCon.checkExists(title)) {
 					if (DEBUG_EXPORT)
 						System.out.println("  - already exists");
 					continue;
 				}
 				
-				//	transform data
-				Writer updateWriter = wc.getUpdateWriter(title);
+				//	generate XML line if not done yet
+				if (docXmlLine == null)
+					docXmlLine = getXmlLine(doc);
 				
-				//	divert XSLT output through filter if links to de-duplicate
-				if (wiki.deduplicateLinks) {
-					final BufferedWriter wikiWriter = new BufferedWriter(updateWriter);
-					final PipedReader pr = new PipedReader();
-					final IOException[] exception = {null};
-					final Thread linkDeduplicator = new Thread() {
-						HashSet linked = new HashSet();
-						String unescaper = null;
-						public void run() {
-							synchronized(this) {
-								this.notify();
-							}
-							
-							BufferedReader br = new BufferedReader(pr);
-							String line;
-							try {
-								while ((line = br.readLine()) != null) {
-									if (DEBUG_LINK_FILTER)
-										System.out.println(line);
-									
-									line = this.removeDuplicateLinks(line);
-									if (DEBUG_LINK_FILTER)
-										System.out.println("  ==> " + line);
-									
-									wikiWriter.write(line);
-									wikiWriter.newLine();
-								}
-								
-								wikiWriter.flush();
-								wikiWriter.close();
-							}
-							catch (IOException ioe) {
-								System.out.println("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
-								synchronized (exception) {
-									exception[0] = ioe;
-								}
-							}
-						}
-						
-						private String removeDuplicateLinks(String raw) {
-							if (raw.length() == 0)
-								return raw;
-							
-							StringBuffer clean = new StringBuffer();
-							
-							//	nothing escaped
-							if (this.unescaper == null) {
-								
-								//	find start of escaped part
-								int escapedStart = raw.length();
-								String escaper = null;
-								for (Iterator eit = wikiEscapers.keySet().iterator(); eit.hasNext();) {
-									String escaperString = ((String) eit.next());
-									int escaperIndex = raw.indexOf(escaperString);
-									if (escaperIndex == -1)
-										continue;
-									else if (escaperIndex < escapedStart) {
-										escapedStart = escaperIndex;
-										escaper = escaperString;
-										this.unescaper = wikiEscapers.getProperty(escaperString);
-									}
-								}
-								
-								//	no escaper found, check whole line
-								if (escapedStart == raw.length())
-									return this.checkLinks(raw);
-								
-								//	found start of escaped part
-								else {
-									if (DEBUG_LINK_FILTER)
-										System.out.println("  --> found escaper " + escaper + ", waiting for " + this.unescaper);
-									
-									//	check links in non-escaped part
-									clean.append(this.checkLinks(raw.substring(0, escapedStart)));
-									
-									//	recurse with escaped part (un-escaper might be in the same line)
-									clean.append(this.removeDuplicateLinks(raw.substring(escapedStart)));
-								}
-							}
-							
-							//	in escaped part
-							else {
-								
-								//	find end of escaped part
-								int unescapedStart = (raw.indexOf(this.unescaper) + this.unescaper.length());
-								
-								//	whole line is escaped
-								if (unescapedStart < this.unescaper.length())
-									return raw;
-								
-								if (DEBUG_LINK_FILTER)
-									System.out.println("  --> found unescaper " + this.unescaper);
-								
-								//	clear escaper
-								this.unescaper = null;
-								
-								//	keep escaped part as is
-								clean.append(raw.substring(0, unescapedStart));
-								
-								//	recurse with non-escaped part (new escaped part might start in same line)
-								clean.append(this.removeDuplicateLinks(raw.substring(unescapedStart)));
-							}
-							
-							//	finally ...
-							return clean.toString();
-						}
-						
-						private String checkLinks(String raw) {
-							
-							//	get start of first link
-							int linkStart = raw.indexOf("[[");
-							if (linkStart == -1)
-								return raw;
-							
-							//	get end of first link
-							int linkEnd = raw.indexOf("]]", (linkStart + "[[".length()));
-							if (linkStart == -1)
-								return raw;
-							
-							//	parse link
-							String link = raw.substring((linkStart + "[[".length()), linkEnd);
-							String linkLabel;
-							String linkTarget;
-							if (link.indexOf('|') == -1) {
-								linkLabel = link;
-								linkTarget = link;
-							}
-							else {
-								linkLabel = link.substring(link.indexOf('|') + 1);
-								linkTarget = link.substring(0, link.indexOf('|'));
-							}
-							
-							StringBuffer clean = new StringBuffer();
-							
-							//	new link, keep line up to end of link
-							if (this.linked.add(linkTarget)) {
-								if (DEBUG_LINK_FILTER)
-									System.out.println("  --> found new link to " + linkTarget);
-								clean.append(raw.substring(0, (linkEnd + "]]".length())));
-							}
-							
-							//	duplicate link
-							else {
-								if (DEBUG_LINK_FILTER)
-									System.out.println("  --> removed duplicate link to " + linkTarget);
-								
-								//	keep start of line
-								clean.append(raw.substring(0, linkStart));
-								
-								//	add link label without actual link
-								clean.append(linkLabel);
-							}
-							
-							//	recurse with remainder of line (there might be more links)
-							clean.append(this.checkLinks(raw.substring(linkEnd + "]]".length())));
-							
-							//	finally ...
-							return clean.toString();
-						}
-					};
-					
-					final PipedWriter pw = new PipedWriter(pr);
-					updateWriter = new Writer() {
-						public void close() throws IOException {
-							pw.close(); // do it
-							try {
-								linkDeduplicator.join();
-							} catch (InterruptedException ie) {}
-							this.checkException(); // check for exception from other thread
-						}
-						public void flush() throws IOException {
-							pw.flush(); // do it
-							this.checkException(); // check for exception from other thread
-						}
-						public void write(char[] cbuf, int off, int len) throws IOException {
-							pw.write(cbuf, off, len); // do it
-							this.checkException(); // check for exception from other thread
-						}
-						private void checkException() throws IOException {
-							synchronized (exception) {
-								if (exception[0] != null)
-									throw exception[0];
-							}
-						}
-					};
-					
-					synchronized(linkDeduplicator) {
-						linkDeduplicator.start();
-						try {
-							linkDeduplicator.wait();
-						} catch (InterruptedException ie) {}
-					}
-				}
-				
-				updateWriter = new PrologFilterWriter(updateWriter);
-				
-				final PipedWriter annotationWriter = new PipedWriter();
-				final PipedReader annotationReader = new PipedReader(annotationWriter);
-				final QueriableAnnotation data = doc;
-				Thread dataWriter = new Thread() {
-					public void run() {
-						synchronized(this) {
-							this.notify();
-						}
-						try {
-							writeXmlLine(data, annotationWriter);
-							annotationWriter.flush();
-							annotationWriter.close();
-						}
-						catch (IOException ioe) {
-							//	we should never get here, but java don't know
-							ioe.printStackTrace(System.out);
-						}
-					}
-				};
-				synchronized(dataWriter) {
-					dataWriter.start();
-					try {
-						dataWriter.wait();
-					} catch (InterruptedException ie) {}
-				}
-				
-				try {
-					wiki.xslt.transform(new StreamSource(annotationReader), new StreamResult(updateWriter));
-				}
-				catch (TransformerException te) {
-					System.out.println("  - XSLT error for " + wikiName + ": " + te.getMessageAndLocation());
-				}
-				finally {
-					updateWriter.flush();
-					try {
-						dataWriter.join();
-					} catch (InterruptedException ie) {}
-					updateWriter.close();
-				}
-				if (DEBUG_EXPORT)
-					System.out.println("  - update forwarded to " + wikiName);
+				//	do update
+				this.doUpdate(wikiName, wiki, wikiCon, title, docXmlLine, false);
 			}
 			catch (IOException ioe) {
 				System.out.println("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
 				ioe.printStackTrace(System.out);
 			}
+		}
+	}
+	
+	private void doUpdate(final String wikiName, Wiki wiki, WikiConnection wikiCon, String title, String docXmlLine, boolean isSessionTimeoutRecursion) {
+		
+		//	catch Wiki-specific IO exceptions locally so they do not disturb upload to other Wikis
+		try {
+			
+			//	transform data
+			Writer updateWriter = wikiCon.getUpdateWriter(title);
+			
+			//	divert XSLT output through filter if links to de-duplicate
+			if (wiki.deduplicateLinks) {
+				final BufferedWriter wikiWriter = new BufferedWriter(updateWriter);
+				final PipedReader pr = new PipedReader();
+				final IOException[] exception = {null};
+				final Thread linkDeduplicator = new Thread() {
+					HashSet linked = new HashSet();
+					String unescaper = null;
+					public void run() {
+						synchronized(this) {
+							this.notify();
+						}
+						
+						BufferedReader br = new BufferedReader(pr);
+						String line;
+						try {
+							while ((line = br.readLine()) != null) {
+								if (DEBUG_LINK_FILTER)
+									System.out.println(line);
+								
+								line = this.removeDuplicateLinks(line);
+								if (DEBUG_LINK_FILTER)
+									System.out.println("  ==> " + line);
+								
+								wikiWriter.write(line);
+								wikiWriter.newLine();
+							}
+							
+							wikiWriter.flush();
+							wikiWriter.close();
+						}
+						catch (IOException ioe) {
+							System.out.println("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
+							synchronized (exception) {
+								exception[0] = ioe;
+							}
+						}
+					}
+					
+					private String removeDuplicateLinks(String raw) {
+						if (raw.length() == 0)
+							return raw;
+						
+						StringBuffer clean = new StringBuffer();
+						
+						//	nothing escaped
+						if (this.unescaper == null) {
+							
+							//	find start of escaped part
+							int escapedStart = raw.length();
+							String escaper = null;
+							for (Iterator eit = wikiEscapers.keySet().iterator(); eit.hasNext();) {
+								String escaperString = ((String) eit.next());
+								int escaperIndex = raw.indexOf(escaperString);
+								if (escaperIndex == -1)
+									continue;
+								else if (escaperIndex < escapedStart) {
+									escapedStart = escaperIndex;
+									escaper = escaperString;
+									this.unescaper = wikiEscapers.getProperty(escaperString);
+								}
+							}
+							
+							//	no escaper found, check whole line
+							if (escapedStart == raw.length())
+								return this.checkLinks(raw);
+							
+							//	found start of escaped part
+							else {
+								if (DEBUG_LINK_FILTER)
+									System.out.println("  --> found escaper " + escaper + ", waiting for " + this.unescaper);
+								
+								//	check links in non-escaped part
+								clean.append(this.checkLinks(raw.substring(0, escapedStart)));
+								
+								//	recurse with escaped part (un-escaper might be in the same line)
+								clean.append(this.removeDuplicateLinks(raw.substring(escapedStart)));
+							}
+						}
+						
+						//	in escaped part
+						else {
+							
+							//	find end of escaped part
+							int unescapedStart = (raw.indexOf(this.unescaper) + this.unescaper.length());
+							
+							//	whole line is escaped
+							if (unescapedStart < this.unescaper.length())
+								return raw;
+							
+							if (DEBUG_LINK_FILTER)
+								System.out.println("  --> found unescaper " + this.unescaper);
+							
+							//	clear escaper
+							this.unescaper = null;
+							
+							//	keep escaped part as is
+							clean.append(raw.substring(0, unescapedStart));
+							
+							//	recurse with non-escaped part (new escaped part might start in same line)
+							clean.append(this.removeDuplicateLinks(raw.substring(unescapedStart)));
+						}
+						
+						//	finally ...
+						return clean.toString();
+					}
+					
+					private String checkLinks(String raw) {
+						
+						//	get start of first link
+						int linkStart = raw.indexOf("[[");
+						if (linkStart == -1)
+							return raw;
+						
+						//	get end of first link
+						int linkEnd = raw.indexOf("]]", (linkStart + "[[".length()));
+						if (linkStart == -1)
+							return raw;
+						
+						//	parse link
+						String link = raw.substring((linkStart + "[[".length()), linkEnd);
+						String linkLabel;
+						String linkTarget;
+						if (link.indexOf('|') == -1) {
+							linkLabel = link;
+							linkTarget = link;
+						}
+						else {
+							linkLabel = link.substring(link.indexOf('|') + 1);
+							linkTarget = link.substring(0, link.indexOf('|'));
+						}
+						
+						StringBuffer clean = new StringBuffer();
+						
+						//	new link, keep line up to end of link
+						if (this.linked.add(linkTarget)) {
+							if (DEBUG_LINK_FILTER)
+								System.out.println("  --> found new link to " + linkTarget);
+							clean.append(raw.substring(0, (linkEnd + "]]".length())));
+						}
+						
+						//	duplicate link
+						else {
+							if (DEBUG_LINK_FILTER)
+								System.out.println("  --> removed duplicate link to " + linkTarget);
+							
+							//	keep start of line
+							clean.append(raw.substring(0, linkStart));
+							
+							//	add link label without actual link
+							clean.append(linkLabel);
+						}
+						
+						//	recurse with remainder of line (there might be more links)
+						clean.append(this.checkLinks(raw.substring(linkEnd + "]]".length())));
+						
+						//	finally ...
+						return clean.toString();
+					}
+				};
+				
+				//	pipe de-duplicated output into update writer
+				final PipedWriter pw = new PipedWriter(pr);
+				updateWriter = new Writer() {
+					public void close() throws IOException {
+						pw.close(); // do it
+						try {
+							linkDeduplicator.join();
+						} catch (InterruptedException ie) {}
+						this.checkException(); // check for exception from other thread
+					}
+					public void flush() throws IOException {
+						pw.flush(); // do it
+						this.checkException(); // check for exception from other thread
+					}
+					public void write(char[] cbuf, int off, int len) throws IOException {
+						pw.write(cbuf, off, len); // do it
+						this.checkException(); // check for exception from other thread
+					}
+					private void checkException() throws IOException {
+						synchronized (exception) {
+							if (exception[0] != null)
+								throw exception[0];
+						}
+					}
+				};
+				
+				//	wait for link de-duplicator
+				synchronized(linkDeduplicator) {
+					linkDeduplicator.start();
+					try {
+						linkDeduplicator.wait();
+					} catch (InterruptedException ie) {}
+				}
+			}
+			
+			//	wrap update writer
+			updateWriter = new PrologFilterWriter(updateWriter);
+			
+			//	transform document into Wiki syntax via XSLT
+			try {
+				wiki.xslt.transform(new StreamSource(new StringReader(docXmlLine)), new StreamResult(updateWriter));
+			}
+			catch (TransformerException te) {
+				System.out.println("  - XSLT error for " + wikiName + ": " + te.getMessageAndLocation());
+			}
+			finally {
+				updateWriter.flush();
+				updateWriter.close();
+			}
+			if (DEBUG_EXPORT)
+				System.out.println("  - update forwarded to " + wikiName);
+		}
+		
+		//	error message generated by XSLT to indicate document unsuited for export
+		catch (DocumentUnfitForExportException dufee) {
+			System.out.println("  - the update cannot be forwarded to " + wikiName + ": " + dufee.getMessage());
+		}
+		
+		//	error message thrown by Wiki API, indicating timed-out session or invalid credentials
+		catch (InvalidWikiSessionException iwse) {
+			if (isSessionTimeoutRecursion)
+				System.out.println("  - the update cannot be forwarded to " + wikiName + " due to invalid credentials");
+			else this.doUpdate(wikiName, wiki, wikiCon, title, docXmlLine, true);
+		}
+		
+		//	other IO error
+		catch (IOException ioe) {
+			System.out.println("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
+			ioe.printStackTrace(System.out);
+		}
+	}
+	
+	private static class DocumentUnfitForExportException extends IOException {
+		DocumentUnfitForExportException(String message) {
+			super(message);
+		}
+	}
+	
+	private static class InvalidWikiSessionException extends IOException {
+		InvalidWikiSessionException() {
+			super();
 		}
 	}
 	
@@ -1040,7 +1081,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		
 		public void write(char[] cbuf, int off, int len) throws IOException {
 			if (this.written == 0) {
-				while ((len > 0) && (cbuf[off] < 33)) {
+				while ((len > 0) && (cbuf[off] <= ' ')) {
 					off++;
 					len--;
 				}
@@ -1062,7 +1103,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 						off++;
 						len--;
 						
-						while ((len > 0) && (cbuf[off] < 33)) {
+						while ((len > 0) && (cbuf[off] <= ' ')) {
 							off++;
 							len--;
 						}
@@ -1079,16 +1120,16 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		}
 	}
 	
-	private static boolean writeXmlLine(QueriableAnnotation data, Writer output) throws IOException {
-		BufferedWriter buf = ((output instanceof BufferedWriter) ? ((BufferedWriter) output) : new BufferedWriter(output));
+	private static String getXmlLine(QueriableAnnotation doc) {
+		StringWriter buf = new StringWriter();
 		
 		//	get annotations
-		Annotation[] nestedAnnotations = data.getAnnotations();
+		Annotation[] nestedAnnotations = doc.getAnnotations();
 		
 		//	make sure there is a root element
-		if ((nestedAnnotations.length == 0) || (nestedAnnotations[0].size() < data.size())) {
+		if ((nestedAnnotations.length == 0) || (nestedAnnotations[0].size() < doc.size())) {
 			Annotation[] newNestedAnnotations = new Annotation[nestedAnnotations.length + 1];
-			newNestedAnnotations[0] = data;
+			newNestedAnnotations[0] = doc;
 			System.arraycopy(nestedAnnotations, 0, newNestedAnnotations, 1, nestedAnnotations.length);
 			nestedAnnotations = newNestedAnnotations;
 		}
@@ -1099,11 +1140,11 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		Token token = null;
 		Token lastToken;
 		
-		for (int t = 0; t < data.size(); t++) {
+		for (int t = 0; t < doc.size(); t++) {
 			
 			//	switch to next Token
 			lastToken = token;
-			token = data.tokenAt(t);
+			token = doc.tokenAt(t);
 			
 			//	write end tags for Annotations ending before current Token
 			while ((stack.size() > 0) && (((Annotation) stack.peek()).getEndIndex() <= t)) {
@@ -1112,7 +1153,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 			}
 			
 			//	skip space character before unspaced punctuation (e.g. ','), after line breaks and tags, and if there is no whitespace in the token sequence
-			if ((lastToken != null) && Gamta.insertSpace(lastToken, token) && (t != 0) && (data.getWhitespaceAfter(t-1).length() != 0))
+			if ((lastToken != null) && Gamta.insertSpace(lastToken, token) && (t != 0) && (doc.getWhitespaceAfter(t-1).length() != 0))
 				buf.write(" ");
 			
 			//	write start tags for Annotations beginning at current Token
@@ -1133,9 +1174,8 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 			buf.write(AnnotationUtils.produceEndTag(annotation));
 		}
 		
-		if (buf != output)
-			buf.flush();
-		return true;
+		//	finally ...
+		return buf.toString();
 	}
 	
 ////	static String testWikiUrl = "http://species-id.net/wiki/api.php";

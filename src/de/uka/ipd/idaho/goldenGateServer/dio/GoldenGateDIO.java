@@ -305,9 +305,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 					externalIdentifier = docAttributes.getProperty(this.externalIdentifierAttributeNames[i]);
 					if (externalIdentifier == null)
 						continue;
+					externalIdentifier = externalIdentifier.replaceAll("\\s", "");
 					externalIdentifierName = this.externalIdentifierAttributeNames[i];
 					if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
 						externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+					break;
 				}
 				if ((externalIdentifier == null) || (externalIdentifierName == null)) {
 					externalIdentifier = "";
@@ -323,7 +325,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				
 				try {
 					this.io.executeUpdateQuery(updateQuery);
-					System.out.println("    - external identifier of document '" + docId + "' set to '" + externalIdentifier + "'");
+					System.out.println("    - external identifier of document '" + docId + "' set to '" + externalIdentifierName + "' with value '" + externalIdentifier + "'");
 				}
 				catch (SQLException sqle) {
 					System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating external identifier of document '" + docId + "'.");
@@ -1619,9 +1621,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeNames[i]));
 			if (externalIdentifier == null)
 				continue;
+			externalIdentifier = externalIdentifier.replaceAll("\\s", "");
 			externalIdentifierName = this.externalIdentifierAttributeNames[i];
 			if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
 				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+			break;
 		}
 		
 		//	external identifier present, check conflicts if required
@@ -1855,11 +1859,12 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeNames[i]));
 			if (externalIdentifier == null)
 				continue;
+			externalIdentifier = externalIdentifier.replaceAll("\\s", "");
 			externalIdentifierName = this.externalIdentifierAttributeNames[i];
 			if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
 				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+			break;
 		}
-		
 		
 		//	external identifier present, check conflicts if required
 		if ((externalIdentifier != null) && EXTERNAL_IDENTIFIER_MODE_CHECK.equals(externalIdentifierMode)) {
