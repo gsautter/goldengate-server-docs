@@ -462,6 +462,9 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 				}
 			}
 			
+			//	set result pivot index to zero to avoid cutoff
+			searchParameters.setProperty(RESULT_PIVOT_INDEX_PARAMETER, "0");
+			
 			//	get summary
 			this.doDocumentSummary(searchParameters, markSearchables, xslTransformer, out, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 		}
@@ -798,6 +801,9 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 					}
 				}
 			}
+			
+			//	set result pivot index to zero avoid cutoff
+			searchParameters.setProperty(RESULT_PIVOT_INDEX_PARAMETER, "0");
 			
 			//	search document data as required by layout
 			DocumentResult summaryRes;

@@ -2300,9 +2300,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		QueryResult docNrResult = this.searchDocumentNumbers(query);
 		if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrResult.size() + " result document numbers");
 		
+		//	test if we have an ID query, and waive relevance elimination if so
+		boolean isIdQuery = (query.getValue(ID_QUERY_FIELD_NAME) != null);
 		
 		//	read additional parameters
-		int queryResultPivotIndex = this.resultPivotIndex;
+		int queryResultPivotIndex = (isIdQuery ? 0 : this.resultPivotIndex);
 		try {
 			queryResultPivotIndex = Integer.parseInt(query.getValue(RESULT_PIVOT_INDEX_PARAMETER, ("" + queryResultPivotIndex)));
 		} catch (NumberFormatException nfe) {}
@@ -2611,8 +2613,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	got query for ranked result
 		if (rankedResult) {
 			
+			//	test if we have an ID query, and waive relevance elimination if so
+			boolean isIdQuery = (query.getValue(ID_QUERY_FIELD_NAME) != null);
+			
 			//	read additional parameters
-			int queryResultPivotIndex = this.resultPivotIndex;
+			int queryResultPivotIndex = (isIdQuery ? 0 : this.resultPivotIndex);
 			try {
 				queryResultPivotIndex = Integer.parseInt(query.getValue(RESULT_PIVOT_INDEX_PARAMETER, ("" + queryResultPivotIndex)));
 			} catch (NumberFormatException nfe) {}
@@ -3086,8 +3091,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		QueryResult docNrResult = this.searchDocumentNumbers(query);
 		if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrResult.size() + " result document numbers");
 		
+		//	test if we have an ID query, and waive relevance elimination if so
+		boolean isIdQuery = (query.getValue(ID_QUERY_FIELD_NAME) != null);
+		
 		//	read additional parameters
-		int queryResultPivotIndex = this.resultPivotIndex;
+		int queryResultPivotIndex = (isIdQuery ? 0 : this.resultPivotIndex);
 		try {
 			queryResultPivotIndex = Integer.parseInt(query.getValue(RESULT_PIVOT_INDEX_PARAMETER, ("" + queryResultPivotIndex)));
 		} catch (NumberFormatException nfe) {}
