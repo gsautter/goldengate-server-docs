@@ -159,7 +159,12 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	/** the name of the index table */
 	protected final String DATA_TABLE_NAME;
 	
-	private static final String DELETED_MARKER_COLUMN_NAME = "Deleted";
+	/** the name of the column in the index table that is filled with a 'D' if a document is deleted */
+	protected static final String DELETED_MARKER_COLUMN_NAME = "Deleted";
+	
+	/** the value in the 'Deleted' column indicating that a document is deleted */
+	protected static final char DELETED_MARKER = 'D';
+	
 	private TableColumnDefinition[] indexFields;
 	
 	private GoldenGateExpBinding binding;
@@ -480,7 +485,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				else {
 					String deletedDocIdQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
 							" FROM " + DATA_TABLE_NAME + 
-							" WHERE " + DELETED_MARKER_COLUMN_NAME + " = 'D'" +
+							" WHERE " + DELETED_MARKER_COLUMN_NAME + " = '" + DELETED_MARKER + "'" +
 							";";
 					SqlQueryResult sqr = null;
 					try {
@@ -571,7 +576,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				//	flag obsolete documents as deleted
 				if (deleteDocIDs.size() != 0) {
 					StringBuffer docUpdateQuery = new StringBuffer("UPDATE " + DATA_TABLE_NAME + 
-							" SET " + DELETED_MARKER_COLUMN_NAME + " = 'D'" +
+							" SET " + DELETED_MARKER_COLUMN_NAME + " = '" + DELETED_MARKER + "'" +
 							" WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN (");
 					for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();) {
 						String deleteDocId = ((String) idit.next());
@@ -696,7 +701,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		String docQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
 				" FROM " + DATA_TABLE_NAME + 
 				" WHERE " + where +
-					" AND " + DELETED_MARKER_COLUMN_NAME + " <> 'D'" +
+					" AND " + DELETED_MARKER_COLUMN_NAME + " <> '" + DELETED_MARKER + "'" +
 				";";
 		SqlQueryResult sqr = null;
 		int count = 0;
@@ -779,6 +784,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 						}
 						else updates.append(", " + this.indexFields[f].getColumnName() + " = " + EasyIO.sqlEscape(fieldValue));
 					}
+					updates.append(", " + DELETED_MARKER_COLUMN_NAME + " = ' '");
 					
 					//	update database
 					String updateQuery = "UPDATE " + DATA_TABLE_NAME +
@@ -902,7 +908,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		
 		//	mark document as deleted in index table
 		String deleteMarkerQuery = "UPDATE " + DATA_TABLE_NAME +
-				" SET " + DELETED_MARKER_COLUMN_NAME + " = 'D'" +
+				" SET " + DELETED_MARKER_COLUMN_NAME + " = '" + DELETED_MARKER + "'" +
 				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
 				";";
 		try {
