@@ -156,6 +156,11 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	
 	private IoProvider io;
 	
+	/** the name of the attribute set in the <code>docAttributes</code> argument
+	 * to the <code>doUpdate()</code> method if that method is called for the
+	 * first time for the argument document, namely 'isNewDocument' */
+	protected static final String IS_NEW_DOCUMENT_ATTRIBUTE = "isNewDocument";
+	
 	/** the name of the index table */
 	protected final String DATA_TABLE_NAME;
 	
@@ -819,6 +824,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 					return;
 				}
 				
+				//	collect document attributes ...
 				String docDate = ((String) doc.getAttribute(DOCUMENT_DATE_ATTRIBUTE));
 				if (docDate == null)
 					return;
@@ -837,6 +843,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 					else values.append(", " + EasyIO.sqlEscape(fieldValue));
 				}
 				
+				//	... and store them in database table
 				String insertQuery = "INSERT INTO " + DATA_TABLE_NAME +
 						" (" + DOCUMENT_ID_ATTRIBUTE + ", " + DELETED_MARKER_COLUMN_NAME + ", " + fields.toString() + ")" +
 						" VALUES" +
@@ -850,6 +857,9 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 					System.out.println(this.getExporterName() + ": " + sqle.getMessage() + " while creating table entry.");
 					System.out.println("  query was " + insertQuery);
 				}
+				
+				//	indicate that document is new
+				docAttributes.setProperty(IS_NEW_DOCUMENT_ATTRIBUTE, "true");
 			}
 		}
 		catch (SQLException sqle) {
@@ -1174,7 +1184,10 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	}
 	
 	/**
-	 * Write an update to the underlying export destination.
+	 * Write an update to the underlying export destination. If this method is
+	 * called for the first time for the argument document, the argument
+	 * <code>docAttributes</code> object contains <code>isNewDocument</code> as
+	 * an additional key to indicate so.
 	 * @param doc the document to export
 	 * @param docAttributes the index field values of the document
 	 * @throws IOException
