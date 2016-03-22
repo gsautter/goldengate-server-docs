@@ -720,13 +720,21 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		//	for statistics, use fix values
 		if (STATISTICS_MODE.equals(searchMode)) {
 			String since = searchParameters.getProperty(GET_STATISTICS_SINCE_PARAMETER, this.getSetting("statisticsDefaultSince", GET_STATISTICS_LAST_YEAR));
+			BufferedCollectionStatistics statistics;
 			try {
-				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(Long.parseLong(since), allowCache));
+				statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(Long.parseLong(since), allowCache));
 			}
 			catch (NumberFormatException nfe) {
-				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(since, allowCache));
+				statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(since, allowCache));
 			}
-			hpb = new HtmlSearchResultWriter(request, response, (this.includeSearchFormWithResult ? fieldGroups : null), (this.includeSearchFormWithResult ? fieldGroupException : null), fieldValues, this.statistics, "Collection Statistics");
+			hpb = new HtmlSearchResultWriter(request, response, (this.includeSearchFormWithResult ? fieldGroups : null), (this.includeSearchFormWithResult ? fieldGroupException : null), fieldValues, statistics, "Collection Statistics");
+//			try {
+//				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(Long.parseLong(since), allowCache));
+//			}
+//			catch (NumberFormatException nfe) {
+//				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(since, allowCache));
+//			}
+//			hpb = new HtmlSearchResultWriter(request, response, (this.includeSearchFormWithResult ? fieldGroups : null), (this.includeSearchFormWithResult ? fieldGroupException : null), fieldValues, this.statistics, "Collection Statistics");
 		}
 		
 		//	get document ID if single document to display
@@ -1271,7 +1279,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		private void includeStatistics() throws IOException {
 			try {
-				layout.includeStatisticsLine(SearchPortalServlet.this.statistics, ((NavigationLink[]) statisticsLineLinks.toArray(new NavigationLink[statisticsLineLinks.size()])), this);
+				layout.includeStatisticsLine(SearchPortalServlet.this.getStatistics(FORCE_CACHE.equals(this.request.getParameter(CACHE_CONTROL_PARAMETER))), ((NavigationLink[]) statisticsLineLinks.toArray(new NavigationLink[statisticsLineLinks.size()])), this);
 			}
 			catch (Exception e) {
 				this.writeExceptionAsXmlComment(("exception including statistics line"), e);
@@ -1613,19 +1621,26 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		return ((in == null) ? null : this.indexNameMappings.getProperty(in, in));
 	}
 	
+	private BufferedCollectionStatistics getStatistics(boolean forceRefetch) {
+		if (forceRefetch || (this.statistics == null)) try {
+			this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics());
+		} catch (IOException ioe) {}
+		return this.statistics;
+	}
+	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#doInit()
 	 */
 	protected void doInit() throws ServletException {
 		super.doInit();
-		
-		//	initially load statistics
-		try {
-			this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics());
-		}
-		catch (IOException ioe) {
-			throw new RuntimeException("Error loading statistics: " + ioe.getMessage(), ioe);
-		}
+//		
+//		//	initially load statistics
+//		try {
+//			this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics());
+//		}
+//		catch (IOException ioe) {
+//			throw new RuntimeException("Error loading statistics: " + ioe.getMessage(), ioe);
+//		}
 		
 		//	initialize layout engine
 		this.layout = this.getLayout(new File(this.dataFolder, SearchPortalLayout.LAYOUT_FOLDER_NAME), this.getSetting(LAYOUT_ENGINE_CLASS_NAME_SETTING));
