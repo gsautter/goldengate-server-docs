@@ -506,15 +506,16 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 						public void close() throws IOException {}
 						public void storeToken(String token, int treeDepth) throws IOException {
 							System.out.println(" -> " + token.trim());
-							if (grammar.isTag(token) && "edit".equals(grammar.getType(token))) {
-								if ("edit".equals(grammar.getType(token))) {
+							if (grammar.isTag(token)) {
+								String type = grammar.getType(token);
+								if ("edit".equals(type)) {
 									TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 									String result = tnas.getAttribute("result");
 									if ("Success".equals(result))
 										System.out.println("Update Successful");
 									else System.out.println("Update Error: " + result);
 								}
-								else if ("error".equals(grammar.getType(token))) {
+								else if ("error".equals(type)) {
 									TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 									String code = tnas.getAttribute("code");
 									if ("badtoken".equals(code)) {
