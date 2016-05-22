@@ -28,10 +28,13 @@
 package de.uka.ipd.idaho.goldenGateServer.exp;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -251,6 +254,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		this.indexFields = this.getIndexFields();
 		
 		//	ensure data table
+		//	TODO consider introducing docIdHash
 		TableDefinition td = new TableDefinition(DATA_TABLE_NAME);
 		td.addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
 		td.addColumn(DELETED_MARKER_COLUMN_NAME, TableDefinition.CHAR_DATATYPE, 1);
@@ -318,6 +322,22 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		this.eventHandler = new UpdateEventHandler(this.getExporterName() + "EventHandler");
 		this.eventHandler.start();
 		System.out.println(this.getExporterName() + ": event handler started");
+		
+		//	reload pending events
+		File eventFile = new File(this.dataPath, "events.txt");
+		if (eventFile.exists()) try {
+			BufferedReader eventBr = new BufferedReader(new InputStreamReader(new FileInputStream(eventFile), "UTF-8"));
+			for (String eventData; (eventData = eventBr.readLine()) != null;) {
+				String[] eventAttributes = eventData.split("\\s");
+				if (eventAttributes.length == 3)
+					this.enqueueEvent(new UpdateEvent(eventAttributes[0], "H".equalsIgnoreCase(eventAttributes[1]), null, "D".equals(eventAttributes[2])));
+			}
+			eventBr.close();
+		}
+		catch (Exception e) {
+			System.out.println(getExporterName() + ": Error restoring pending update events from file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
+			e.printStackTrace(System.out);
+		}
 	}
 	
 	/**
@@ -339,11 +359,39 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	protected void exitComponent() {
 		
 		//	shut down event handle
-		this.eventHandler.shutdown();
+		ArrayList events = this.eventHandler.shutdown();
 		System.out.println(this.getExporterName() + ": event handler shut down");
 		
 		//	disconnect from database
 		this.io.close();
+		
+		//	delete pending event file if empty
+		File eventFile = new File(this.dataPath, "events.txt");
+		if (events.isEmpty()) {
+			if (eventFile.exists()) try {
+				eventFile.delete();
+			}
+			catch (Exception e) {
+				System.out.println(getExporterName() + ": Error deleting update event file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
+				e.printStackTrace(System.out);
+			}
+		}
+		
+		//	store any pending events on disk
+		else try {
+			BufferedWriter eventBw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(eventFile), "UTF-8"));
+			for (int e = 0; e < events.size(); e++) {
+				UpdateEvent event = ((UpdateEvent) events.get(e));
+				eventBw.write(event.docId + "\t" + (event.highPriority ? 'H' : 'L') + "\t" + (event.isDelete ? 'D' : 'U'));
+				eventBw.newLine();
+			}
+			eventBw.flush();
+			eventBw.close();
+		}
+		catch (Exception e) {
+			System.out.println(getExporterName() + ": Error storing pending update events to file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
+			e.printStackTrace(System.out);
+		}
 	}
 	
 	/**
@@ -554,19 +602,33 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				//	get document IDs from own database table
 				HashSet deleteDocIDs = new HashSet();
 				int retained = 0;
+				int deleted = 0;
 				String docIdQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
 						" FROM " + DATA_TABLE_NAME + 
 						";";
 				SqlQueryResult sqr = null;
 				try {
-					sqr = io.executeSelectQuery(docIdQuery);
-					while (sqr.next()) try {
-						binding.getDocument(sqr.getString(0));
-						retained++;
-					}
-					catch (IOException ioe) {
-						if (ioe.getMessage().startsWith("Invalid document ID '" + sqr.getString(0) + "'"))
+					sqr = io.executeSelectQuery(docIdQuery, true);
+					System.out.println("Got document list, starting diff.");
+					for (int docs = 1; sqr.next(); docs++) {
+						if ((docs % 500) == 0)
+							System.out.println(" - diffed " + docs + " documents so far, deleted " + deleted + ", retained " + retained);
+						
+						//	try and see if document still exists
+						if (binding.isDocumentAvailable(sqr.getString(0))) {
+							retained++;
+							continue;
+						}
+						else {
 							deleteDocIDs.add(sqr.getString(0));
+							deleted++;
+						}
+						
+						//	flag this round of documents as deleted, no need to buffer them all
+						if (deleteDocIDs.size() >= 32) {
+							this.deleteDocs(deleteDocIDs);
+							deleteDocIDs.clear();
+						}
 					}
 				}
 				catch (SQLException sqle) {
@@ -578,31 +640,40 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 						sqr.close();
 				}
 				
-				//	flag obsolete documents as deleted
+				//	flag remaining documents as deleted
 				if (deleteDocIDs.size() != 0) {
-					StringBuffer docUpdateQuery = new StringBuffer("UPDATE " + DATA_TABLE_NAME + 
-							" SET " + DELETED_MARKER_COLUMN_NAME + " = '" + DELETED_MARKER + "'" +
-							" WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN (");
-					for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();) {
-						String deleteDocId = ((String) idit.next());
-						docUpdateQuery.append("'" + deleteDocId + "'");
-						if (idit.hasNext())
-							docUpdateQuery.append(", ");
-					}
-					docUpdateQuery.append(");");
-					try {
-						io.executeUpdateQuery(docUpdateQuery.toString());
-					}
-					catch (SQLException sqle) {
-						System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while flagging documents as deleted.");
-						System.out.println("  query was " + docUpdateQuery.toString());
-					}
+					this.deleteDocs(deleteDocIDs);
+					deleteDocIDs.clear();
+				}
+				
+				//	issue final report
+				System.out.println("Issued delete events for " + deleted + " documents, retained " + retained + " ones.");
+			}
+			private void deleteDocs(HashSet deleteDocIDs) {
+				
+				//	flag obsolete documents as deleted
+				StringBuffer docUpdateQuery = new StringBuffer("UPDATE " + DATA_TABLE_NAME + 
+						" SET " + DELETED_MARKER_COLUMN_NAME + " = '" + DELETED_MARKER + "'" +
+						" WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN (");
+				for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();) {
+					String deleteDocId = ((String) idit.next());
+					docUpdateQuery.append("'" + deleteDocId + "'");
+					if (idit.hasNext())
+						docUpdateQuery.append(", ");
+				}
+				docUpdateQuery.append(");");
+				try {
+					io.executeUpdateQuery(docUpdateQuery.toString());
+				}
+				catch (SQLException sqle) {
+					System.out.println(getExporterName() + ": " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while flagging documents as deleted.");
+					System.out.println("  query was " + docUpdateQuery.toString());
 				}
 				
 				//	trigger update events
 				for (Iterator idit = deleteDocIDs.iterator(); idit.hasNext();)
 					documentDeleted(((String) idit.next()), ((Properties) null)); // set attributes to null initially to prevent holding whole index table in memory for large console-triggered updates
-				System.out.println("Issued delete events for " + deleteDocIDs.size() + " documents, retained " + retained + " ones.");
+				System.out.println(" - issued delete events for " + deleteDocIDs.size() + " documents.");
 			}
 		};
 		cal.add(ca);
@@ -753,7 +824,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		//	check if document in data table
 		String checkQuery = "SELECT " + fields.toString() +
 				" FROM " + DATA_TABLE_NAME + 
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
 				";";
 		
 		SqlQueryResult sqr = null;
@@ -794,7 +865,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 					//	update database
 					String updateQuery = "UPDATE " + DATA_TABLE_NAME +
 							" SET" + updates.toString() + 
-							" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+							" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
 							";";
 					try {
 						this.io.executeUpdateQuery(updateQuery);
@@ -919,7 +990,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		//	mark document as deleted in index table
 		String deleteMarkerQuery = "UPDATE " + DATA_TABLE_NAME +
 				" SET " + DELETED_MARKER_COLUMN_NAME + " = '" + DELETED_MARKER + "'" +
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
 				";";
 		try {
 			this.io.executeUpdateQuery(deleteMarkerQuery);
@@ -945,7 +1016,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 			fields.append(", " + this.indexFields[f].getColumnName());
 		String checkQuery = "SELECT " + fields.toString() +
 				" FROM " + DATA_TABLE_NAME + 
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
 				";";
 		
 		//	do lookup
@@ -1004,6 +1075,12 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		}
 		int size() {
 			return (this.highPriorityQueue.size() + this.lowPriorityQueue.size());
+		}
+		ArrayList getEvents() {
+			ArrayList events = new ArrayList();
+			events.addAll(this.highPriorityQueue);
+			events.addAll(this.lowPriorityQueue);
+			return events;
 		}
 	}
 	
@@ -1097,7 +1174,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 							
 							//	delete document from index table
 							String deleteQuery = "DELETE FROM " + DATA_TABLE_NAME +
-									" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(ue.docId) + "'" +
+									" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(ue.docId) + "'" +
 									";";
 							try {
 								io.executeUpdateQuery(deleteQuery);
@@ -1157,12 +1234,14 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 			} catch (InterruptedException ie) {}
 		}
 		
-		private void shutdown() {
+		private ArrayList shutdown() {
 			synchronized (eventQueue) {
 				this.shutdown = true;
+				ArrayList events = eventQueue.getEvents();
 				eventQueue.clear(true);
 				eventQueue.notify();
 				this.interrupt(); // end any post export or global pause waiting immediately
+				return events;
 			}
 		}
 		
@@ -1225,6 +1304,14 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 		 * Connect the binding to its backing source.
 		 */
 		public abstract void connect();
+		
+		/**
+		 * Check if a document is available from the component backing the binding
+		 * @param docId the ID of the document to check
+		 * @return true if a document with the specified ID exists
+		 * @throws IOException
+		 */
+		public abstract boolean isDocumentAvailable(String docId);
 		
 		/**
 		 * Retrieve an updated document from the component backing the binding
