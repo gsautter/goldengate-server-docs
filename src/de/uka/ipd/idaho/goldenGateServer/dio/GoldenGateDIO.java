@@ -47,11 +47,11 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.Map.Entry;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -66,18 +66,18 @@ import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
-import de.uka.ipd.idaho.gamta.util.SgmlDocumentReader;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
+import de.uka.ipd.idaho.gamta.util.SgmlDocumentReader;
 import de.uka.ipd.idaho.gamta.util.gPath.GPath;
 import de.uka.ipd.idaho.gamta.util.gPath.exceptions.GPathSyntaxException;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
-import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
+import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList.DocumentAttributeSummary;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore;
 import de.uka.ipd.idaho.goldenGateServer.uaa.UserAccessAuthority;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNode;
@@ -111,8 +111,12 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 */
 	private static final String DOCUMENT_TABLE_NAME = "GgDioDocuments";
 	
+	private static final String DOCUMENT_ID_HASH_NAME = "docIdHash";
+	
 	private static final String EXTERNAL_IDENTIFIER_NAME = "externalIdentifierName";
 	private static final int EXTERNAL_IDENTIFIER_NAME_LENGTH = 32;
+	
+	private static final String EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME = "extIdConfigHash";
 	
 	private static final int EXTERNAL_IDENTIFIER_LENGTH = 255;
 	
@@ -122,7 +126,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	private static final int DOCUMENT_KEYWORDS_COLUMN_LENGTH = 1023;
 	
 //	private String externalIdentifierAttributeName = null;
-	private String[] externalIdentifierAttributeNames = {};
+	private String extIdAttributeNameList = "";
+	private String[] extIdAttributeNames = {};
 	
 	private int documentListSizeThreshold = 0;
 	
@@ -194,20 +199,21 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		String tableStateQuery = ("SELECT * FROM " + DOCUMENT_TABLE_NAME + " WHERE 1=0;");
 		SqlQueryResult oldTable = null;
 		try {
-			oldTable = this.io.executeSelectQuery(tableStateQuery);
+			oldTable = this.io.executeSelectQuery(tableStateQuery, true);
 		}
 		catch (SQLException sqle) {
 			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading existing table definition.");
 			System.out.println("  query was " + tableStateQuery);
 		}
 		
-		
 		//	create/update document table
 		TableDefinition td = new TableDefinition(DOCUMENT_TABLE_NAME);
 		
 		//	- identification data
 		td.addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
+		td.addColumn(DOCUMENT_ID_HASH_NAME, TableDefinition.INT_DATATYPE, 0);
 		td.addColumn(EXTERNAL_IDENTIFIER_NAME, TableDefinition.VARCHAR_DATATYPE, EXTERNAL_IDENTIFIER_NAME_LENGTH);
+		td.addColumn(EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME, TableDefinition.INT_DATATYPE, 0);
 		td.addColumn(EXTERNAL_IDENTIFIER_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, EXTERNAL_IDENTIFIER_LENGTH);
 		td.addColumn(DOCUMENT_NAME_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, DOCUMENT_NAME_COLUMN_LENGTH);
 		
@@ -232,108 +238,16 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		//	index table
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, DOCUMENT_ID_ATTRIBUTE);
+		this.io.indexColumn(DOCUMENT_TABLE_NAME, DOCUMENT_ID_HASH_NAME);
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, EXTERNAL_IDENTIFIER_ATTRIBUTE);
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, CHECKIN_USER_ATTRIBUTE);
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, UPDATE_USER_ATTRIBUTE);
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, CHECKOUT_USER_ATTRIBUTE);
 		
 		//	get external identifier setting
-//		this.externalIdentifierAttributeName = this.configuration.getSetting(EXTERNAL_IDENTIFIER_ATTRIBUTE);
-		String externalIdentifierAttributeNames = this.configuration.getSetting(EXTERNAL_IDENTIFIER_ATTRIBUTE);
-		if (externalIdentifierAttributeNames != null)
-			this.externalIdentifierAttributeNames = externalIdentifierAttributeNames.split("\\s+");
-		
-		//	verify external identifier (might have been set after first documents were stored)
-		if (this.externalIdentifierAttributeNames.length != 0) {
-			System.out.println("  - external document identifier set to " + Arrays.toString(this.externalIdentifierAttributeNames) + ", checking database ...");
-			
-//			String externalIdentifierName = this.externalIdentifierAttributeName;
-//			if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
-//				externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
-			StringBuffer externalIdentifierNameList = new StringBuffer();
-			for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
-				String externalIdentifierName = this.externalIdentifierAttributeNames[i];
-				if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
-					externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
-				if (externalIdentifierNameList.length() != 0)
-					externalIdentifierNameList.append(", ");
-				externalIdentifierNameList.append("'" + EasyIO.sqlEscape(externalIdentifierName) + "'");
-			}
-			
-			// assemble query
-			String testQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
-					" FROM " + DOCUMENT_TABLE_NAME +
-//					" WHERE " + EXTERNAL_IDENTIFIER_NAME + " NOT LIKE '" + EasyIO.prepareForLIKE(externalIdentifierName) + "'" +
-					" WHERE " + EXTERNAL_IDENTIFIER_NAME + " NOT IN (" + externalIdentifierNameList + ")" +
-					";";
-			
-			//	get IDs of documents with missing or outdated external identifier
-			LinkedList updateDocIDs = new LinkedList();
-			SqlQueryResult sqr = null;
-			try {
-				sqr = this.io.executeSelectQuery(testQuery);
-				while (sqr.next())
-					updateDocIDs.addLast(sqr.getString(0));
-			}
-			catch (SQLException sqle) {
-				System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents with invalid external identifiers.");
-				System.out.println("  query was " + testQuery);
-			}
-			finally {
-				if (sqr != null)
-					sqr.close();
-			}
-			
-			//	update external identifier where necessary
-			while (updateDocIDs.size() != 0) {
-				String docId = ((String) updateDocIDs.removeFirst());
-				Properties docAttributes;
-				try {
-					docAttributes = this.dst.getDocumentAttributes(docId);
-				}
-				catch (IOException ioe) {
-					System.out.println("GoldenGateDIO: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while getting attributes of document '" + docId + "'.");
-					ioe.printStackTrace(System.out);
-					continue;
-				}
-//				String externalIdentifier = docAttributes.getProperty(this.externalIdentifierAttributeName, "");
-//				if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
-//					externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
-				String externalIdentifier = null;
-				String externalIdentifierName = null;
-				for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
-					externalIdentifier = docAttributes.getProperty(this.externalIdentifierAttributeNames[i]);
-					if (externalIdentifier == null)
-						continue;
-					externalIdentifier = externalIdentifier.replaceAll("\\s", "");
-					externalIdentifierName = this.externalIdentifierAttributeNames[i];
-					if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
-						externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
-					break;
-				}
-				if ((externalIdentifier == null) || (externalIdentifierName == null)) {
-					externalIdentifier = "";
-					externalIdentifierName = "";
-				}
-				
-				String updateQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
-						" SET " + 
-							EXTERNAL_IDENTIFIER_ATTRIBUTE + " = '" + EasyIO.sqlEscape(externalIdentifier) + "', " +
-							EXTERNAL_IDENTIFIER_NAME + " = '" + EasyIO.sqlEscape(externalIdentifierName) + "'" +
-						" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
-						";");
-				
-				try {
-					this.io.executeUpdateQuery(updateQuery);
-					System.out.println("    - external identifier of document '" + docId + "' set to '" + externalIdentifierName + "' with value '" + externalIdentifier + "'");
-				}
-				catch (SQLException sqle) {
-					System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating external identifier of document '" + docId + "'.");
-					System.out.println("  query was " + updateQuery);
-				}
-			}
-		}
-		
+		this.extIdAttributeNameList = this.configuration.getSetting(EXTERNAL_IDENTIFIER_ATTRIBUTE, "");
+		if (this.extIdAttributeNameList != null)
+			this.extIdAttributeNames = this.extIdAttributeNameList.split("\\s+");
 		
 		//	load document keywording data
 		File keywordingFolder = new File(this.dataPath, "Keywording");
@@ -417,6 +331,167 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			ioe.printStackTrace(System.out);
 		}
 		
+		//	get maximum document list size for non-admin users
+		try {
+			this.documentListSizeThreshold = Integer.parseInt(this.configuration.getSetting("documentListSizeThreshold", "0"));
+		} catch (NumberFormatException nfe) {}
+		
+		
+		// start folder watchers
+		Settings inputFoldersSettings = this.configuration.getSubset(INPUT_FOLDER_SUBSET_PREFIX);
+		for (int i = 0; i < inputFoldersSettings.size(); i++) {
+			Settings inputFolderSettings = inputFoldersSettings.getSubset("" + i);
+			String inputFolderName = inputFolderSettings.getSetting(INPUT_FOLDER_SETTING);
+			if (inputFolderName != null) this.watchFolder(inputFolderName);
+		}
+		
+		//	trigger database table checks
+		final String fTableStateQuery = tableStateQuery;
+		final SqlQueryResult fOldTable = oldTable;
+		Thread tableChecker = new Thread("GgDioTableChecker") {
+			public void run() {
+				checkDatabaseTable(fTableStateQuery, fOldTable);
+			}
+		};
+		tableChecker.start();
+	}
+	
+	private void checkDatabaseTable(String tableStateQuery, SqlQueryResult oldTable) {
+		
+		//	add check updating ID hash where it's 0 (should run only once, and best at night)
+		String getNoIdHashDocsQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
+				" FROM " + DOCUMENT_TABLE_NAME +
+				" WHERE " + DOCUMENT_ID_HASH_NAME + " = 0" +
+				";";
+		LinkedList noIdHashDocIDs = new LinkedList();
+		SqlQueryResult idhSqr = null;
+		try {
+			idhSqr = this.io.executeSelectQuery(getNoIdHashDocsQuery);
+			while (idhSqr.next())
+				noIdHashDocIDs.addLast(idhSqr.getString(0));
+		}
+		catch (SQLException sqle) {
+			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents with invalid identifiers hash.");
+			System.out.println("  query was " + getNoIdHashDocsQuery);
+		}
+		finally {
+			if (idhSqr != null)
+				idhSqr.close();
+		}
+		
+		//	update ID hash where necessary
+		while (noIdHashDocIDs.size() != 0) {
+			String docId = ((String) noIdHashDocIDs.removeFirst());
+			String updateIdHashQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
+					" SET " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
+					" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
+					";");
+			try {
+				this.io.executeUpdateQuery(updateIdHashQuery);
+			}
+			catch (SQLException sqle) {
+				System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating external identifier of document '" + docId + "'.");
+				System.out.println("  query was " + updateIdHashQuery);
+			}
+		}
+		
+		//	verify external identifier (might have been set after first documents were stored)
+		if (this.extIdAttributeNames.length != 0) {
+			System.out.println("  - external document identifier list set to " + Arrays.toString(this.extIdAttributeNames) + ", checking database ...");
+			
+			StringBuffer externalIdentifierNameList = new StringBuffer();
+			for (int i = 0; i < this.extIdAttributeNames.length; i++) {
+				String externalIdentifierName = this.extIdAttributeNames[i];
+				if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
+					externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
+				if (externalIdentifierNameList.length() != 0)
+					externalIdentifierNameList.append(", ");
+				externalIdentifierNameList.append("'" + EasyIO.sqlEscape(externalIdentifierName) + "'");
+			}
+			
+			//	update external ID config hash where required
+			String updateExtIdHashQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
+					" SET " + EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME + " = " + this.extIdAttributeNameList.hashCode() + "" +
+					" WHERE " + EXTERNAL_IDENTIFIER_NAME + " IN (" + externalIdentifierNameList + ")" +
+						" AND " + EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME + " <> " + this.extIdAttributeNameList.hashCode() + "" +
+					";");
+			try {
+				this.io.executeUpdateQuery(updateExtIdHashQuery);
+			}
+			catch (SQLException sqle) {
+				System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating external identifier config hash.");
+				System.out.println("  query was " + updateExtIdHashQuery);
+			}
+			
+			//	get IDs of documents with missing or outdated external identifier
+			String getNoExtIdDocsQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
+					" FROM " + DOCUMENT_TABLE_NAME +
+					" WHERE " + EXTERNAL_IDENTIFIER_NAME + " NOT IN (" + externalIdentifierNameList + ")" +
+						" AND " + EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME + " <> " + this.extIdAttributeNameList.hashCode() + "" +
+					";";
+			LinkedList noExtIdDocIDs = new LinkedList();
+			SqlQueryResult eidSqr = null;
+			try {
+				eidSqr = this.io.executeSelectQuery(getNoExtIdDocsQuery);
+				while (eidSqr.next())
+					noExtIdDocIDs.addLast(eidSqr.getString(0));
+			}
+			catch (SQLException sqle) {
+				System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents with invalid external identifiers.");
+				System.out.println("  query was " + getNoExtIdDocsQuery);
+			}
+			finally {
+				if (eidSqr != null)
+					eidSqr.close();
+			}
+			
+			//	update external identifier where necessary
+			while (noExtIdDocIDs.size() != 0) {
+				String docId = ((String) noExtIdDocIDs.removeFirst());
+				Properties docAttributes;
+				try {
+					docAttributes = this.dst.getDocumentAttributes(docId);
+				}
+				catch (IOException ioe) {
+					System.out.println("GoldenGateDIO: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while getting attributes of document '" + docId + "'.");
+					ioe.printStackTrace(System.out);
+					continue;
+				}
+				String externalIdentifier = null;
+				String externalIdentifierName = null;
+				for (int i = 0; i < this.extIdAttributeNames.length; i++) {
+					externalIdentifier = docAttributes.getProperty(this.extIdAttributeNames[i]);
+					if (externalIdentifier == null)
+						continue;
+					externalIdentifier = externalIdentifier.replaceAll("\\s", "");
+					externalIdentifierName = this.extIdAttributeNames[i];
+					if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
+						externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
+					break;
+				}
+				if ((externalIdentifier == null) || (externalIdentifierName == null)) {
+					externalIdentifier = "";
+					externalIdentifierName = "";
+				}
+				
+				String updateExtIdQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
+						" SET " + EXTERNAL_IDENTIFIER_ATTRIBUTE + " = '" + EasyIO.sqlEscape(externalIdentifier) + "'" +
+						", " + EXTERNAL_IDENTIFIER_NAME + " = '" + EasyIO.sqlEscape(externalIdentifierName) + "'" +
+						", " + EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME + " = " + this.extIdAttributeNameList.hashCode() + "" +
+						" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
+							" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
+						";");
+				try {
+					this.io.executeUpdateQuery(updateExtIdQuery);
+					if (!"".equals(externalIdentifier))
+						System.out.println("    - external identifier of document '" + docId + "' set to '" + externalIdentifierName + "' with value '" + externalIdentifier + "'");
+				}
+				catch (SQLException sqle) {
+					System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating external identifier of document '" + docId + "'.");
+					System.out.println("  query was " + updateExtIdQuery);
+				}
+			}
+		}
 		
 		//	do attribute update if the data table existed before
 		if (oldTable != null) try {
@@ -462,21 +537,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading updated table definition.");
 			System.out.println("  query was " + tableStateQuery);
 		}
-		
-		
-		//	get maximum document list size for non-admin users
-		try {
-			this.documentListSizeThreshold = Integer.parseInt(this.configuration.getSetting("documentListSizeThreshold", "0"));
-		} catch (NumberFormatException nfe) {}
-		
-		
-		// start folder watchers
-		Settings inputFoldersSettings = this.configuration.getSubset(INPUT_FOLDER_SUBSET_PREFIX);
-		for (int i = 0; i < inputFoldersSettings.size(); i++) {
-			Settings inputFolderSettings = inputFoldersSettings.getSubset("" + i);
-			String inputFolderName = inputFolderSettings.getSetting(INPUT_FOLDER_SETTING);
-			if (inputFolderName != null) this.watchFolder(inputFolderName);
-		}
 	}
 	
 	private static final Properties documentMetaDataAttributes = new Properties();
@@ -506,19 +566,19 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		// get document IDs
 		LinkedList updateDocIDs = new LinkedList();
-		SqlQueryResult sqr = null;
+		SqlQueryResult uidSqr = null;
 		try {
-			sqr = this.io.executeSelectQuery(idQuery);
-			while (sqr.next())
-				updateDocIDs.addLast(sqr.getString(0));
+			uidSqr = this.io.executeSelectQuery(idQuery);
+			while (uidSqr.next())
+				updateDocIDs.addLast(uidSqr.getString(0));
 		}
 		catch (SQLException sqle) {
 			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents with invalid external identifiers.");
 			System.out.println("  query was " + idQuery);
 		}
 		finally {
-			if (sqr != null)
-				sqr.close();
+			if (uidSqr != null)
+				uidSqr.close();
 		}
 		
 		//	update doaument data
@@ -570,7 +630,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			//	do update
 			String updateQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
 					" SET " + assignments.concatStrings(", ") +
-					" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+					" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
+						" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
 					";");
 			try {
 				this.io.executeUpdateQuery(updateQuery);
@@ -649,7 +710,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	private static final String STOP_WATCH_FOLDER_COMMAND = "stopwatch";
 
 	private static final String IMPORT_FILE_COMMAND = "import";
-
+	
+	private static final String ISSUE_EVENTS_COMMAND = "issueEvents";
+	
 	/*
 	 * (non-Javadoc)
 	 * @see de.goldenGateScf.ServerComponent#getActions()
@@ -1342,7 +1405,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				return IMPORT_FILE_COMMAND;
 			}
 			public String[] getExplanation() {
-				String[] explanation = { IMPORT_FILE_COMMAND + " ", "Import a document from a file:", "- : the file to import, has to be an XML file" };
+				String[] explanation = { IMPORT_FILE_COMMAND + " <file>", "Import a document from a file:", "- <file>: the file to import, has to be an XML file" };
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
@@ -1370,6 +1433,27 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			}
 		};
 		cal.add(ca);
+		
+		//	issue update events
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return ISSUE_EVENTS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						ISSUE_EVENTS_COMMAND + " <docId>",
+						"Issue update events for all documents from a specific document ID:",
+						"- <docId>: the ID of the document to issue update events for"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 1)
+					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID as the only argument.");
+				else issueEvents(arguments[0]);
+			}
+		};
+		cal.add(ca);
 
 		// get actions from document store
 		ComponentAction[] dstActions = this.dst.getActions();
@@ -1377,6 +1461,60 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			cal.add(dstActions[a]);
 		
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
+	}
+	
+	private Thread eventIssuer = null;
+	private void issueEvents(final String docId) {
+		
+		//	let's not knock out the server
+		if (this.eventIssuer != null) {
+			System.out.println("Already issuing update events, only one document can run at a time.");
+			return;
+		}
+		
+		//	create and start event issuer
+		this.eventIssuer = new Thread() {
+			public void run() {
+				StringBuffer query = new StringBuffer("SELECT " + DOCUMENT_ID_ATTRIBUTE + ", " + UPDATE_USER_ATTRIBUTE + ", " + UPDATE_TIME_ATTRIBUTE);
+				query.append(" FROM " + DOCUMENT_TABLE_NAME);
+				query.append(" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'");
+				query.append(" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "");
+				
+				SqlQueryResult sqr = null;
+				int count = 0;
+				try {
+					sqr = io.executeSelectQuery(query.toString(), true);
+					while (sqr.next()) {
+						String docId = sqr.getString(0);
+						String updateUser = sqr.getString(1);
+						long updateTime = sqr.getLong(2);
+						try {
+							QueriableAnnotation doc = dst.loadDocument(docId);
+							int docVersion = dst.getVersion(docId);
+							GoldenGateServerEventService.notify(new DioDocumentEvent(updateUser, docId, doc, docVersion, this.getClass().getName(), updateTime, new EventLogger() {
+								public void writeLog(String logEntry) {}
+							}));
+							count++;
+						}
+						catch (IOException ioe) {
+							System.out.println("GoldenGateDIO: error issuing update event for document '" + docId + "': " + ioe.getMessage());
+							ioe.printStackTrace(System.out);
+						}
+					}
+				}
+				catch (SQLException sqle) {
+					System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+					System.out.println("  query was " + query);
+				}
+				finally {
+					if (sqr != null)
+						sqr.close();
+					eventIssuer = null;
+				}
+				System.out.println("Issued update events for " + count + " documents.");
+			}
+		};
+		this.eventIssuer.start();
 	}
 	
 	private Map updateProtocolsByDocId = Collections.synchronizedMap(new LinkedHashMap(16, 0.9f, false) {
@@ -1612,17 +1750,14 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		//	get external identifier of document
-//		String externalIdentifier = null;
-//		if (this.externalIdentifierAttributeName != null)
-//			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeName));
 		String externalIdentifier = null;
 		String externalIdentifierName = null;
-		for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
-			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeNames[i]));
+		for (int i = 0; i < this.extIdAttributeNames.length; i++) {
+			externalIdentifier = ((String) doc.getAttribute(this.extIdAttributeNames[i]));
 			if (externalIdentifier == null)
 				continue;
 			externalIdentifier = externalIdentifier.replaceAll("\\s", "");
-			externalIdentifierName = this.externalIdentifierAttributeNames[i];
+			externalIdentifierName = this.extIdAttributeNames[i];
 			if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
 				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
 			break;
@@ -1636,7 +1771,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			
 			//	we do have conflicts?
 			if (conflictList.hasNextDocument())
-//				throw new DuplicateExternalIdentifierException(this.externalIdentifierAttributeName, externalIdentifier, conflictList);
 				throw new DuplicateExternalIdentifierException(externalIdentifierName, externalIdentifier, conflictList);
 		}
 		
@@ -1673,10 +1807,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// gather complete data for creating master table record
 		StringBuffer fields = new StringBuffer(DOCUMENT_ID_ATTRIBUTE);
 		StringBuffer fieldValues = new StringBuffer("'" + EasyIO.sqlEscape(docId) + "'");
-
+		fields.append(", " + DOCUMENT_ID_HASH_NAME);
+		fieldValues.append(", " + docId.hashCode() + "");
+		
 		//	store external identifier if present
 		if (externalIdentifier != null) {
-//			String externalIdentifierName = this.externalIdentifierAttributeName;
 			if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
 				externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
 			fields.append(", " + EXTERNAL_IDENTIFIER_NAME);
@@ -1686,6 +1821,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
 			fields.append(", " + EXTERNAL_IDENTIFIER_ATTRIBUTE);
 			fieldValues.append(", '" + EasyIO.sqlEscape(externalIdentifier) + "'");
+			
+			fields.append(", " + EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME);
+			fieldValues.append(", " + this.extIdAttributeNameList.hashCode() + "");
 		}
 		
 		// set name
@@ -1850,17 +1988,14 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		//	get external identifier of document
-//		String externalIdentifier = null;
-//		if (this.externalIdentifierAttributeName != null)
-//			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeName));
 		String externalIdentifier = null;
 		String externalIdentifierName = null;
-		for (int i = 0; i < this.externalIdentifierAttributeNames.length; i++) {
-			externalIdentifier = ((String) doc.getAttribute(this.externalIdentifierAttributeNames[i]));
+		for (int i = 0; i < this.extIdAttributeNames.length; i++) {
+			externalIdentifier = ((String) doc.getAttribute(this.extIdAttributeNames[i]));
 			if (externalIdentifier == null)
 				continue;
 			externalIdentifier = externalIdentifier.replaceAll("\\s", "");
-			externalIdentifierName = this.externalIdentifierAttributeNames[i];
+			externalIdentifierName = this.extIdAttributeNames[i];
 			if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
 				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
 			break;
@@ -1874,7 +2009,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			
 			//	we do have conflicts?
 			if (conflictList.hasNextDocument()) {
-//				DuplicateExternalIdentifierException deie = new DuplicateExternalIdentifierException(this.externalIdentifierAttributeName, externalIdentifier, conflictList);
 				DuplicateExternalIdentifierException deie = new DuplicateExternalIdentifierException(externalIdentifierName, externalIdentifier, conflictList);
 				DocumentListElement[] conflictDocs = deie.getConflictingDocuments();
 				
@@ -1902,7 +2036,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 		//	store external identifier if present
 		if (externalIdentifier != null) {
-//			String externalIdentifierName = this.externalIdentifierAttributeName;
 			if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
 				externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
 			assignments.addElement(EXTERNAL_IDENTIFIER_NAME + " = '" + EasyIO.sqlEscape(externalIdentifierName) + "'");
@@ -1910,6 +2043,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			if (externalIdentifier.length() > EXTERNAL_IDENTIFIER_LENGTH)
 				externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
 			assignments.addElement(EXTERNAL_IDENTIFIER_ATTRIBUTE + " = '" + EasyIO.sqlEscape(externalIdentifier) + "'");
+			
+			assignments.addElement(EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME + " = " + this.extIdAttributeNameList.hashCode() + "");
 		}
 		
 		// check and (if necessary) truncate name
@@ -1956,7 +2091,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// write new values
 		String updateQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
 				" SET " + assignments.concatStrings(", ") + 
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + docId + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + docId + "'" +
+					" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
 				";");
 
 		try {
@@ -1967,10 +2103,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				// gather complete data for creating master table record
 				StringBuffer fields = new StringBuffer(DOCUMENT_ID_ATTRIBUTE);
 				StringBuffer fieldValues = new StringBuffer("'" + EasyIO.sqlEscape(docId) + "'");
+				fields.append(", " + DOCUMENT_ID_HASH_NAME);
+				fieldValues.append(", " + docId.hashCode() + "");
 				
 				//	store external identifier if present
 				if (externalIdentifier != null) {
-//					String externalIdentifierName = this.externalIdentifierAttributeName;
 					if (externalIdentifierName.length() > EXTERNAL_IDENTIFIER_NAME_LENGTH)
 						externalIdentifierName = externalIdentifierName.substring(0, EXTERNAL_IDENTIFIER_NAME_LENGTH);
 					fields.append(", " + EXTERNAL_IDENTIFIER_NAME);
@@ -1980,6 +2117,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 						externalIdentifier = externalIdentifier.substring(0, EXTERNAL_IDENTIFIER_LENGTH);
 					fields.append(", " + EXTERNAL_IDENTIFIER_ATTRIBUTE);
 					fieldValues.append(", '" + EasyIO.sqlEscape(externalIdentifier) + "'");
+					
+					fields.append(", " + EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME);
+					fieldValues.append(", " + this.extIdAttributeNameList.hashCode() + "");
 				}
 				
 				// set name
@@ -2106,6 +2246,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// delete meta data
 		String deleteQuery = "DELETE FROM " + DOCUMENT_TABLE_NAME + 
 				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+					" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
 				";";
 		try {
 			DocumentListElement dle = this.getMetaData(docId);
@@ -2125,6 +2266,27 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			((UpdateProtocol) logger).close();
 	}
 
+	/**
+	 * Check if a document with a given ID exists.
+	 * @param documentId the ID of the document to check
+	 * @return true if the document with the specified ID exists
+	 * @see de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore#isDocumentAvailable(String)
+	 */
+	public boolean isDocumentAvailable(String documentId) {
+		return this.dst.isDocumentAvailable(documentId);
+	}
+
+	/**
+	 * Check if a document with a given ID exists and is free for checkout and
+	 * update.
+	 * @param documentId the ID of the document to check
+	 * @return true if the document with the specified ID exists and is free
+	 *            for editing
+	 */
+	public boolean isDocumentEditable(String documentId) {
+		return "".equals(this.getCheckoutUser(documentId));
+	}
+	
 	/**
 	 * Load a document from storage (the most recent version). This method loops
 	 * through to the underlying DST, it exists so other components do not have
@@ -2458,7 +2620,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// cache miss, prepare loading data
 		String query = "SELECT " + CHECKOUT_USER_ATTRIBUTE + 
 				" FROM " + DOCUMENT_TABLE_NAME + 
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
+					" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
 				";";
 
 		SqlQueryResult sqr = null;
@@ -2525,7 +2688,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// assemble query
 		String query = "SELECT " + fieldNames.concatStrings(", ") + 
 				" FROM " + DOCUMENT_TABLE_NAME +
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
+					" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
 				";";
 		
 		SqlQueryResult sqr = null;
@@ -2574,7 +2738,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// write new values
 		String updateQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
 				" SET " + assignments.concatStrings(", ") + 
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(docId) + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
+					" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
 				";");
 		try {
 			this.io.executeUpdateQuery(updateQuery);

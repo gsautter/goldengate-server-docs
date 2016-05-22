@@ -478,7 +478,7 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 			this.authClient = null;
 		}
 		catch (IOException ioe) {
-			JOptionPane.showMessageDialog(DialogPanel.getTopWindow(), ("An error occurred while logging out from GoldenGATE Server\n" + ioe.getMessage()), ("Error on Logout"), JOptionPane.ERROR_MESSAGE);
+			JOptionPane.showMessageDialog(DialogPanel.getTopWindow(), ("An error occurred while logging out from GoldenGATE Server\n" + ioe.getMessage()), "Error on Logout", JOptionPane.ERROR_MESSAGE);
 		}
 	}
 	
@@ -491,7 +491,7 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 		
 		//	check connection
 		if ((this.dioClient == null) && (this.cache == null)) {
-			JOptionPane.showMessageDialog(promptParent, ("Cannot save a document to GoldenGATE Server without authentication."), ("Cannot Save Document"), JOptionPane.ERROR_MESSAGE);
+			JOptionPane.showMessageDialog(promptParent, ("Cannot save a document to GoldenGATE Server without authentication."), "Cannot Save Document", JOptionPane.ERROR_MESSAGE);
 			return false;
 		}
 		
