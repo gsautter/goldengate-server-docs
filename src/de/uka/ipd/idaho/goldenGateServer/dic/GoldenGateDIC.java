@@ -134,6 +134,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 	}
 	
 	private synchronized void loadImporters(boolean isReload) {
+		
 		//	if reload, shut down importers
 		if (isReload)
 			this.shutdownImporters();
