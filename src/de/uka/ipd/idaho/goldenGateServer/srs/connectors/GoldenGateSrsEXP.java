@@ -132,6 +132,13 @@ public class GoldenGateSrsEXP extends GoldenGateExpBinding {
 	}
 	
 	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP.GoldenGateExpBinding#isDocumentAvailable(java.lang.String)
+	 */
+	public boolean isDocumentAvailable(String docId) {
+		return this.srs.isDocumentAvailable(docId);
+	}
+	
+	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP.GoldenGateExpBinding#getDocument(java.lang.String)
 	 */
 	public QueriableAnnotation getDocument(String docId) throws IOException {

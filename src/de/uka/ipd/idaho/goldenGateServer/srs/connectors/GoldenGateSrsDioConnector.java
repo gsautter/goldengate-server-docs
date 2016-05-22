@@ -318,7 +318,7 @@ public class GoldenGateSrsDioConnector extends AbstractGoldenGateServerComponent
 					updateDocCount++;
 				}
 			}
-			System.out.println(" Scheduled " + updateDocCount + " to update");
+			System.out.println(" Scheduled " + updateDocCount + " document(s) to update");
 			
 			//	start updater thread if none is running
 			synchronized (updateDocIDs) {

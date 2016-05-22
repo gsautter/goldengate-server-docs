@@ -51,13 +51,13 @@ import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.TokenSequence;
+import de.uka.ipd.idaho.gamta.util.CountingSet;
 import de.uka.ipd.idaho.goldenGateServer.srs.AbstractIndexer;
 import de.uka.ipd.idaho.goldenGateServer.srs.Query;
 import de.uka.ipd.idaho.goldenGateServer.srs.QueryResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.QueryResultElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResult;
-import de.uka.ipd.idaho.stringUtils.StringIndex;
 import de.uka.ipd.idaho.stringUtils.StringUtils;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 
@@ -90,7 +90,7 @@ public class FullTextIndexer extends AbstractIndexer {
 	private static final int INDEX_TERM_MIN_LENGHTH = 3; // anything less than three chars does not work with trigrams, and hardly bears any meaning
 	private static final int INDEX_TERM_MAX_LENGHTH = 128; // this prevents file name length problems, and, seriously, who will search for terms of this length ...
 	
-	private StringVector stopWords = new StringVector();
+	private TreeSet stopWords = new TreeSet(String.CASE_INSENSITIVE_ORDER);
 	
 	private TreeMap trigramsToIndexTerms = new TreeMap();
 	
@@ -120,10 +120,9 @@ public class FullTextIndexer extends AbstractIndexer {
 		//	load stop words
 		System.out.println("  - loading stop words ...");
 		try {
-			this.stopWords = StringVector.loadList(new File(this.dataPath, "stopWords.txt"));
-			for (int s = 0; s < this.stopWords.size(); s++)
-				this.stopWords.setElementAt(this.normalizeTerm(this.stopWords.get(s)), s);
-			this.stopWords.removeDuplicateElements();
+			StringVector stopWords = StringVector.loadList(new File(this.dataPath, "stopWords.txt"));
+			for (int s = 0; s < stopWords.size(); s++)
+				this.stopWords.add(this.normalizeTerm(stopWords.get(s)));
 			System.out.println("  - got " + this.stopWords.size() + " stop words");
 		}
 		catch (IOException ioe) {
@@ -234,7 +233,7 @@ public class FullTextIndexer extends AbstractIndexer {
 		StringVector terms = new StringVector();
 		for (int t = 0; t < termTs.size(); t++) {
 			String term = termTs.valueAt(t);
-			if (Gamta.isWord(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH) && !this.stopWords.containsIgnoreCase(term))
+			if (Gamta.isWord(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH) && !this.stopWords.contains(term))
 				terms.addElement(this.normalizeTerm(term));
 			else if (Gamta.isNumber(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH))
 				terms.addElement(this.normalizeTerm(term));
@@ -360,9 +359,7 @@ public class FullTextIndexer extends AbstractIndexer {
 			DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(indexFile)));
 			
 			//	read index data
-//			while (dis.available() >= 6) {
 			while (dis.available() >= 10) {
-//				int docNr = dis.readInt();
 				long docNr = dis.readLong();
 				byte tf = dis.readByte();
 				byte lenLog = dis.readByte();
@@ -371,7 +368,6 @@ public class FullTextIndexer extends AbstractIndexer {
 				synchronized (this.invalidDocumentNumbers) {
 					
 					//	if so, add index to dirty list so file is rewritten
-//					if (this.invalidDocumentNumbers.contains(new Integer(docNr)))
 					if (this.invalidDocumentNumbers.contains(new Long(docNr)))
 						synchronized (this.dirtyTermIndexQueue) {
 							this.dirtyTermIndexQueue.add(termIndex);
@@ -398,16 +394,9 @@ public class FullTextIndexer extends AbstractIndexer {
 				if (this.pendingTermIndexEntryCache.containsKey(term)) {
 					
 					//	add pending entries to index
-//					ArrayList pendingEntries = ((ArrayList) this.pendingTermIndexEntryCache.get(term));
 					LinkedList pendingEntries = ((LinkedList) this.pendingTermIndexEntryCache.get(term));
 					boolean modified = false;
 					int size = termIndex.size();
-//					for (int e = 0; e < pendingEntries.size(); e++) {
-//						if (termIndex.addEntry((TermIndexEntry) pendingEntries.get(e)))
-//							modified = true;
-//						else if (size == termIndex.size) // remove existing entries so they are not written to file
-//							pendingEntries.remove(e--);
-//					}
 					for (Iterator peit = pendingEntries.iterator(); peit.hasNext();) {
 						if (termIndex.addEntry((TermIndexEntry) peit.next())) {
 							modified = true;
@@ -538,14 +527,12 @@ public class FullTextIndexer extends AbstractIndexer {
 			}
 			return modified;
 		}
-//		private int find(int docNr) {
 		private int find(long docNr) {
 			int low = 0;
 			int high = this.size - 1;
 			long midDocNr;
 			while (low <= high) {
 				int middle = ((low + high) / 2);
-//				int midDocNr = this.entries[middle].docNr;
 				midDocNr = this.entries[middle].docNr;
 				if (midDocNr < docNr)
 					low = middle + 1;
@@ -558,15 +545,9 @@ public class FullTextIndexer extends AbstractIndexer {
 	}
 	
 	private static class TermIndexEntry {
-//		private final int docNr;
 		final long docNr;
 		final byte tf;
 		final byte docLenLog;
-//		TermIndexEntry(int docNr, byte tf, byte lenLog) {
-//			this.docNr = docNr;
-//			this.tf = tf;
-//			this.docLenLog = lenLog;
-//		}
 		TermIndexEntry(long docNr, byte tf, byte lenLog) {
 			this.docNr = docNr;
 			this.tf = tf;
@@ -587,14 +568,6 @@ public class FullTextIndexer extends AbstractIndexer {
 	public IndexResult getIndexEntries(Query query, long[] docNumbers, boolean sort) {
 		return null; //	no support for index search
 	}
-//	
-//	/* (non-Javadoc)
-//	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, int[], boolean)
-//	 */
-//	public IndexResult getIndexEntries(Query query, int[] docNumbers, boolean sort) {
-//		//	no support for index search
-//		return null;
-//	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#doThesaurusLookup(de.uka.ipd.idaho.goldenGateServer.srs.Query)
@@ -608,16 +581,9 @@ public class FullTextIndexer extends AbstractIndexer {
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#index(de.uka.ipd.idaho.gamta.QueriableAnnotation, long)
 	 */
 	public void index(QueriableAnnotation doc, long docNr) {
-//	}
-//
-//	/* (non-Javadoc)
-//	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#index(de.uka.ipd.idaho.gamta.QueriableAnnotation, int)
-//	 */
-//	public void index(QueriableAnnotation doc, int docNr) {
 		
 		//	mark document number as valid
 		synchronized (this.invalidDocumentNumbers) {
-//			this.invalidDocumentNumbers.remove(new Integer(docNr));
 			this.invalidDocumentNumbers.remove(new Long(docNr));
 		}
 		
@@ -627,36 +593,19 @@ public class FullTextIndexer extends AbstractIndexer {
 		
 		//	extract index terms
 		TokenSequence termTs = Gamta.newTokenSequence(doc, Gamta.NO_INNER_PUNCTUATION_TOKENIZER);
-//		StringVector terms = new StringVector();
-		TreeSet terms = new TreeSet(String.CASE_INSENSITIVE_ORDER);
-		StringIndex termFrequencies = new StringIndex(true);
+		CountingSet terms = new CountingSet(new TreeMap(String.CASE_INSENSITIVE_ORDER));
 		for (int t = 0; t < termTs.size(); t++) {
 			String term = termTs.valueAt(t);
-			if (Gamta.isWord(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH) && (term.length() <= INDEX_TERM_MAX_LENGHTH) && !this.stopWords.containsIgnoreCase(term)) {
-//				terms.addElement(this.normalizeTerm(term));
-				term = this.normalizeTerm(term);
-				terms.add(term);
-				termFrequencies.add(term);
-			}
-			else if (Gamta.isNumber(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH)) {
-//				terms.addElement(this.normalizeTerm(term));
-				term = this.normalizeTerm(term);
-				terms.add(term);
-				termFrequencies.add(term);
-			}
+			if (Gamta.isWord(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH) && (term.length() <= INDEX_TERM_MAX_LENGHTH) && !this.stopWords.contains(term))
+				terms.add(this.normalizeTerm(term));
+			else if (Gamta.isNumber(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH))
+				terms.add(this.normalizeTerm(term));
 		}
-//		
-//		//	eliminate duplicates
-//		StringVector distinctTerms = new StringVector();
-//		distinctTerms.addContentIgnoreDuplicates(terms);
 		
 		//	compute doc size
 		byte docLenLog = ((byte) Math.min(Byte.MAX_VALUE, ((int) Math.round(Math.log(doc.size()) / Math.log(2)))));
 		
 		//	index terms
-//		for (int t = 0; t < distinctTerms.size(); t++) {
-//			String term = distinctTerms.get(t);
-//			byte tf = ((byte) Math.min(Byte.MAX_VALUE, terms.getElementCount(term)));
 		for (Iterator tit = terms.iterator(); tit.hasNext();) {
 			String term = ((String) tit.next());
 			
@@ -672,7 +621,7 @@ public class FullTextIndexer extends AbstractIndexer {
 			}
 			
 			//	get term frequency
-			byte tf = ((byte) Math.min(Byte.MAX_VALUE, termFrequencies.getCount(term)));
+			byte tf = ((byte) Math.min(Byte.MAX_VALUE, terms.getCount(term)));
 			
 			//	add entries to cached indices (update from pending entries happens only on loading from disc)
 			synchronized (this.termIndexCache) {
@@ -696,16 +645,11 @@ public class FullTextIndexer extends AbstractIndexer {
 			//	enqueue new entries for persistent storage (if not whole index is scheduled for rewrite)
 			if (tf != 0)
 				synchronized (this.pendingTermIndexEntryCache) {
-//					ArrayList pendingEntries = ((ArrayList) this.pendingTermIndexEntryCache.get(term));
 					LinkedList pendingEntries = ((LinkedList) this.pendingTermIndexEntryCache.get(term));
 					if (pendingEntries == null) {
-//						pendingEntries = new ArrayList();
 						pendingEntries = new LinkedList();
 						this.pendingTermIndexEntryCache.put(term, pendingEntries);
 					}
-//					synchronized (pendingEntries) {
-//						pendingEntries.add(new TermIndexEntry(docNr, tf, docLenLog));
-//					}
 					pendingEntries.add(new TermIndexEntry(docNr, tf, docLenLog));
 				}
 		}
@@ -715,12 +659,6 @@ public class FullTextIndexer extends AbstractIndexer {
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#deleteDocument(long)
 	 */
 	public void deleteDocument(long docNr) {
-//	}
-//	
-//	/* (non-Javadoc)
-//	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#deleteDocument(int)
-//	 */
-//	public synchronized void deleteDocument(int docNr) {
 		/*
 		 * Going through all inverted lists in order to remove document number
 		 * would be too costly. Add document number to list of deleted
@@ -729,7 +667,6 @@ public class FullTextIndexer extends AbstractIndexer {
 		 * all documents marked as deleted.
 		 */
 		synchronized (this.invalidDocumentNumbers) {
-//			this.invalidDocumentNumbers.add(new Integer(docNr));
 			this.invalidDocumentNumbers.add(new Long(docNr));
 		}
 	}
@@ -827,7 +764,6 @@ public class FullTextIndexer extends AbstractIndexer {
 							DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(termIndexFile, false)));
 							for (int e = 0; e < termIndex.size; e++) {
 								TermIndexEntry tie = termIndex.entries[e];
-//								dos.writeInt(tie.docNr);
 								dos.writeLong(tie.docNr);
 								dos.writeByte(tie.tf);
 								dos.writeByte(tie.docLenLog);
@@ -851,7 +787,6 @@ public class FullTextIndexer extends AbstractIndexer {
 				if (pendingTermIndexEntryCache.size() != 0) {
 					Iterator it = pendingTermIndexEntryCache.keySet().iterator();
 					String term = it.next().toString();
-//					ArrayList pendingEntries = ((ArrayList) pendingTermIndexEntryCache.get(term));
 					LinkedList pendingEntries = ((LinkedList) pendingTermIndexEntryCache.get(term));
 					try {
 						if (DEBUG) System.out.println("  - extending index file for '" + term + "'");
@@ -860,7 +795,6 @@ public class FullTextIndexer extends AbstractIndexer {
 						DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(termIndexFile, true)));
 						while (pendingEntries.size() != 0) {
 							TermIndexEntry tie = ((TermIndexEntry) pendingEntries.removeFirst());
-//							dos.writeInt(tie.docNr);
 							dos.writeLong(tie.docNr);
 							dos.writeByte(tie.tf);
 							dos.writeByte(tie.docLenLog);
@@ -875,30 +809,6 @@ public class FullTextIndexer extends AbstractIndexer {
 						System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while extending index file for '" + term + "'");
 						ioe.printStackTrace(System.out);
 					}
-//					synchronized (pendingEntries) {
-//						try {
-//							if (DEBUG) System.out.println("  - extending index file for '" + term + "'");
-//							File termIndexFile = getIndexFile(term, true);
-//							if (DEBUG) System.out.println("    - writing " + pendingEntries.size() + " entries");
-//							DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(termIndexFile, true)));
-//							for (int e = 0; e < pendingEntries.size(); e++) {
-//								TermIndexEntry tie = ((TermIndexEntry) pendingEntries.get(e));
-////								dos.writeInt(tie.docNr);
-//								dos.writeLong(tie.docNr);
-//								dos.writeByte(tie.tf);
-//								dos.writeByte(tie.docLenLog);
-//							}
-//							dos.flush();
-//							dos.close();
-//							it.remove();
-//							if (DEBUG) System.out.println("    - done");
-//							return true;
-//						}
-//						catch (IOException ioe) {
-//							System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while extending index file for '" + term + "'");
-//							ioe.printStackTrace(System.out);
-//						}
-//					}
 				}
 			}
 			
