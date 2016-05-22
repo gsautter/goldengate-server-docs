@@ -69,12 +69,19 @@ public abstract class AbstractSrsWebPortalServlet extends GgServerClientServlet 
 	 */
 	protected void doInit() throws ServletException {
 		super.doInit();
+//		
+//		//	get SRS access point
+//		this.srsClient = new GoldenGateSrsClient(this.serverConnection);
+//		//	TODO_ try and obtain cache folder from configuration rather than always use hard coded location
+//		//	==> facilitates using RAM disc cache
+//		this.srsClient.setCacheFolder(new File(new File(this.webInfFolder, "caches"), "srsData"));
 		
 		//	get SRS access point
-		this.srsClient = new GoldenGateSrsClient(this.serverConnection);
+		GoldenGateSrsClient srsClient = new GoldenGateSrsClient(this.serverConnection);
 		//	TODO try and obtain cache folder from configuration rather than always use hard coded location
 		//	==> facilitates using RAM disc cache
-		this.srsClient.setCacheFolder(new File(new File(this.webInfFolder, "caches"), "srsData"));
+		srsClient.setCacheFolder(new File(new File(this.webInfFolder, "caches"), "srsData"));
+		this.srsClient = SearchPortalDataManager.getInstance(this.webAppHost, srsClient);
 		
 		//	configure GAMTA
 		String ano = this.getSetting(ANNOTATION_NESTING_ORDER_SETTING);

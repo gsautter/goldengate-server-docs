@@ -728,13 +728,6 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 				statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(since, allowCache));
 			}
 			hpb = new HtmlSearchResultWriter(request, response, (this.includeSearchFormWithResult ? fieldGroups : null), (this.includeSearchFormWithResult ? fieldGroupException : null), fieldValues, statistics, "Collection Statistics");
-//			try {
-//				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(Long.parseLong(since), allowCache));
-//			}
-//			catch (NumberFormatException nfe) {
-//				this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics(since, allowCache));
-//			}
-//			hpb = new HtmlSearchResultWriter(request, response, (this.includeSearchFormWithResult ? fieldGroups : null), (this.includeSearchFormWithResult ? fieldGroupException : null), fieldValues, this.statistics, "Collection Statistics");
 		}
 		
 		//	get document ID if single document to display

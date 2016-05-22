@@ -73,7 +73,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
 /**
  * This servlet provides raw XML documents from the backing GoldenGATE SRS,
  * transformed through custom XSLT stylesheets. This allows other parties to
- * retrieve the documents in their favored XML schema. As opposed to te
+ * retrieve the documents in their favored XML schema. As opposed to the
  * XsltServlet, this servlet is intended for serving large numbers of documents
  * for a single request (up to complete dumps of the entire collection hosted by
  * the backing GoldenGATE SRS), instead of individual documents. Therefore, it
@@ -84,7 +84,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
  * collection.<br>
  * For retrieving (parts of) the document collection in a specific schema, use
  * the configured name of the schema (see below) for invoking the servlet. For
- * filtering the collection, append the actual query to the servlet invokation
+ * filtering the collection, append the actual query to the servlet invocation
  * path. <br>
  * Despite this intended use, this servlet also alows for retrieving individual
  * documents based on their ID. The ID of the document to retrieve and transform
@@ -95,7 +95,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
  * facilitate calling them by an intuitive name instead of the URL. This is
  * achieved by entering a setting 'XSLT.&lt;cacheName&gt;' in the servlets
  * config file, the value of the setting being the URL of the XSLT stylesheet to
- * be invoked throug &lt;cacheName&gt;. If that URL starts with 'http://', it's
+ * be invoked through &lt;cacheName&gt;. If that URL starts with 'http://', it's
  * assumed to be absolute. In contrast, if the URL does not start with
  * 'http://', the URL is interpreted as a local path, relative to the web-apps
  * context path.<br>

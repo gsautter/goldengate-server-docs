@@ -1718,7 +1718,7 @@ xsl:with-param select="expression"
 				stack.push(annotation);
 				hadTagsBeforeToken = true;
 				if (DocumentRoot.DOCUMENT_TYPE.equals(annotation.getType()) || this.documentResultElements.contains(annotation.getType().toLowerCase())) {
-					out.write(AnnotationUtils.produceStartTag(annotation));
+					out.write(AnnotationUtils.produceStartTag(annotation, true));
 					out.newLine();
 					wroteTagsBeforeToken = true;
 					
