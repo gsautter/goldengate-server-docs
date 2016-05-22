@@ -42,9 +42,11 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.Properties;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 import de.uka.ipd.idaho.gamta.DocumentRoot;
@@ -54,7 +56,6 @@ import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponent.ComponentActionConsole;
 import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
-import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
  * Component for storing and retrieving documents by ID, named GoldenGATE
@@ -113,7 +114,7 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 				this.log("GoldenGateDST: start backing up document archive ...");
 				
 				//	collect files to add to backup
-				StringVector backupFileNames = new StringVector();
+				ArrayList backupFileNames = new ArrayList();
 				
 				//	process primary level folders
 				File[] primaryLevel = DocumentStore.this.docFolder.listFiles(archiveLevelFilter);
@@ -142,7 +143,7 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 							
 							//	this one goes to the backup
 							if (addToBackup)
-								backupFileNames.addElement(primaryLevel[p].getName() + "/" + secondaryLevel[s].getName() + "/" + contentFileName);
+								backupFileNames.add(primaryLevel[p].getName() + "/" + secondaryLevel[s].getName() + "/" + contentFileName);
 						}
 					}
 				}
@@ -156,7 +157,7 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 				
 				//	add document files to backup
 				for (int f = 0; this.continueAction() && (f < backupFileNames.size()); f++) {
-					String backupFileName = backupFileNames.get(f);
+					String backupFileName = ((String) backupFileNames.get(f));
 					FileInputStream backupEntrySource = new FileInputStream(new File(DocumentStore.this.docFolder, backupFileName));
 					
 					ZipEntry backupEntry = new ZipEntry(backupFileName);
@@ -212,6 +213,8 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	
 	private AsynchronousConsoleAction backupAction;
 	
+	private static final String ZIP_OLD_DOCUMENT_VERSIONS_COMMAND = "zipOldVersions";
+	
 	/**
 	 * Retrieve the actions for accessing the document store from the component
 	 * server console in the scope of a host server component. Access though
@@ -222,12 +225,84 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 */
 	public ComponentActionConsole[] getActions() {
 		ArrayList cal = new ArrayList();
-//		ComponentActionConsole ca;
+		ComponentActionConsole ca;
 		
 		//	backup archive
 		cal.add(this.backupAction);
 		
+		//	add console action zipping up older versions of XML files
+		ca = new ComponentActionConsole() {
+			private Thread zipper = null;
+			public String getActionCommand() {
+				return ZIP_OLD_DOCUMENT_VERSIONS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						ZIP_OLD_DOCUMENT_VERSIONS_COMMAND,
+						"Zip up all but the current version of each document."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0)
+					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else if (this.zipper != null)
+					System.out.println(" Already zipping up old document versions");
+				else {
+					this.zipper = new Thread() {
+						public void run() {
+							try {
+								zipOldDocumentVersions();
+							}
+							finally {
+								zipper = null;
+							}
+						}
+					};
+					this.zipper.start();
+				}
+			}
+			
+		};
+		cal.add(ca);
+		
+		//	finally ...
 		return ((ComponentActionConsole[]) cal.toArray(new ComponentActionConsole[cal.size()]));
+	}
+	
+	private void zipOldDocumentVersions() {
+		System.out.println("GoldenGateDST: start zipping up old document versions ...");
+		
+		//	collect files to add to backup
+		ArrayList toZipFileNames = new ArrayList();
+		
+		//	process primary level folders
+		File[] primaryLevel = DocumentStore.this.docFolder.listFiles(archiveLevelFilter);
+		System.out.println("  - got " + primaryLevel.length + " primary level folders");
+		for (int p = 0; p < primaryLevel.length; p++) {
+			
+			//	process secondary level folders
+			File[] secondaryLevel = primaryLevel[p].listFiles(archiveLevelFilter);
+			System.out.println("    - (" + (p+1) + ") got " + secondaryLevel.length + " secondary level folders");
+			for (int s = 0; s < secondaryLevel.length; s++) {
+				
+				//	inspect files in secondary level folders
+				File[] archiveContent = secondaryLevel[s].listFiles(archiveFileFilter);
+				System.out.println("      - (" + (p+1) + "-" + (s+1) + ") got " + archiveContent.length + " archive content files");
+				for (int a = 0; a < archiveContent.length; a++) {
+					String docFileName = archiveContent[a].getName();
+					if (docFileName.matches(".*\\.[0-9]++\\.xml"))
+						toZipFileNames.add(primaryLevel[p].getName() + "/" + secondaryLevel[s].getName() + "/" + docFileName);
+				}
+			}
+		}
+		System.out.println("Got " + toZipFileNames.size() + " files to zip up.");
+		
+		//	zip up document files
+		for (int f = 0; f < toZipFileNames.size(); f++) {
+			this.zipDocumentFile(((String) toZipFileNames.get(f)));
+			System.out.println((f+1) + " of " + toZipFileNames.size() + " old document versions zipped up.");
+		}
 	}
 	
 	private static final SimpleDateFormat backupTimestamper = new SimpleDateFormat("yyyyMMdd-HHmm");
@@ -276,24 +351,29 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		//	create two-layer storage folder structure
 		String primaryFolderName = docId.substring(0, 2);
 		File primaryFolder = new File(this.docFolder, primaryFolderName);
-		if (!primaryFolder.exists()) primaryFolder.mkdir();
+		if (!primaryFolder.exists())
+			primaryFolder.mkdir();
 		
 		String secondaryFolderName = docId.substring(2, 4);
 		File secondaryFolder = new File(primaryFolder, secondaryFolderName);
-		if (!secondaryFolder.exists()) secondaryFolder.mkdir();
+		if (!secondaryFolder.exists())
+			secondaryFolder.mkdir();
 		
 		//	compute current version
 		int version = this.computeCurrentVersion(docId);
 		
 		//	create document file
 		File docFile = new File(secondaryFolder, (docId + ".xml"));
+		final String previousVersionDocFileName;
 		
 		//	file exists (we have an update), make way
 		if (docFile.exists()) {
+			previousVersionDocFileName = (primaryFolderName + "/" + secondaryFolderName + "/" + docId + "." + version + ".xml");
 			File previousVersionDocFile = new File(secondaryFolder, (docId + "." + version + ".xml"));
 			docFile.renameTo(previousVersionDocFile);
 			docFile = new File(secondaryFolder, (docId + ".xml"));
 		}
+		else previousVersionDocFileName = null;
 		docFile.createNewFile();
 		
 		//	write document
@@ -301,6 +381,16 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		GenericGamtaXML.storeDocument(doc, out);
 		out.flush();
 		out.close();
+		
+		//	zip up old version (if any)
+		if (previousVersionDocFileName != null) {
+			Thread zipper = new Thread() {
+				public void run() {
+					zipDocumentFile(previousVersionDocFileName);
+				}
+			};
+			zipper.start();
+		}
 		
 		//	return incremented version number
 		return (version + 1);
@@ -328,7 +418,8 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		
 		File[] docFiles = secondaryFolder.listFiles(new FileFilter() {
 			public boolean accept(File file) {
-				return ((file != null) && file.isFile() && file.getName().startsWith(docId + ".") && file.getName().endsWith(".xml"));
+//				return ((file != null) && file.isFile() && file.getName().startsWith(docId + ".") && file.getName().endsWith(".xml"));
+				return ((file != null) && file.isFile() && file.getName().startsWith(docId + ".") && (file.getName().endsWith(".xml") || file.getName().endsWith(".xml.zip")));
 			}
 		});
 		for (int f = 0; f < docFiles.length; f++)
@@ -360,7 +451,8 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		//	get files belonging to document
 		File[] docFiles = docFolder.listFiles(new FileFilter() {
 			public boolean accept(File file) {
-				return ((file != null) && file.isFile() && file.getName().startsWith(docId + ".") && file.getName().endsWith(".xml"));
+//				return ((file != null) && file.isFile() && file.getName().startsWith(docId + ".") && file.getName().endsWith(".xml"));
+				return ((file != null) && file.isFile() && file.getName().startsWith(docId + ".") && (file.getName().endsWith(".xml") || file.getName().endsWith(".xml.zip")));
 			}
 		});
 		
@@ -372,8 +464,20 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		for (int f = 0; f < docFiles.length; f++) {
 			String docFileName = docFiles[f].getName();
 			docFileName = docFileName.substring(docId.length() + ".".length()); // cut ID and dot
-			if (docFileName.length() > 3) { // there's left more than the 'xml' file extension, which will be the case for the most recent version
+//			if (docFileName.length() > 3) { // there's left more than the 'xml' file extension, which will be the case for the most recent version
+//				docFileName = docFileName.substring(0, (docFileName.length() - ".xml".length())); // cut file extension
+//				try {
+//					version = Math.max(version, Integer.parseInt(docFileName));
+//				} catch (NumberFormatException nfe) {}
+//			}
+			if (docFileName.endsWith(".xml")) { // there's left more than the 'xml' file extension proper, which will be the case for the most recent version
 				docFileName = docFileName.substring(0, (docFileName.length() - ".xml".length())); // cut file extension
+				try {
+					version = Math.max(version, Integer.parseInt(docFileName));
+				} catch (NumberFormatException nfe) {}
+			}
+			else if (docFileName.endsWith(".xml.zip")) { // there's left more than the 'xml' file extension, which will be the case for the most recent version
+				docFileName = docFileName.substring(0, (docFileName.length() - ".xml.zip".length())); // cut file extension
 				try {
 					version = Math.max(version, Integer.parseInt(docFileName));
 				} catch (NumberFormatException nfe) {}
@@ -382,6 +486,19 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		
 		//	extrapolate to most recent version
 		return (version + 1);
+	}
+	
+	/**
+	 * Check if a document exists.
+	 * @param documentId the ID of the document
+	 * @return true if the document exists, false otherwise
+	 * @throws IOException
+	 */
+	public boolean isDocumentAvailable(String documentId) {
+		String primaryFolderName = documentId.substring(0, 2);
+		String secondaryFolderName = documentId.substring(2, 4);
+		File docFile = new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + documentId + ".xml"));
+		return docFile.exists();
 	}
 	
 	/**
@@ -485,17 +602,37 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		
 		Reader in = null;
 		try {
-			final InputStream fis = new FileInputStream(new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml")));
+//			final InputStream fis = new FileInputStream(new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml")));
+//			InputStream is = new InputStream() {
+//				private int last = '\u0000';
+//				public int read() throws IOException {
+//					if (this.last == '>')
+//						return -1;
+//					this.last = fis.read();
+//					return this.last;
+//				}
+//				public void close() throws IOException {
+//					fis.close();
+//				}
+//			};
+			File docFile = new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml"));
+			final InputStream docIn;
+			if (docFile.exists())
+				docIn = new FileInputStream(docFile);
+			else {
+				File docZipFile = new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml.zip"));
+				docIn = new ZipInputStream(new FileInputStream(docZipFile));
+			}
 			InputStream is = new InputStream() {
 				private int last = '\u0000';
 				public int read() throws IOException {
 					if (this.last == '>')
 						return -1;
-					this.last = fis.read();
+					this.last = docIn.read();
 					return this.last;
 				}
 				public void close() throws IOException {
-					fis.close();
+					docIn.close();
 				}
 			};
 			in = new InputStreamReader(is, this.encoding);
@@ -653,9 +790,23 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		
 		try {
 			File docFile = new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml"));
-			Reader docIn = new InputStreamReader(new FileInputStream(docFile), this.encoding);
-			int docSize = ((int) docFile.length());
-			DocumentReader dr = new DocumentReader(docIn, docSize);
+//			Reader docIn = new InputStreamReader(new FileInputStream(docFile), this.encoding);
+//			int docSize = ((int) docFile.length());
+//			DocumentReader dr = new DocumentReader(docIn, docSize);
+			InputStream docIn;
+			int docSize;
+			if (docFile.exists()) {
+				docIn = new FileInputStream(docFile);
+				docSize = ((int) docFile.length());
+			}
+			else {
+				File docZipFile = new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml.zip"));
+				ZipInputStream docZipIn = new ZipInputStream(new FileInputStream(docZipFile));
+				ZipEntry docZipEntry = docZipIn.getNextEntry();
+				docSize = ((int) docZipEntry.getSize());
+				docIn = docZipIn;
+			}
+			DocumentReader dr = new DocumentReader(new InputStreamReader(docIn, this.encoding), docSize);
 			dr.setAttribute(DOCUMENT_ID_ATTRIBUTE, documentId);
 			dr.setDocumentProperty(DOCUMENT_ID_ATTRIBUTE, documentId);
 			if (includeUpdateHistory) {
@@ -689,7 +840,7 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @return a list of the IDs of all the document stored in this DST
 	 */
 	public String[] getDocumentIDs() {
-		StringVector docIdList = new StringVector();
+		LinkedHashSet docIdList = new LinkedHashSet();
 		
 		//	process primary level folders
 		File[] primaryLevel = docFolder.listFiles(archiveLevelFilter);
@@ -705,13 +856,13 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 					
 					//	parse ID from file name
 					String contentFileName = archiveContent[a].getName();
-					docIdList.addElementIgnoreDuplicates(contentFileName.substring(0, 32));
+					docIdList.add(contentFileName.substring(0, 32));
 				}
 			}
 		}
 		
 		//	return list
-		return docIdList.toStringArray();
+		return ((String[]) docIdList.toArray(new String[docIdList.size()]));
 	}
 	
 	private String checkDocId(String documentId) throws IOException {
@@ -729,4 +880,41 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 			return docId.substring(0, 32);
 		}
 	}
+	
+	private void zipDocumentFile(String fileName) {
+		File docFile = new File(this.docFolder, fileName);
+		File docZipFile = new File(this.docFolder, (fileName + ".zip"));
+		
+		try {
+			//	zip up document file ...
+			FileInputStream docFileIn = new FileInputStream(docFile);
+			ZipOutputStream docZipFileOut = new ZipOutputStream(new FileOutputStream(docZipFile));
+			docZipFileOut.putNextEntry(new ZipEntry(docFile.getName()));
+			byte[] buffer = new byte[1024];
+			for (int r; (r = docFileIn.read(buffer, 0, buffer.length)) != -1;)
+				docZipFileOut.write(buffer, 0, r);
+			docZipFileOut.closeEntry();
+			docZipFileOut.flush();
+			docZipFileOut.close();
+			docFileIn.close();
+			
+			//	... and delete it afterwards
+			docFile.delete();
+		}
+		catch (Exception e) {
+			System.out.println("Error zipping up document file '" + docFile.getAbsolutePath() + "': " + e.getMessage());
+			e.printStackTrace(System.out);
+		}
+	}
+//	
+//	public static void main(String[] args) throws Exception {
+//		File docFolder = new File("./Components/GgServerSRSData/DocumentsGone/");
+//		DocumentStore dst = new DocumentStore(docFolder);
+//		//	dst.zipOldDocumentVersions();
+//		String docId = "0000 C505 BB5D 484C 76BE 9AB6 999D EB23".replaceAll("\\s", "");
+//		DocumentRoot doc = dst.loadDocument(docId, -1);
+//		doc.setAttribute("testTime", ("" + System.currentTimeMillis()));
+//		int version = dst.storeDocument(doc, docId);
+//		System.out.println("Stored as version " + version);
+//	}
 }
