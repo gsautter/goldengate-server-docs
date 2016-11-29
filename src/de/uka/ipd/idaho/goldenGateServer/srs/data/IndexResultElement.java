@@ -37,6 +37,7 @@ import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.Attributed;
 import de.uka.ipd.idaho.gamta.Gamta;
+import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.Token;
 import de.uka.ipd.idaho.gamta.TokenSequence;
 import de.uka.ipd.idaho.gamta.TokenSequenceUtils;
@@ -325,7 +326,14 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 		}
 		else return (AnnotationUtils.produceStartTag(this) + AnnotationUtils.escapeForXml(this.getValue()) + AnnotationUtils.produceEndTag(this));
 	}
-
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.gamta.Annotation#getDocument()
+	 */
+	public QueriableAnnotation getDocument() {
+		return null;
+	}
+	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.gamta.Annotation#getDocumentProperty(java.lang.String)
 	 */
