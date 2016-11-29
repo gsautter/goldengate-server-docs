@@ -72,6 +72,9 @@
 	<!-- path to the .jar file that shall be created -->
 	<property name="jar.srsfltxpath" value="${dist.home}/Components/GgServerSRSData/Plugins/XPathFilter.jar.off" />
 	
+	<!-- path to the .jar file that shall be created -->
+	<property name="jar.scp" value="${dist.home}/Components/GgServerSCP.jar" />
+	
 	
 	<!-- path to the .jar file that shall be created -->
 	<property name="jar.diobatch" value="${dist.home}/Plugins/ServerBatch.jar" />

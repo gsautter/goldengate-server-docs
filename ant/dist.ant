@@ -8,7 +8,7 @@
 	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip,dgpackerzip">
 	</target>
 	
-	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,srsdiojar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar">
+	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,srsdiojar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar,scpjar">
 		<delete file="${pack.serverdocs}"/>
 		<zip destfile="${pack.serverdocs}">
 			<fileset dir="${file.home}/server"/>
@@ -251,6 +251,19 @@
 		</jar>
 	</target>
 	
+	<target name="scpjar">
+		<delete file="${jar.scp}" />
+		<jar destfile="${jar.scp}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/scp/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/scp/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
 	
 	<target name="frontendzip" depends="diowebclientjar,dcsservletjar,srswebportaljar,srslytcssjar,srslytxsltjar,srslnklgmjar,srslnkxmldocjar">
 		<delete file="${pack.searchportal}" />
@@ -267,10 +280,14 @@
 			<fileset dir="${build.home}/classes">
 				<include name="**/goldenGateServer/dcs/GoldenGateDcsConstants*.class" />
 				<include name="**/goldenGateServer/dcs/client/*.class" />
+				<include name="**/goldenGateServer/dcs/client/charts/*.class" />
+				<include name="**/goldenGateServer/dcs/client/charts/renderers/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/dcs/GoldenGateScsConstants*.java" />
+				<include name="**/goldenGateServer/dcs/GoldenGateDcsConstants*.java" />
 				<include name="**/goldenGateServer/dcs/client/*.java" />
+				<include name="**/goldenGateServer/dcs/client/charts/*.java" />
+				<include name="**/goldenGateServer/dcs/client/chart/renderers/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>

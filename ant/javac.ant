@@ -42,6 +42,7 @@
     		<include name="**/goldenGateServer/dst/*.java" />
     		<include name="**/goldenGateServer/eXist/*.java" />
     		<include name="**/goldenGateServer/exp/*.java" />
+    		<include name="**/goldenGateServer/scp/*.java" />
     		<include name="**/goldenGateServer/scs/*.java" />
     		<include name="**/goldenGateServer/srs/*.java" />
     		<include name="**/goldenGateServer/srs/connectors/*.java" />
