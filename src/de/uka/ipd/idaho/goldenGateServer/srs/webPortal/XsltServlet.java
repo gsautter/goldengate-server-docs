@@ -38,6 +38,7 @@ import java.util.Properties;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.stream.StreamResult;
@@ -131,12 +132,18 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#doGet(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+//		System.out.println("GoldenGateSRS XSLT: handling request");
+//		long start = System.currentTimeMillis();
 		
 		//	request for specific plain XML document
 		String docId = request.getParameter(ID_QUERY_FIELD_NAME);
 		String[] xsltUrls = request.getParameterValues(XSLT_URL_PARAMETER);
 		
+		//	get client requested media type (browsers tend to be stubborn about what to do with files ...)
+		String requestContentType = request.getParameter("type");
+		
 		//	parameter missing, check paths
+		//	TODO streamline this sucker
 		if ((docId == null) || (xsltUrls == null)) {
 			StringVector fullPath = new StringVector();
 			
@@ -200,12 +207,23 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 					docId = fullPath.get(1);
 			}
 		}
+//		System.out.println(" - request parsed after " + (System.currentTimeMillis() - start));
 		
 		//	remove dashes from UUIDs
 		docId = docId.replaceAll("\\-", "").toUpperCase();
 		
 		//	set response content type (must be done before obtaining writer)
-		response.setContentType("text/xml; charset=" + ENCODING);
+		String contentType = "text/xml";
+		if ((xsltUrls != null) && (xsltUrls.length != 0)) {
+			Transformer lastTransform = this.getTransformer(xsltUrls[xsltUrls.length-1]);
+			String lastTransformMediaType = lastTransform.getOutputProperty(OutputKeys.MEDIA_TYPE);
+			if (lastTransformMediaType != null)
+				contentType = lastTransformMediaType;
+		}
+		if (requestContentType == null)
+			response.setContentType(contentType);
+		else response.setContentType(requestContentType);
+		response.setCharacterEncoding(ENCODING);
 		response.setHeader("Cache-Control", "no-cache");
 		
 		//	get output writer
@@ -213,24 +231,37 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 		
 		try {
 			MutableAnnotation doc = this.srsClient.getXmlDocument(docId, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+//			System.out.println(" - got plain document after " + (System.currentTimeMillis() - start));
 			
 			//	no XSLT transformer, send plain data
-			if ((xsltUrls == null) || (xsltUrls.length == 0))
+			if ((xsltUrls == null) || (xsltUrls.length == 0)) {
 				AnnotationUtils.writeXML(doc, out);
+//				System.out.println(" - plain document sent after " + (System.currentTimeMillis() - start));
+			}
 			
 			//	do transformation
 			else {
+				
+				//	remove XML namespace declarations from root element so XSLT can define its own
+				String[] docAns = doc.getAttributeNames();
+				for (int a = 0; a < docAns.length; a++) {
+					if (docAns[a].startsWith("xmlns:"))
+						doc.removeAttribute(docAns[a]);
+				}
 				
 				//	build transformer chain
 				InputStream is = new AnnotationInputStream(doc, "  ", "utf-8"); 
 				for (int x = 0; x < (xsltUrls.length - 1); x++)
 					is = XsltUtils.chain(is, this.getTransformer(xsltUrls[x]));
+//				System.out.println(" - got XSL transformers after " + (System.currentTimeMillis() - start));
 				
 				//	process data through last transformer
 				try {
 					this.getTransformer(xsltUrls[xsltUrls.length-1]).transform(new StreamSource(is), new StreamResult(out));
+//					System.out.println(" - XSL transformation done after " + (System.currentTimeMillis() - start));
 				}
 				catch (TransformerException te) {
+//					System.out.println(" - XSL transformation failed after " + (System.currentTimeMillis() - start));
 					throw new IOException(te.getMessageAndLocation());
 				}						
 			}
@@ -243,6 +274,7 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 		//	finish response
 		out.newLine();
 		out.flush();
+//		System.out.println(" - request done after " + (System.currentTimeMillis() - start));
 	}
 	
 	private Properties xsltNamesToStylesheetUrls = new Properties();

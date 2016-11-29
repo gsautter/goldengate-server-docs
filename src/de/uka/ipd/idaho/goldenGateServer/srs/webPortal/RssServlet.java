@@ -276,18 +276,29 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 	}
 	
 	private class FeedGenerator extends Thread {
-		private boolean run = true; 
+		private boolean run = true;
+		FeedGenerator() {
+			super("SrsFeedGenerator");
+		}
 		public void run() {
 			while (this.run) {
 				
 				//	generate feeds if it's the time
 				if ((generationTimestamp + (1000 * ((long) generationInterval))) < System.currentTimeMillis()) {
 					try {
-						generateRssFeeds();
+						generateRssFeeds(this);
 					}
 					catch (IOException ioe) {
 						System.out.println(ioe.getClass().getName() + " while generating feeds: " + ioe.getMessage());
 						ioe.printStackTrace(System.out);
+					}
+					catch (Exception e) {
+						System.out.println(e.getClass().getName() + " while generating feeds: " + e.getMessage());
+						e.printStackTrace(System.out);
+					}
+					catch (Throwable t) {
+						System.out.println(t.getClass().getName() + " while generating feeds: " + t.getMessage());
+						t.printStackTrace(System.out);
 					}
 				}
 				
@@ -379,7 +390,7 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 		}
 	};
 	
-	private void generateRssFeeds() throws IOException {
+	private void generateRssFeeds(FeedGenerator feedGen) throws IOException {
 		this.generationTimestamp = System.currentTimeMillis(); // set this immediately in order to block further invocations
 		long lastMasterDocUpdate = 0;
 		
@@ -393,6 +404,7 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 				lastMasterDocUpdate = Math.max(lastMasterDocUpdate, Long.parseLong((String) masterDle.getAttribute(UPDATE_TIME_ATTRIBUTE, "0")));
 			} catch (NumberFormatException nfe) {}
 		}
+		System.out.println("Feed generation starting with " + masterDocEntryList.size() + " master documents");
 		
 		//	check if update necessary at all
 		boolean needToGenerate = false;
@@ -403,22 +415,27 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 				f = this.rssFeeds.length;
 			}
 		}
-		if (!needToGenerate)
+		if (!needToGenerate) {
+			System.out.println("Feed generation abandoned, all feeds up to date");
 			return;
+		}
 		
 		//	sort master list
 		Collections.sort(masterDocEntryList, checkinTimeOrder);
 		
 		//	create writer files for RSS feeds ...
 		RssFeedWriter rssFeedWriter = new RssFeedWriter(this.rssFeedCacheFolder, this.rssFeeds, this.generationInterval, this.generationTimestamp);
+		System.out.println("Feed generation output writers created");
 		
 		//	... and for sitemap
 		SitemapWriter sitemapWriter = ((this.sitemapFile == null) ? null : new SitemapWriter(this.sitemapFile, this.sitemapUrlPrefix, this.generationTimestamp));
+		System.out.println("Sitemap output writer created");
 		
 		//	write header
 		rssFeedWriter.writeHeader();
 		if (sitemapWriter != null)
 			sitemapWriter.writeHeader();
+		System.out.println("Feed headers written");
 		
 		/*
 <?xml version='1.0' encoding='UTF-8'?>
@@ -438,11 +455,21 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 		
 		//	write channel info
 		rssFeedWriter.writeChannelInfo();
+		System.out.println("Feed channel info written");
 		
 		//	write data
 		for (int m = 0; m < masterDocEntryList.size(); m++) {
+			
+			//	are we being shut down?
+			if (!feedGen.run) {
+				System.out.println("Feed generation interrupted by shutdown");
+				return;
+			}
+			
+			//	get next master document
 			DocumentListElement masterDle = ((DocumentListElement) masterDocEntryList.get(m));
 			String masterDocId = ((String) masterDle.getAttribute(MASTER_DOCUMENT_ID_ATTRIBUTE));
+			System.out.println("Creating feed entries from master document " + masterDocId);
 			
 			//	get individual documents
 			ArrayList docEntryList = new ArrayList();
@@ -454,6 +481,7 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 				DocumentList docList = DocumentList.readDocumentList(new InputStreamReader(new FileInputStream(masterDocCacheFile), ENCODING));
 				while (docList.hasNextElement())
 					docEntryList.add(docList.getNextDocumentListElement());
+				System.out.println(" ==> cache hit for " + docEntryList.size() + " document IDs");
 			}
 			
 			//	cache miss, load document list from backing SRS and cache it
@@ -481,6 +509,12 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 				masterDocCacheWriter.flush();
 				masterDocCacheWriter.close();
 				masterDocCacheFile.setLastModified(masterDocUpdateTime);
+				System.out.println(" ==> cache miss, cached " + docEntryList.size() + " document IDs");
+//				
+//				//	give the others some time TODO find out if this solves the breakdowns
+//				try {
+//					Thread.sleep(250);
+//				} catch (InterruptedException ie) {}
 			}
 			
 			//	sort documents
@@ -505,6 +539,7 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 					}
 				}
 			});
+			System.out.println(" - documents sorted");
 			
 			//	write items
 			for (int d = 0; d < docEntryList.size(); d++) {
@@ -513,12 +548,19 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 				if (sitemapWriter != null)
 					sitemapWriter.writeItem(document);
 			}
+			System.out.println(" - feed items written");
+			
+			//	give the others some time TODO find out if this solves the breakdowns
+			try {
+				Thread.sleep(250);
+			} catch (InterruptedException ie) {}
 		}
 		
 		//	close files
 		rssFeedWriter.finish();
 		if (sitemapWriter != null)
 			sitemapWriter.finish();
+		System.out.println("Feed generation completed");
 	}
 	
 	private static class RssFeedWriter {
