@@ -82,8 +82,6 @@ import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
  */
 public class GoldenGateATS extends GoldenGateEXP implements GoldenGateAtsConstants {
 	
-//	private GoldenGateDIO dio = null;
-	
 	/* list of hosted annotation types */
 	private StringVector annotationTypes = new StringVector();
 	
