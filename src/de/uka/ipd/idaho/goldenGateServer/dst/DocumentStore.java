@@ -68,6 +68,21 @@ import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
  */
 public class DocumentStore implements LiteratureConstants, GoldenGateServerDocConstants {
 	
+	/**
+	 * Exception indicating that a document or a specific version of one does
+	 * not exist in this document store.
+	 * 
+	 * @author sautter
+	 */
+	public static class DocumentNotFoundException extends IOException {
+		DocumentNotFoundException(String docId) {
+			this(docId, 0);
+		}
+		DocumentNotFoundException(String docId, int version) {
+			super("Invalid document ID '" + docId + "'" + ((version == 0) ? (".") : (", or version '" + version + "' does not exist.")));
+		}
+	}
+	
 	private File docFolder;
 	private String encoding = "UTF-8";
 	
@@ -506,9 +521,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param documentId the ID of the document
 	 * @return a Properties object holding the attributes of the document with
 	 *         the specified ID
-	 * @throws IOException
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public Properties getDocumentAttributes(String documentId) throws IOException {
+	public Properties getDocumentAttributes(String documentId) throws DocumentNotFoundException, IOException {
 		return this.getDocumentAttributes(documentId, false);
 	}
 	
@@ -523,9 +541,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param includeUpdateHistory include former update users and timestamps?
 	 * @return a Properties object holding the attributes of the document with
 	 *         the specified ID
-	 * @throws IOException
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public Properties getDocumentAttributes(String documentId, boolean includeUpdateHistory) throws IOException {
+	public Properties getDocumentAttributes(String documentId, boolean includeUpdateHistory) throws DocumentNotFoundException, IOException {
 		
 		//	load current version attributes
 		DocumentRoot doc = this.getDocumentHead(documentId, 0);
@@ -574,9 +595,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param documentId the ID of the document
 	 * @return a Properties object holding the document properties of the
 	 *         document with the specified ID
-	 * @throws IOException
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public Properties getDocumentProperties(String documentId) throws IOException {
+	public Properties getDocumentProperties(String documentId) throws DocumentNotFoundException, IOException {
 		DocumentRoot doc = this.getDocumentHead(documentId, 0);
 		String[] documentPropertyNames = doc.getDocumentPropertyNames();
 		Properties documentProperties = new Properties();
@@ -588,7 +612,7 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		return documentProperties;
 	}
 	
-	private DocumentRoot getDocumentHead(String documentId, int version) throws IOException {
+	private DocumentRoot getDocumentHead(String documentId, int version) throws DocumentNotFoundException, IOException {
 		String docId = this.checkDocId(documentId);
 		
 		String primaryFolderName = docId.substring(0, 2);
@@ -642,7 +666,7 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 			return doc;
 		}
 		catch (FileNotFoundException fnfe) {
-			throw new IOException("Invalid document ID '" + documentId + "'.");
+			throw new DocumentNotFoundException(documentId, fileVersion);
 		}
 		finally {
 			if (in != null)
@@ -654,10 +678,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * Load a document from storage (the most recent version)
 	 * @param documentId the ID of the document to load
 	 * @return the document with the specified ID
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentRoot loadDocument(String documentId) throws IOException {
+	public DocumentRoot loadDocument(String documentId) throws DocumentNotFoundException, IOException {
 		return this.loadDocument(documentId, 0, false);
 	}
 	
@@ -666,10 +692,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param documentId the ID of the document to load
 	 * @param includeUpdateHistory include former update users and timestamps?
 	 * @return the document with the specified ID
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentRoot loadDocument(String documentId, boolean includeUpdateHistory) throws IOException {
+	public DocumentRoot loadDocument(String documentId, boolean includeUpdateHistory) throws DocumentNotFoundException, IOException {
 		return this.loadDocument(documentId, 0, includeUpdateHistory);
 	}
 	
@@ -681,10 +709,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param documentId the ID of the document to load
 	 * @param version the version to load
 	 * @return the document with the specified ID
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentRoot loadDocument(String documentId, int version) throws IOException {
+	public DocumentRoot loadDocument(String documentId, int version) throws DocumentNotFoundException, IOException {
 		return this.loadDocument(documentId, version, false);
 	}
 	
@@ -697,10 +727,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param version the version to load
 	 * @param includeUpdateHistory include former update users and timestamps?
 	 * @return the document with the specified ID
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentRoot loadDocument(String documentId, int version, boolean includeUpdateHistory) throws IOException {
+	public DocumentRoot loadDocument(String documentId, int version, boolean includeUpdateHistory) throws DocumentNotFoundException, IOException {
 		DocumentReader dr = this.loadDocumentAsStream(documentId, version, includeUpdateHistory);
 		try {
 			return GenericGamtaXML.readDocument(dr);
@@ -719,10 +751,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param documentId the ID of the document to load
 	 * @return a reader providing the document with the specified ID in its
 	 *         serialized form
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentReader loadDocumentAsStream(String documentId) throws IOException {
+	public DocumentReader loadDocumentAsStream(String documentId) throws DocumentNotFoundException, IOException {
 		return this.loadDocumentAsStream(documentId, 0, false);
 	}
 	
@@ -735,10 +769,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param documentId the ID of the document to load
 	 * @return a reader providing the document with the specified ID in its
 	 *         serialized form
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentReader loadDocumentAsStream(String documentId, boolean includeUpdateHistory) throws IOException {
+	public DocumentReader loadDocumentAsStream(String documentId, boolean includeUpdateHistory) throws DocumentNotFoundException, IOException {
 		return this.loadDocumentAsStream(documentId, 0, includeUpdateHistory);
 	}
 	
@@ -754,10 +790,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param version the version to load
 	 * @return a reader providing the document with the specified ID in its
 	 *         serialized form
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentReader loadDocumentAsStream(String documentId, int version) throws IOException {
+	public DocumentReader loadDocumentAsStream(String documentId, int version) throws DocumentNotFoundException, IOException {
 		return this.loadDocumentAsStream(documentId, version, false);
 	}
 	
@@ -773,10 +811,12 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 	 * @param version the version to load
 	 * @return a reader providing the document with the specified ID in its
 	 *         serialized form
-	 * @throws IOException if the specified document ID is invalid (no document
-	 *             is stored by this ID) or any IOException occurs
+	 * @throws DocumentNotFoundException if the specified document ID is invalid
+	 *             (no document is stored by this ID, or specified version does
+	 *             not exist)
+	 * @throws IOException if any other IOException occurs
 	 */
-	public DocumentReader loadDocumentAsStream(String documentId, int version, boolean includeUpdateHistory) throws IOException {
+	public DocumentReader loadDocumentAsStream(String documentId, int version, boolean includeUpdateHistory) throws DocumentNotFoundException, IOException {
 		String docId = this.checkDocId(documentId);
 		
 		String primaryFolderName = docId.substring(0, 2);
@@ -829,9 +869,7 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 			return dr;
 		}
 		catch (FileNotFoundException fnfe) {
-			if (version == 0)
-				throw new IOException("Invalid document ID '" + documentId + "'.");
-			else throw new IOException("Invalid document ID '" + documentId + "', or version '" + fileVersion + "' does not exist.");
+			throw new DocumentNotFoundException(documentId, fileVersion);
 		}
 	}
 	
