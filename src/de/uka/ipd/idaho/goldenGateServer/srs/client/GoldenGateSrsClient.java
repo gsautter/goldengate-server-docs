@@ -42,16 +42,22 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URLEncoder;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.WeakHashMap;
 
+import de.uka.ipd.idaho.easyIO.util.RandomByteSource;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
+import de.uka.ipd.idaho.gamta.util.CountingSet;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection.Connection;
@@ -73,159 +79,172 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResult;
 public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	
 	private static WeakHashMap cachingInstances = new WeakHashMap();
-	private static HashSet cacheFolders = new HashSet();
-	private static GoldenGateSrsClient cacheDataFetcher = null;
-	private static Thread cacheCleaner = null;
-	private static void registerCachingInstance(GoldenGateSrsClient srsc) {
+	private static CountingSet cacheFolderPaths = new CountingSet(new HashMap());
+	
+	private static Thread runningCacheCleanup = null;
+	private static long lastCacheCleanup = 0;
+	private static long lastCacheCleanupUpdateTime = 0;
+	
+	private static synchronized void registerCachingInstance(GoldenGateSrsClient srsc) {
+		if (srsc.cacheFolder == null)
+			return;
 		cachingInstances.put(srsc, "");
-		cacheFolders.add(srsc.cacheFolder);
-		
-		//	start maintenance thread if not already running
-		if (cacheDataFetcher == null) {
-			cacheDataFetcher = srsc;
-			cacheCleaner = new Thread() {
-				public void run() {
+		cacheFolderPaths.add(srsc.cacheFolder.getAbsolutePath());
+	}
+	
+	private static synchronized void unRegisterCachingInstance(GoldenGateSrsClient srsc) {
+		if (srsc.cacheFolder == null)
+			return;
+		cachingInstances.remove(srsc);
+		cacheFolderPaths.remove(srsc.cacheFolder.getAbsolutePath());
+	}
+	
+	private static void checkCacheCleanupDue(final GoldenGateSrsClient srsc) {
+		if ((lastCacheCleanup + (1000 * 60 * 10)) < System.currentTimeMillis())
+			startCacheCleanup(srsc);
+	}
+	private static synchronized void startCacheCleanup(final GoldenGateSrsClient srsc) {
+		if (runningCacheCleanup != null)
+			return; // cleanup running
+		runningCacheCleanup = new Thread("SrsCacheCleanup") {
+			public void run() {
+				try {
+					//	compute last collection update from master document list
+					long lastUpdate = 0;
+					try {
+						DocumentList mdl = srsc.getDocumentList(null);
+						while (mdl.hasNextElement()) {
+							DocumentListElement dle = mdl.getNextDocumentListElement();
+							try {
+								lastUpdate = Math.max(lastUpdate, Long.parseLong((String) dle.getAttribute(UPDATE_TIME_ATTRIBUTE)));
+							} catch (NumberFormatException nfe) {}
+						}
+					}
+					catch (Throwable t) {
+						t.printStackTrace(System.out);
+					}
+					System.out.println("Last update time is " + lastUpdate);
 					
-					//	run as long as there are active instances
-					while (cachingInstances.size() != 0) {
-						try {
-							Thread.sleep(10 * 60 * 1000);
-						} catch (InterruptedException ie) {}
-						System.out.println("Running SRS Client cache cleanup");
-						
-						//	compute last collection update from master document list
-						long lastUpdate = 0;
-						try {
-							DocumentList mdl = cacheDataFetcher.getDocumentList(null);
-							while (mdl.hasNextElement()) {
-								DocumentListElement dle = mdl.getNextDocumentListElement();
-								try {
-									lastUpdate = Math.max(lastUpdate, Long.parseLong((String) dle.getAttribute(UPDATE_TIME_ATTRIBUTE)));
-								} catch (NumberFormatException nfe) {}
-							}
-						}
-						catch (Throwable t) {
-							t.printStackTrace(System.out);
-						}
-						System.out.println("Last update time is " + lastUpdate);
-						
-						//	no documents, or communication error
-						if (lastUpdate == 0)
-							continue;
-						
-						//	trigger cleanup
-						cleanUpCacheFolders(lastUpdate);
+					//	no documents, or communication error
+					if (lastUpdate == 0)
+						return;
+					
+					//	no new changes from backend
+					if (lastUpdate <= lastCacheCleanupUpdateTime) {
+						System.out.println("No changes in back-end since last cleanup");
+						return;
 					}
 					
-					//	make way in case new clients are produced
-					cacheCleaner = null;
-					cacheDataFetcher = null;
+					//	perform cleanup
+					cleanUpCacheFolders(lastUpdate);
+					lastCacheCleanupUpdateTime = lastUpdate;
 				}
-			};
-			cacheCleaner.start();
-			System.out.println("GoldenGATE SRS Client cache cleaner created");
-		}
+				finally {
+					lastCacheCleanup = System.currentTimeMillis();
+					runningCacheCleanup = null;
+				}
+			}
+		};
+		runningCacheCleanup.start();
 	}
 	
 	private static void cleanUpCacheFolders(final long lastUpdate) {
-		final ArrayList cachingInstanceList = new ArrayList(cachingInstances.keySet());
-		final ArrayList cacheFolderList = new ArrayList(cacheFolders);
-		Thread cacheCleaner = new Thread() {
-			public void run() {
-				
-				//	invalidate statistics and search field caches
-				for (Iterator ciit = cachingInstanceList.iterator(); ciit.hasNext();) {
-					GoldenGateSrsClient cachingInstance = ((GoldenGateSrsClient) ciit.next());
-					if (cachingInstance.sfgCacheTimestamp < lastUpdate)
-						cachingInstance.sfgCache = null;
-					synchronized (cachingInstance.csCache) {
-						HashSet csCacheKeys = new LinkedHashSet(cachingInstance.csCache.keySet());
-						for (Iterator csceit = csCacheKeys.iterator(); csceit.hasNext();) {
-							Long csCacheKey = ((Long) csceit.next());
-							CsCacheEntry cce = ((CsCacheEntry) cachingInstance.csCache.get(csCacheKey));
-							if (cce.retrieved < lastUpdate)
-								cachingInstance.csCache.remove(csCacheKey);
-						}
-					}
+		
+		//	invalidate statistics and search field caches
+		ArrayList cachingInstanceList = new ArrayList(cachingInstances.keySet());
+		for (int i = 0; i < cachingInstanceList.size(); i++) {
+			GoldenGateSrsClient cachingInstance = ((GoldenGateSrsClient) cachingInstanceList.get(i));
+			if (cachingInstance.sfgCacheTimestamp < lastUpdate)
+				cachingInstance.sfgCache = null;
+			synchronized (cachingInstance.csCache) {
+				HashSet csCacheKeys = new LinkedHashSet(cachingInstance.csCache.keySet());
+				for (Iterator csceit = csCacheKeys.iterator(); csceit.hasNext();) {
+					Long csCacheKey = ((Long) csceit.next());
+					CsCacheEntry cce = ((CsCacheEntry) cachingInstance.csCache.get(csCacheKey));
+					if (cce.retrieved < lastUpdate)
+						cachingInstance.csCache.remove(csCacheKey);
 				}
-				System.out.println("Statistics and search fields cleaned");
-				
-				//	invalidate all cache files older than last update
-				int tRetainFileCount = 0;
-				int tCleanupFileCount = 0;
-				int tErrorFileCount = 0;
-				for (Iterator cfit = cacheFolderList.iterator(); cfit.hasNext();) {
-					File cacheFolder = ((File) cfit.next());
-					File[] cacheFiles = cacheFolder.listFiles(new FileFilter() {
-						public boolean accept(File cacheFile) {
-							return cacheFile.getName().endsWith(".cached");
-						}
-					});
-					int retainFileCount = 0;
-					int cleanupFileCount = 0;
-					int errorFileCount = 0;
-					for (int f = 0; f < cacheFiles.length; f++) {
-						if (cacheFiles[f].lastModified() >= lastUpdate)
-							retainFileCount++;
-						else try {
-							cacheFiles[f].delete();
-							cleanupFileCount++;
-						}
-						catch (Exception e) {
-							System.out.println("Could not delete cache file '" + cacheFiles[f].getAbsolutePath() + "': " + e.getMessage());
-							errorFileCount++;
-						}
-					}
-					System.out.println("Cleaned up " + cleanupFileCount + " cache files, retained " + retainFileCount + ", failed to clean up " + errorFileCount);
-					tRetainFileCount += retainFileCount;
-					tCleanupFileCount += cleanupFileCount;
-					tErrorFileCount += errorFileCount;
-				}
-				System.out.println("In total cleaned up " + tCleanupFileCount + " cache files, retained " + tRetainFileCount + ", failed to clean up " + tErrorFileCount);
-				
-				//	invalidate all caching files older than 15 minutes (caching should never take that long)
-				final long currentTime = System.currentTimeMillis();
-				tRetainFileCount = 0;
-				tCleanupFileCount = 0;
-				tErrorFileCount = 0;
-				for (Iterator cfit = cacheFolderList.iterator(); cfit.hasNext();) {
-					File cacheFolder = ((File) cfit.next());
-					File[] cacheFiles = cacheFolder.listFiles(new FileFilter() {
-						public boolean accept(File cacheFile) {
-							return cacheFile.getName().endsWith(".caching");
-						}
-					});
-					int retainFileCount = 0;
-					int cleanupFileCount = 0;
-					int errorFileCount = 0;
-					for (int f = 0; f < cacheFiles.length; f++) {
-						if (cacheFiles[f].lastModified() >= (currentTime - (1000 * 60 * 15)))
-							retainFileCount++;
-						else try {
-							cacheFiles[f].delete();
-							cleanupFileCount++;
-						}
-						catch (Exception e) {
-							System.out.println("Could not delete stale caching file '" + cacheFiles[f].getAbsolutePath() + "': " + e.getMessage());
-							errorFileCount++;
-						}
-					}
-					System.out.println("Cleaned up " + cleanupFileCount + " stale caching files, retained " + retainFileCount + ", failed to clean up " + errorFileCount);
-					tRetainFileCount += retainFileCount;
-					tCleanupFileCount += cleanupFileCount;
-					tErrorFileCount += errorFileCount;
-				}
-				System.out.println("In total cleaned up " + tCleanupFileCount + " stale caching files, retained " + tRetainFileCount + ", failed to clean up " + tErrorFileCount);
 			}
-		};
-		cacheCleaner.start();
+		}
+		System.out.println("Statistics and search fields cleaned");
+		
+		//	invalidate all cache files older than last update
+		ArrayList cacheFolderPathList = new ArrayList(cacheFolderPaths);
+		int tRetainFileCount = 0;
+		int tCleanupFileCount = 0;
+		int tErrorFileCount = 0;
+		for (int p = 0; p < cacheFolderPathList.size(); p++) {
+			String cacheFolderPath = ((String) cacheFolderPathList.get(p));
+			File cacheFolder = new File(cacheFolderPath);
+			File[] cacheFiles = cacheFolder.listFiles(new FileFilter() {
+				public boolean accept(File cacheFile) {
+					return cacheFile.getName().endsWith(".cached");
+				}
+			});
+			int retainFileCount = 0;
+			int cleanupFileCount = 0;
+			int errorFileCount = 0;
+			for (int f = 0; f < cacheFiles.length; f++) {
+				if (cacheFiles[f].lastModified() >= lastUpdate)
+					retainFileCount++;
+				else try {
+					cacheFiles[f].delete();
+					cleanupFileCount++;
+				}
+				catch (Exception e) {
+					System.out.println("Could not delete cache file '" + cacheFiles[f].getAbsolutePath() + "': " + e.getMessage());
+					errorFileCount++;
+				}
+			}
+			System.out.println("Cleaned up " + cleanupFileCount + " cache files, retained " + retainFileCount + ", failed to clean up " + errorFileCount + " in path " + cacheFolderPath);
+			tRetainFileCount += retainFileCount;
+			tCleanupFileCount += cleanupFileCount;
+			tErrorFileCount += errorFileCount;
+		}
+		System.out.println("In total cleaned up " + tCleanupFileCount + " cache files, retained " + tRetainFileCount + ", failed to clean up " + tErrorFileCount);
+		
+		//	invalidate all caching files older than 15 minutes (caching should never take that long)
+		final long currentTime = System.currentTimeMillis();
+		tRetainFileCount = 0;
+		tCleanupFileCount = 0;
+		tErrorFileCount = 0;
+		for (int p = 0; p < cacheFolderPathList.size(); p++) {
+			String cacheFolderPath = ((String) cacheFolderPathList.get(p));
+			File cacheFolder = new File(cacheFolderPath);
+			File[] cacheFiles = cacheFolder.listFiles(new FileFilter() {
+				public boolean accept(File cacheFile) {
+					return cacheFile.getName().endsWith(".caching");
+				}
+			});
+			int retainFileCount = 0;
+			int cleanupFileCount = 0;
+			int errorFileCount = 0;
+			for (int f = 0; f < cacheFiles.length; f++) {
+				if (cacheFiles[f].lastModified() >= (currentTime - (1000 * 60 * 15)))
+					retainFileCount++;
+				else try {
+					cacheFiles[f].delete();
+					cleanupFileCount++;
+				}
+				catch (Exception e) {
+					System.out.println("Could not delete stale caching file '" + cacheFiles[f].getAbsolutePath() + "': " + e.getMessage());
+					errorFileCount++;
+				}
+			}
+			System.out.println("Cleaned up " + cleanupFileCount + " stale caching files, retained " + retainFileCount + ", failed to clean up " + errorFileCount);
+			tRetainFileCount += retainFileCount;
+			tCleanupFileCount += cleanupFileCount;
+			tErrorFileCount += errorFileCount;
+		}
+		System.out.println("In total cleaned up " + tCleanupFileCount + " stale caching files, retained " + tRetainFileCount + ", failed to clean up " + tErrorFileCount);
 	}
 	
 	/* (non-Javadoc)
 	 * @see java.lang.Object#finalize()
 	 */
 	protected void finalize() throws Throwable {
-		cachingInstances.remove(this);
+		if (this.cacheFolder != null)
+			unRegisterCachingInstance(this);
 	}
 	
 	private File cacheFolder = null;
@@ -255,6 +274,10 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		if ((cacheFolder != null) && cacheFolder.exists() && !cacheFolder.isDirectory())
 			cacheFolder = null;
 		
+		//	un-register cache folder if one was set previously
+		if (this.cacheFolder != null)
+			unRegisterCachingInstance(this);
+		
 		//	set cache folder
 		this.cacheFolder = cacheFolder;
 		
@@ -267,10 +290,14 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		}
 	}
 	
-	Reader getCacheReader(String command, int cacheEntryId) {
+	Reader getCacheReader(String command, String cacheEntryId) {
 		
 		//	cache disabled
-		if (this.cacheFolder == null) return null;
+		if (this.cacheFolder == null)
+			return null;
+		
+		//	trigger cleanup for cache folder
+		checkCacheCleanupDue(this);
 		
 		//	create file & check timestamp
 		File cacheFile = new File(this.cacheFolder, (command + "." + cacheEntryId + ".cached"));
@@ -287,7 +314,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		return null;
 	}
 	
-	Writer getCacheWriter(String command, int cacheEntryId) {
+	Writer getCacheWriter(String command, String cacheEntryId) {
 		
 		//	cache disabled
 		if (this.cacheFolder == null)
@@ -343,8 +370,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		return null;
 	}
 	
-	//	TODO use MD5 hash or document ID for cache entry name, not Java string hash (too high risk of collisions)
-	Reader wrapDataReader(Reader dataReader, String command, int cacheEntryId) {
+	Reader wrapDataReader(Reader dataReader, String command, String cacheEntryId) {
 		Writer cacheWriter = this.getCacheWriter(command, cacheEntryId);
 		
 		//	cache disabled, or other error, return argument reader
@@ -353,6 +379,40 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		
 		//	cache enabled, return reader looping all data through to cache file
 		else return new CacheWritingReader(dataReader, cacheWriter);
+	}
+	
+	private static String getHash(String str) throws IOException {
+		String strHash;
+		MessageDigest dataHasher = getDataHasher();
+		if (dataHasher == null)
+			strHash = ("_" + str.hashCode() + "_" + (new StringBuilder(str)).reverse().toString().hashCode());
+		else {
+			strHash = new String(RandomByteSource.getHexCode(dataHasher.digest(str.getBytes(ENCODING))));
+			returnDataHash(dataHasher);
+		}
+		return strHash;
+	}
+	
+	private static LinkedList dataHashPool = new LinkedList();
+	private static synchronized MessageDigest getDataHasher() {
+		if (dataHashPool.size() != 0) {
+			MessageDigest dataHash = ((MessageDigest) dataHashPool.removeFirst());
+			dataHash.reset();
+			return dataHash;
+		}
+		try {
+			MessageDigest dataHash = MessageDigest.getInstance("MD5");
+			dataHash.reset();
+			return dataHash;
+		}
+		catch (NoSuchAlgorithmException nsae) {
+			System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
+			nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
+			return null;
+		}
+	}
+	private static synchronized void returnDataHash(MessageDigest dataHash) {
+		dataHashPool.addLast(dataHash);
 	}
 	
 	static class ConnectionGuardReader extends Reader {
@@ -435,15 +495,15 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	
 	static class CacheAccessData {
 		String command;
-		int cacheKey;
+		String cacheEntryId;
 		GoldenGateSrsClient cacheHolder;
-		CacheAccessData(String command, int cacheKey, GoldenGateSrsClient cacheHolder) {
+		CacheAccessData(String command, String cacheEntryId, GoldenGateSrsClient cacheHolder) {
 			this.command = command;
-			this.cacheKey = cacheKey;
+			this.cacheEntryId = cacheEntryId;
 			this.cacheHolder = cacheHolder;
 		}
 		Reader getCacheReader() {
-			return this.cacheHolder.getCacheReader(this.command, this.cacheKey);
+			return this.cacheHolder.getCacheReader(this.command, this.cacheEntryId);
 		}
 	}
 	
@@ -526,14 +586,19 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	 * @throws IOException
 	 */
 	public MutableAnnotation getXmlDocument(String docId, boolean allowCache) throws IOException {
+//		System.out.println("GoldenGateSRS Client: getting XML document '" + docId + "'");
+//		final long start = System.currentTimeMillis();
 		
 		if (allowCache) {
-			Reader cacheReader = this.getCacheReader(GET_XML_DOCUMENT, docId.hashCode());
-			if (cacheReader != null)
+			Reader cacheReader = this.getCacheReader(GET_XML_DOCUMENT, docId);
+			if (cacheReader != null) {
+//				System.out.println(" - cache hit after " + (System.currentTimeMillis() - start));
 				return GenericGamtaXML.readDocument(cacheReader);
+			}
 		}
 		
 		Connection con = this.serverConnection.getConnection();
+//		System.out.println(" - got back-end connection after " + (System.currentTimeMillis() - start));
 		BufferedWriter bw = con.getWriter();
 		
 		bw.write(GET_XML_DOCUMENT);
@@ -541,15 +606,19 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		bw.write(docId);
 		bw.newLine();
 		bw.flush();
+//		System.out.println(" - request sent after " + (System.currentTimeMillis() - start));
 		
 		BufferedReader br = con.getReader();
 		String error = br.readLine();
+//		System.out.println(" - got response after " + (System.currentTimeMillis() - start));
 		if (GET_XML_DOCUMENT.equals(error)) {
-			final Reader dataReader = this.wrapDataReader(new ConnectionGuardReader(br, con), GET_XML_DOCUMENT, docId.hashCode());
+			final Reader dataReader = this.wrapDataReader(new ConnectionGuardReader(br, con), GET_XML_DOCUMENT, docId);
+//			System.out.println(" - response wrapped after " + (System.currentTimeMillis() - start));
 			return GenericGamtaXML.readDocument(new Reader() {
 				private boolean closed = false;
 				public void close() throws IOException {
 					dataReader.close();
+//					System.out.println(" - response read after " + (System.currentTimeMillis() - start));
 					this.closed = true;
 				}
 				public int read(char[] cbuf, int off, int len) throws IOException {
@@ -614,52 +683,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	}
 	
 	DocumentResult searchDocuments(Properties parameters, boolean markSearchables, boolean allowCache, CacheAccessData[] cad) throws IOException {
-		if (parameters.isEmpty()) return new DocumentResult() {
-			public boolean hasNextElement() {
-				return false;
-			}
-			public SrsSearchResultElement getNextElement() {
-				return null;
-			}
-		};
-		
-		if (markSearchables) { // wrap original parameters so they are not modified
-			Properties allParameters = new Properties();
-			allParameters.putAll(parameters);
-			allParameters.setProperty(MARK_SEARCHABLES_PARAMETER, MARK_SEARCHABLES_PARAMETER);
-			parameters = allParameters;
-		}
-		
-		String parameterString = this.getParameterString(parameters);
-		
-		if (allowCache) {
-			Reader cacheReader = this.getCacheReader(SEARCH_DOCUMENTS, parameterString.hashCode());
-			if (cacheReader != null)
-				return DocumentResult.readDocumentResult(cacheReader);
-		}
-		
-		Connection con = this.serverConnection.getConnection();
-		BufferedWriter bw = con.getWriter();
-		
-		bw.write(SEARCH_DOCUMENTS);
-		bw.newLine();
-		bw.write(parameterString);
-		bw.newLine();
-		bw.flush();
-		
-		BufferedReader br = con.getReader();
-		String error = br.readLine();
-		if (SEARCH_DOCUMENTS.equals(error)) {
-			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_DOCUMENTS, parameterString.hashCode());
-			if ((cad != null) && (resultReader instanceof CacheWritingReader))
-				cad[0] = new CacheAccessData(SEARCH_DOCUMENTS, parameterString.hashCode(), this);
-			return DocumentResult.readDocumentResult(resultReader);
-		}
-		
-		else {
-			con.close();
-			throw new IOException(error);
-		}
+		return this.getDocumentResult(SEARCH_DOCUMENTS, parameters, markSearchables, allowCache, cad);
 	}
 	
 	/**
@@ -696,52 +720,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	}
 	
 	DocumentResult searchDocumentDetails(Properties parameters, boolean markSearchables, boolean allowCache, CacheAccessData[] cad) throws IOException {
-		if (parameters.isEmpty()) return new DocumentResult() {
-			public boolean hasNextElement() {
-				return false;
-			}
-			public SrsSearchResultElement getNextElement() {
-				return null;
-			}
-		};
-		
-		if (markSearchables) { // wrap original parameters so they are not modified
-			Properties allParameters = new Properties();
-			allParameters.putAll(parameters);
-			allParameters.setProperty(MARK_SEARCHABLES_PARAMETER, MARK_SEARCHABLES_PARAMETER);
-			parameters = allParameters;
-		}
-		
-		String parameterString = this.getParameterString(parameters);
-		
-		if (allowCache) {
-			Reader cacheReader = this.getCacheReader(SEARCH_DOCUMENT_DETAILS, parameterString.hashCode());
-			if (cacheReader != null)
-				return DocumentResult.readDocumentResult(cacheReader);
-		}
-		
-		Connection con = this.serverConnection.getConnection();
-		BufferedWriter bw = con.getWriter();
-		
-		bw.write(SEARCH_DOCUMENT_DETAILS);
-		bw.newLine();
-		bw.write(parameterString);
-		bw.newLine();
-		bw.flush();
-		
-		BufferedReader br = con.getReader();
-		String error = br.readLine();
-		if (SEARCH_DOCUMENT_DETAILS.equals(error)) {
-			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_DOCUMENT_DETAILS, parameterString.hashCode());
-			if ((cad != null) && (resultReader instanceof CacheWritingReader))
-				cad[0] = new CacheAccessData(SEARCH_DOCUMENT_DETAILS, parameterString.hashCode(), this);
-			return DocumentResult.readDocumentResult(resultReader);
-		}
-		
-		else {
-			con.close();
-			throw new IOException(error);
-		}
+		return this.getDocumentResult(SEARCH_DOCUMENT_DETAILS, parameters, markSearchables, allowCache, cad);
 	}
 	
 	/**
@@ -776,52 +755,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	}
 	
 	DocumentResult searchDocumentData(Properties parameters, boolean markSearchables, boolean allowCache, CacheAccessData[] cad) throws IOException {
-		if (parameters.isEmpty()) return new DocumentResult() {
-			public boolean hasNextElement() {
-				return false;
-			}
-			public SrsSearchResultElement getNextElement() {
-				return null;
-			}
-		};
-		
-		if (markSearchables) { // wrap original parameters so they are not modified
-			Properties allParameters = new Properties();
-			allParameters.putAll(parameters);
-			allParameters.setProperty(MARK_SEARCHABLES_PARAMETER, MARK_SEARCHABLES_PARAMETER);
-			parameters = allParameters;
-		}
-		
-		String parameterString = this.getParameterString(parameters);
-		
-		if (allowCache) {
-			Reader cacheReader = this.getCacheReader(SEARCH_DOCUMENT_DATA, parameterString.hashCode());
-			if (cacheReader != null)
-				return DocumentResult.readDocumentDataResult(cacheReader);
-		}
-		
-		Connection con = this.serverConnection.getConnection();
-		BufferedWriter bw = con.getWriter();
-		
-		bw.write(SEARCH_DOCUMENT_DATA);
-		bw.newLine();
-		bw.write(parameterString);
-		bw.newLine();
-		bw.flush();
-		
-		BufferedReader br = con.getReader();
-		String error = br.readLine();
-		if (SEARCH_DOCUMENT_DATA.equals(error)) {
-			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_DOCUMENT_DATA, parameterString.hashCode());
-			if ((cad != null) && (resultReader instanceof CacheWritingReader))
-				cad[0] = new CacheAccessData(SEARCH_DOCUMENT_DATA, parameterString.hashCode(), this);
-			return DocumentResult.readDocumentDataResult(resultReader);
-		}
-		
-		else {
-			con.close();
-			throw new IOException(error);
-		}
+		return this.getDocumentResult(SEARCH_DOCUMENT_DATA, parameters, markSearchables, allowCache, cad);
 	}
 	
 	/**
@@ -860,45 +794,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	}
 	
 	DocumentResult searchDocumentIDs(Properties parameters, boolean allowCache, CacheAccessData[] cad) throws IOException {
-		if (parameters.isEmpty()) return new DocumentResult() {
-			public boolean hasNextElement() {
-				return false;
-			}
-			public SrsSearchResultElement getNextElement() {
-				return null;
-			}
-		};
-		
-		String parameterString = this.getParameterString(parameters);
-		
-		if (allowCache) {
-			Reader cacheReader = this.getCacheReader(SEARCH_DOCUMENT_IDS, parameterString.hashCode());
-			if (cacheReader != null)
-				return DocumentResult.readDocumentDataResult(cacheReader);
-		}
-		
-		Connection con = this.serverConnection.getConnection();
-		BufferedWriter bw = con.getWriter();
-		
-		bw.write(SEARCH_DOCUMENT_IDS);
-		bw.newLine();
-		bw.write(parameterString);
-		bw.newLine();
-		bw.flush();
-		
-		BufferedReader br = con.getReader();
-		String error = br.readLine();
-		if (SEARCH_DOCUMENT_IDS.equals(error)) {
-			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_DOCUMENT_IDS, parameterString.hashCode());
-			if ((cad != null) && (resultReader instanceof CacheWritingReader))
-				cad[0] = new CacheAccessData(SEARCH_DOCUMENT_IDS, parameterString.hashCode(), this);
-			return DocumentResult.readDocumentDataResult(resultReader);
-		}
-		
-		else {
-			con.close();
-			throw new IOException(error);
-		}
+		return this.getDocumentResult(SEARCH_DOCUMENT_IDS, parameters, false, allowCache, cad);
 	}
 	
 	/**
@@ -919,6 +815,61 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		Properties parameters = new Properties();
 		parameters.setProperty(LAST_MODIFIED_SINCE, ("" + timestamp));
 		return this.searchDocumentData(parameters, false);
+	}
+	
+	private DocumentResult getDocumentResult(String command, Properties parameters, boolean markSearchables, boolean allowCache, CacheAccessData[] cad) throws IOException {
+		if (parameters.isEmpty()) return new DocumentResult() {
+			public boolean hasNextElement() {
+				return false;
+			}
+			public SrsSearchResultElement getNextElement() {
+				return null;
+			}
+		};
+		
+		if (markSearchables) { // wrap original parameters so they are not modified
+			Properties allParameters = new Properties();
+			allParameters.putAll(parameters);
+			allParameters.setProperty(MARK_SEARCHABLES_PARAMETER, MARK_SEARCHABLES_PARAMETER);
+			parameters = allParameters;
+		}
+		
+		String parameterString = this.getParameterString(parameters);
+		String parameterStringHash = getHash(parameterString);
+		
+		if (allowCache) {
+			Reader cacheReader = this.getCacheReader(command, parameterStringHash);
+			if (cacheReader != null) {
+				if (SEARCH_DOCUMENTS.equals(command) || SEARCH_DOCUMENT_DETAILS.equals(command))
+					return DocumentResult.readDocumentResult(cacheReader);
+				else return DocumentResult.readDocumentDataResult(cacheReader);
+			}
+		}
+		
+		Connection con = this.serverConnection.getConnection();
+		BufferedWriter bw = con.getWriter();
+		
+		bw.write(command);
+		bw.newLine();
+		bw.write(parameterString);
+		bw.newLine();
+		bw.flush();
+		
+		BufferedReader br = con.getReader();
+		String error = br.readLine();
+		if (command.equals(error)) {
+			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), command, parameterStringHash);
+			if ((cad != null) && (resultReader instanceof CacheWritingReader))
+				cad[0] = new CacheAccessData(command, parameterStringHash, this);
+			if (SEARCH_DOCUMENTS.equals(command) || SEARCH_DOCUMENT_DETAILS.equals(command))
+				return DocumentResult.readDocumentResult(resultReader);
+			else return DocumentResult.readDocumentDataResult(resultReader);
+		}
+		
+		else {
+			con.close();
+			throw new IOException(error);
+		}
 	}
 	
 	/**
@@ -991,9 +942,10 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		}
 		
 		String parameterString = this.getParameterString(parameters);
+		String parameterStringHash = getHash(parameterString);
 		
 		if (allowCache) {
-			Reader cacheReader = this.getCacheReader(SEARCH_INDEX, parameterString.hashCode());
+			Reader cacheReader = this.getCacheReader(SEARCH_INDEX, parameterStringHash);
 			if (cacheReader != null)
 				return IndexResult.readIndexResult(cacheReader);
 		}
@@ -1010,9 +962,9 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		BufferedReader br = con.getReader();
 		String error = br.readLine();
 		if (SEARCH_INDEX.equals(error)) {
-			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_INDEX, parameterString.hashCode());
+			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_INDEX, parameterStringHash);
 			if ((cad != null) && (resultReader instanceof CacheWritingReader))
-				cad[0] = new CacheAccessData(SEARCH_INDEX, parameterString.hashCode(), this);
+				cad[0] = new CacheAccessData(SEARCH_INDEX, parameterStringHash, this);
 			return IndexResult.readIndexResult(resultReader);
 		}
 		
@@ -1049,9 +1001,10 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		if (parameters.isEmpty()) throw new IOException("No such index");
 		
 		String parameterString = this.getParameterString(parameters);
+		String parameterStringHash = getHash(parameterString);
 		
 		if (allowCache) {
-			Reader cacheReader = this.getCacheReader(SEARCH_THESAURUS, parameterString.hashCode());
+			Reader cacheReader = this.getCacheReader(SEARCH_THESAURUS, parameterStringHash);
 			if (cacheReader != null)
 				return ThesaurusResult.readThesaurusResult(cacheReader);
 		}
@@ -1068,9 +1021,9 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		BufferedReader br = con.getReader();
 		String error = br.readLine();
 		if (SEARCH_THESAURUS.equals(error)) {
-			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_THESAURUS, parameterString.hashCode());
+			Reader resultReader = this.wrapDataReader(new ConnectionGuardReader(br, con), SEARCH_THESAURUS, parameterStringHash);
 			if ((cad != null) && (resultReader instanceof CacheWritingReader))
-				cad[0] = new CacheAccessData(SEARCH_THESAURUS, parameterString.hashCode(), this);
+				cad[0] = new CacheAccessData(SEARCH_THESAURUS, parameterStringHash, this);
 			return ThesaurusResult.readThesaurusResult(resultReader);
 		}
 		
