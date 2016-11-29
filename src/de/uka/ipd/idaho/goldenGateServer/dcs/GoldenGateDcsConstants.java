@@ -210,7 +210,7 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 									defValue = new GPathNumber(Math.round(defValue.asNumber().value));
 									defAggregate = "sum";
 								}
-								this.sf = new StatField(this.sfg, name, label, dataType, dataLength, defValue, tnas.getAttribute("aggregate", defAggregate), tnas.getAttribute("statName"));
+								this.sf = new StatField(this.sfg, name, label, dataType, dataLength, defValue, tnas.getAttribute("aggregate", defAggregate), tnas.getAttribute("statName"), tnas.containsAttribute("indexed"));
 							}
 							catch (NumberFormatException nfe) {
 								System.out.println("StatFieldSet: Could not parse field from '" + token.trim() + "'");
@@ -253,8 +253,11 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 					}
 					if ("variable".equals(type) && (sfs[0] != null)) {
 						if (tnas == null) {
-							if ((this.sv != null) && (this.sv.selectors.size() != 0))
-								sfs[0].variables.add(this.sv);
+							if ((this.sv != null) && (this.sv.selectors.size() != 0)) {
+								if (this.sfg == null)
+									sfs[0].variables.add(this.sv);
+								else this.sfg.variables.add(this.sv);
+							}
 							this.sv = null;
 						}
 						else {
@@ -291,11 +294,22 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the default context of the field group, i.e., a selector for the document annotations to to extract data values from */
 		public final GPath defContext;
 		
+		private LinkedList variables = new LinkedList();
 		private LinkedList fields = new LinkedList();
 		StatFieldGroup(String name, String label, GPath defContext) {
 			this.name = name;
 			this.label = ((label == null) ? name : label);
 			this.defContext = defContext;
+		}
+		
+		/**
+		 * Retrieve the variables defined for the field group. Variables select
+		 * node sets that can be referenced by data selectors for statistics
+		 * fields. This is a means of caching the result of path expressions.
+		 * @return an array holding the variables
+		 */
+		public StatVariable[] getVariables() {
+			return ((StatVariable[]) this.variables.toArray(new StatVariable[this.variables.size()]));
 		}
 		
 		/**
@@ -321,6 +335,8 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 					" context=\"" + StatFieldSet.grammar.escape(this.defContext.toString()) + "\"" +
 					">");
 			bw.newLine();
+			for (Iterator vit = this.variables.iterator(); vit.hasNext();)
+				((StatVariable) vit.next()).writeXml(bw);
 			for (Iterator fit = this.fields.iterator(); fit.hasNext();)
 				((StatField) fit.next()).writeXml(bw);
 			bw.write("</fieldGroup>");
@@ -371,6 +387,9 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the length of the field (relevant only if the data type is <code>string</code>) */
 		public final int dataLength;
 		
+		/** index the field in the database? */
+		public final boolean indexed;
+		
 		/** the default value */
 		public final GPathObject defValue;
 		
@@ -382,7 +401,7 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the name of the field in a statistics (defaults to <code>&lt;groupName&gt;&lt;fieldName&gt;</code> if not specified) */
 		public final String statColName;
 		
-		StatField(StatFieldGroup fieldGroup, String name, String label, String dataType, int dataLength, GPathObject defValue, String defAggregate, String statColName) {
+		StatField(StatFieldGroup fieldGroup, String name, String label, String dataType, int dataLength, GPathObject defValue, String defAggregate, String statColName, boolean indexed) {
 			this.group = fieldGroup;
 			this.name = name;
 			this.fullName = (this.group.name + "." + this.name);
@@ -392,6 +411,7 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			this.defValue = defValue;
 			this.defAggregate = defAggregate;
 			this.statColName = ((statColName == null) ? (this.group.name.substring(0, 1).toUpperCase() + this.group.name.substring(1) + this.name.substring(0, 1).toUpperCase() + this.name.substring(1)) : statColName);
+			this.indexed = indexed;
 		}
 		
 		/**
@@ -443,6 +463,7 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 					" default=\"" + StatFieldSet.grammar.escape(this.defValue.asString().value) + "\"" +
 					" aggregate=\"" + StatFieldSet.grammar.escape(this.defAggregate) + "\"" +
 					" statName=\"" + StatFieldSet.grammar.escape(this.statColName) + "\"" +
+					(this.indexed ? " statName=\"true\"" : "") +
 					">");
 			bw.newLine();
 			for (Iterator sit = this.selectors.iterator(); sit.hasNext();)

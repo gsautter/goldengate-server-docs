@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
@@ -45,6 +46,7 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -128,66 +130,96 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 		}
 		
 		//	create document table
-		TableDefinition dtd = new TableDefinition(this.tableNamePrefix + "Stats" + "Doc" + "Data");
-		dtd.addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
-		dtd.addColumn(DOCUMENT_ID_HASH_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
+		TableDefinition docTableDef = new TableDefinition(this.tableNamePrefix + "Stats" + "Doc" + "Data");
+		docTableDef.addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
+		docTableDef.addColumn(DOCUMENT_ID_HASH_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
 		
 		//	store table names and aliases for query construction
-		this.fieldGroupsToTables.setProperty("doc", dtd.getTableName());
-		this.fieldGroupsToTableAliases.setProperty("doc", dtd.getTableName().replaceAll("[^A-Z]", "").toLowerCase());
+		this.fieldGroupsToTables.setProperty("doc", docTableDef.getTableName());
+		String docTableAlias = docTableDef.getTableName().replaceAll("[^A-Z]", "").toLowerCase();
+		this.fieldGroupsToTableAliases.setProperty("doc", docTableAlias);
 		
 		//	create other database tables
-		TableDefinition[] stds = new TableDefinition[this.fieldGroups.length];
+		TableDefinition[] statsTableDefs = new TableDefinition[this.fieldGroups.length];
+		TreeSet usedTableAliases = new TreeSet(String.CASE_INSENSITIVE_ORDER); // need to make sure table aliases are unique
+		usedTableAliases.add(docTableAlias);
+		ArrayList[] indexedColumnNames = new ArrayList[this.fieldGroups.length];
 		for (int g = 0; g < this.fieldGroups.length; g++) {
 			
 			//	find or create table definition
 			if ("doc".equals(this.fieldGroups[g].name))
-				stds[g] = dtd;
-			else if (stds[g] == null) {
-				stds[g] = new TableDefinition(this.tableNamePrefix + "Stats" + this.fieldGroups[g].name.substring(0, 1).toUpperCase() + this.fieldGroups[g].name.substring(1) + "Data");
-				stds[g].addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
-				stds[g].addColumn(DOCUMENT_ID_HASH_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
+				statsTableDefs[g] = docTableDef;
+			else if (statsTableDefs[g] == null) {
+				statsTableDefs[g] = new TableDefinition(this.tableNamePrefix + "Stats" + this.fieldGroups[g].name.substring(0, 1).toUpperCase() + this.fieldGroups[g].name.substring(1) + "Data");
+				statsTableDefs[g].addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
+				statsTableDefs[g].addColumn(DOCUMENT_ID_HASH_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
 			}
 			
 			//	store table names and aliases for query construction
-			this.fieldGroupsToTables.setProperty(this.fieldGroups[g].name, stds[g].getTableName());
-			this.fieldGroupsToTableAliases.setProperty(this.fieldGroups[g].name, stds[g].getTableName().replaceAll("[^A-Z]", "").toLowerCase());
+			this.fieldGroupsToTables.setProperty(this.fieldGroups[g].name, statsTableDefs[g].getTableName());
+			String tableAlias = statsTableDefs[g].getTableName().replaceAll("[^A-Z]", "").toLowerCase();
+			if (usedTableAliases.contains(tableAlias)) {
+				for (char c = 'a'; c <= 'z'; c++)
+					if (!usedTableAliases.contains(tableAlias + c)) {
+						tableAlias = (tableAlias + c);
+						break;
+					}
+			}
+			this.fieldGroupsToTableAliases.setProperty(this.fieldGroups[g].name, tableAlias);
+			usedTableAliases.add(tableAlias);
 			
-			//	add data fields
+			//	add data fields, and collect indexed columns
 			StatField[] fgFields = this.fieldGroups[g].getFields();
+			indexedColumnNames[g] = new ArrayList();
 			for (int f = 0; f < fgFields.length; f++) {
 				if (StatField.STRING_TYPE.equals(fgFields[f].dataType))
-					stds[g].addColumn(fgFields[f].statColName, TableDefinition.VARCHAR_DATATYPE, fgFields[f].dataLength);
+					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.VARCHAR_DATATYPE, fgFields[f].dataLength);
 				else if (StatField.INTEGER_TYPE.equals(fgFields[f].dataType))
-					stds[g].addColumn(fgFields[f].statColName, TableDefinition.INT_DATATYPE, 0);
+					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.INT_DATATYPE, 0);
 				else if (StatField.REAL_TYPE.equals(fgFields[f].dataType))
-					stds[g].addColumn(fgFields[f].statColName, TableDefinition.REAL_DATATYPE, 0);
+					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.REAL_DATATYPE, 0);
 				else if (StatField.BOOLEAN_TYPE.equals(fgFields[f].dataType))
-					stds[g].addColumn(fgFields[f].statColName, TableDefinition.CHAR_DATATYPE, 1);
+					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.CHAR_DATATYPE, 1);
+				if (fgFields[f].indexed)
+					indexedColumnNames[g].add(fgFields[f].statColName);
 			}
 		}
 		
 		//	create and index document table
-		if (!this.io.ensureTable(dtd, true))
+		if (!this.io.ensureTable(docTableDef, true))
 			throw new RuntimeException("DocumentCollectionStatistics: cannot work without database access");
-		this.io.indexColumn(dtd.getTableName(), DOCUMENT_ID_ATTRIBUTE);
-		this.io.indexColumn(dtd.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
+		this.io.indexColumn(docTableDef.getTableName(), DOCUMENT_ID_ATTRIBUTE);
+		this.io.indexColumn(docTableDef.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
+		
+		//	add configured column indices
+		StatField[] docFgFields = this.docFieldGroup.getFields();
+		for (int f = 0; f < docFgFields.length; f++) {
+			if (docFgFields[f].indexed)
+				this.io.indexColumn(docTableDef.getTableName(), docFgFields[f].statColName);
+		}
 		
 		//	create and index sub tables
-		for (int t = 0; t < stds.length; t++) {
-			if (stds[t] == dtd)
+		for (int t = 0; t < statsTableDefs.length; t++) {
+			if (statsTableDefs[t] == docTableDef)
 				continue;
 			
 			//	create and index table
-			if (!this.io.ensureTable(stds[t], true))
+			if (!this.io.ensureTable(statsTableDefs[t], true))
 				throw new RuntimeException("DocumentCollectionStatistics: cannot work without database access");
-			this.io.indexColumn(stds[t].getTableName(), DOCUMENT_ID_ATTRIBUTE);
-			this.io.indexColumn(stds[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
+			this.io.indexColumn(statsTableDefs[t].getTableName(), DOCUMENT_ID_ATTRIBUTE);
+			this.io.indexColumn(statsTableDefs[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
 			
 			//	add referential constraints
 			if (useForeignKeyConstraints) {
-				this.io.setForeignKey(stds[t].getTableName(), DOCUMENT_ID_ATTRIBUTE, dtd.getTableName(), DOCUMENT_ID_ATTRIBUTE);
-				this.io.setForeignKey(stds[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE, dtd.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
+				this.io.setForeignKey(statsTableDefs[t].getTableName(), DOCUMENT_ID_ATTRIBUTE, docTableDef.getTableName(), DOCUMENT_ID_ATTRIBUTE);
+				this.io.setForeignKey(statsTableDefs[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE, docTableDef.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
+			}
+			
+			//	add configured column indices
+			StatField[] fgFields = this.fieldGroups[t].getFields();
+			for (int f = 0; f < fgFields.length; f++) {
+				if (fgFields[f].indexed)
+					this.io.indexColumn(statsTableDefs[t].getTableName(), fgFields[f].statColName);
 			}
 		}
 	}
@@ -230,11 +262,11 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 		
 		//	get global variables
 		GPathVariableResolver variables = new GPathVariableResolver();
-		StatVariable[] svs = this.fieldSet.getVariables();
-		for (int v = 0; v < svs.length; v++) {
-			GPathObject value = svs[v].getValue(doc, variables);
+		StatVariable[] fsVars = this.fieldSet.getVariables();
+		for (int v = 0; v < fsVars.length; v++) {
+			GPathObject value = fsVars[v].getValue(doc, variables);
 			if ((value != null) && (value.asBoolean().value))
-				variables.setVariable(svs[v].name, value);
+				variables.setVariable(fsVars[v].name, value);
 		}
 		
 		//	fill document table
@@ -246,9 +278,18 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 		for (int g = 0; g < this.fieldGroups.length; g++) {
 			if (this.fieldGroups[g] == this.docFieldGroup)
 				continue;
+			StatVariable[] fgVars = this.fieldGroups[g].getVariables();
 			QueriableAnnotation[] contexts = this.fieldGroups[g].defContext.evaluate(doc, variables);
-			for (int c = 0; c < contexts.length; c++)
-				this.updateFieldGroup(this.fieldGroups[g], doc, contexts[c], variables, subTableFields, subTableValues);
+			for (int c = 0; c < contexts.length; c++) {
+//				this.updateFieldGroup(this.fieldGroups[g], doc, contexts[c], variables, subTableFields, subTableValues);
+				GPathVariableResolver cVariables = new GPathVariableResolver(variables);
+				for (int v = 0; v < fgVars.length; v++) {
+					GPathObject value = fgVars[v].getValue(contexts[c], variables);
+					if ((value != null) && (value.asBoolean().value))
+						cVariables.setVariable(fgVars[v].name, value);
+				}
+				this.updateFieldGroup(this.fieldGroups[g], doc, contexts[c], cVariables, subTableFields, subTableValues);
+			}
 		}
 		
 		//	clear cache & update timestamp

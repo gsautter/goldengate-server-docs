@@ -424,7 +424,7 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 			
 			this.writeLine("function buildChart(chartId) {");
 			this.writeLine("  var chartUrl = ('" + this.request.getContextPath() + this.request.getServletPath() + "/chart.html?type=' + chartId + buildChartParameterString());");
-			this.writeLine("  window.open(chartUrl, 'Chart Preview', '" + chartWindowParameters + "');");
+			this.writeLine("  window.open(chartUrl, 'Chart Preview', '" + chartWindowParameters + "', true);");
 			this.writeLine("}");
 			
 			StatFieldGroup[] sfgs = getFieldSet().getFieldGroups();

@@ -30,6 +30,7 @@ package de.uka.ipd.idaho.goldenGateServer.dcs.client;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.util.Enumeration;
 import java.util.Properties;
 
@@ -151,7 +152,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 			Properties statFieldsToLabels = new Properties();
 			for (int f = 0; f < statFields.length; f++)
 				statFieldsToLabels.setProperty(statFields[f], this.getFieldLabel(statFields[f]));
-			stats.writeAsJSON(bw, null, true, statFieldsToLabels, true);
+			stats.writeAsJSON(bw, request.getParameter("assignToVariable"), true, statFieldsToLabels, true);
 			return;
 		}
 		
@@ -159,20 +160,24 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 		if ("JS".equalsIgnoreCase(format)) {
 			bw.write("clearStatTable();"); bw.newLine();
 			bw.write("statTable.style.display = 'none';"); bw.newLine();
-			bw.write("var sr;"); bw.newLine();
-			bw.write("sr = addStatRow();"); bw.newLine();
-			for (int f = 0; f < statFields.length; f++) {
-				bw.write("addStatCell(sr, 'statTableHeader', '" + this.escapeForJavaScript(this.getFieldLabel(statFields[f])) + "');"); bw.newLine();
-			}
-			for (int t = 0; t < stats.size(); t++) {
-				bw.write("sr = addStatRow();"); bw.newLine();
-				StringTupel st = stats.get(t);
-				for (int f = 0; f < statFields.length; f++) {
-					bw.write("addStatCell(sr, 'statTableCell', '" + this.escapeForJavaScript(st.getValue(statFields[f], "")) + "');"); bw.newLine();
-				}
-			}
+			this.writeStatRendererScript(bw, stats, statFields);
 			bw.write("statTable.style.display = '';"); bw.newLine();
 			return;
+		}
+	}
+	
+	private void writeStatRendererScript(BufferedWriter bw, DcStatistics stats, String[] statFields) throws IOException {
+		bw.write("var sr;"); bw.newLine();
+		bw.write("sr = addStatRow();"); bw.newLine();
+		for (int f = 0; f < statFields.length; f++) {
+			bw.write("addStatCell(sr, 'statTableHeader', '" + this.escapeForJavaScript(this.getFieldLabel(statFields[f])) + "');"); bw.newLine();
+		}
+		for (int t = 0; t < stats.size(); t++) {
+			bw.write("sr = addStatRow();"); bw.newLine();
+			StringTupel st = stats.get(t);
+			for (int f = 0; f < statFields.length; f++) {
+				bw.write("addStatCell(sr, 'statTableCell', '" + this.escapeForJavaScript(st.getValue(statFields[f], "")) + "');"); bw.newLine();
+			}
 		}
 	}
 	
@@ -255,7 +260,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 		
 		//	check if statistics request
 		if ((request.getParameter("outputFields") != null) && (request.getParameter("outputFields").trim().length() != 0)) {
-			DcStatistics stats = this.getStats(request);
+			final DcStatistics stats = this.getStats(request);
 			
 			//	send statistics if there is any
 			if (stats != null) {
@@ -276,6 +281,49 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				else if ("JS".equalsIgnoreCase(format)) {
 					format = "JS";
 					response.setContentType("text/javascript");
+				}
+				else if ("HTML".equalsIgnoreCase(format)) {
+					response.setContentType("text/html");
+					this.sendHtmlPage(new HtmlPageBuilder(this, request, response) {
+						protected void include(String type, String tag) throws IOException {
+							if ("includeBody".equals(type))
+								this.includeBody();
+							else super.include(type, tag);
+						}
+						private void includeBody() throws IOException {
+							//	TODO maybe add fields and filter value, if without modification options ...
+							//	TODO ... or add parameter specifying whether or not to include fields
+							this.writeLine("<table id=\"statTable\"></table>");
+						}
+						protected String getPageTitle(String title) {
+							return "Document Collection Statistics";
+						}
+						protected String[] getOnloadCalls() {
+							String[] olcs = {"displayStats()"};
+							return olcs;
+						}
+						protected boolean includeJavaScriptDomHelpers() {
+							return true;
+						}
+						protected void writePageHeadExtensions() throws IOException {
+							this.writeLine("<script type=\"text/javascript\">");
+							
+							this.writeLine("function displayStats() {");
+							writeStatRendererScript(new HtmlPageBuilderWriter(this), stats, stats.getFields());
+							this.writeLine("}");
+							this.writeLine("function addStatRow() {");
+							this.writeLine("  var sr = newElement('tr', null, null, null);");
+							this.writeLine("  getById('statTable').appendChild(sr);");
+							this.writeLine("  return sr;");
+							this.writeLine("}");
+							this.writeLine("function addStatCell(sr, cssClass, value) {");
+							this.writeLine("  sr.appendChild(newElement('td', null, cssClass, value));");
+							this.writeLine("}");
+							
+							this.writeLine("</script>");
+						}
+					});
+					return;
 				}
 				else {
 					format = "CSV";
@@ -327,6 +375,33 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 		
 		//	let super class handle that one (provide statistics HTML page)
 		super.doPost(request, response);
+	}
+	
+	private static class HtmlPageBuilderWriter extends BufferedWriter {
+		private HtmlPageBuilder hpb;
+		HtmlPageBuilderWriter(HtmlPageBuilder hpb) {
+			super(new Writer() {
+				public void write(char[] cbuf, int off, int len) throws IOException {}
+				public void flush() throws IOException {}
+				public void close() throws IOException {}
+			});
+			this.hpb = hpb;
+		}
+		public void write(int c) throws IOException {
+			this.hpb.write("" + ((char) c));
+		}
+		public void write(char[] cbuf, int off, int len) throws IOException {
+			this.hpb.write(new String(cbuf, off, len));
+		}
+		public void write(String s) throws IOException {
+			this.hpb.write(s);
+		}
+		public void write(String s, int off, int len) throws IOException {
+			this.hpb.write(s.substring(off, (off + len)));
+		}
+		public void newLine() throws IOException {
+			this.hpb.newLine();
+		}
 	}
 	
 	/* (non-Javadoc)
@@ -441,6 +516,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				
 				this.writeLine("<tr id=\"statLinkRow\" style=\"display: none;\">");
 				this.write("<td class=\"statFieldTableCell\" colspan=\"6\">");
+				this.write("<a href=\"toCome\" class=\"statLink\" id=\"statLink_HTML\" target=\"_blank\">Get this Statistics in HTML</a>");
 				this.write("<a href=\"toCome\" class=\"statLink\" id=\"statLink_CSV\" target=\"_blank\">Get this Statistics in CSV</a>");
 				this.write("<a href=\"toCome\" class=\"statLink\" id=\"statLink_Excel\" target=\"_blank\">Get this Statistics for MS Excel</a>");
 				this.write("<a href=\"toCome\" class=\"statLink\" id=\"statLink_JSON\" target=\"_blank\">Get this Statistics in JSON</a>");
@@ -619,6 +695,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("  var statUrl = buildStatUrl();");
 				this.writeLine("  if (statUrl == null)");
 				this.writeLine("    return;");
+				this.writeLine("  getById('statLink_HTML').href = (statUrl + '&format=HTML');");
 				this.writeLine("  getById('statLink_CSV').href = (statUrl + '&format=CSV&separator=' + encodeURIComponent(','));");
 				this.writeLine("  getById('statLink_Excel').href = (statUrl + '&format=CSV&separator=' + encodeURIComponent(';'));");
 				this.writeLine("  getById('statLink_JSON').href = (statUrl + '&format=JSON');");

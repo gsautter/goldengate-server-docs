@@ -163,18 +163,6 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				return (letterCode + GET_STATISTICS_COMMAND_SUFFIX);
 			}
 			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
-//				int limit;
-//				String[] outputFields;
-//				String inputLine = input.readLine();
-//				try { // TODO_ne switch to code below, and remove this after some grace period
-//					limit = Integer.parseInt(inputLine);
-//					outputFields = input.readLine().split("\\s+");
-//				}
-//				catch (NumberFormatException nfe) {
-//					System.out.println("DocumentCollectionStatistics: invalid row limit '" + inputLine + "'");
-//					limit = -1;
-//					outputFields = inputLine.split("\\s+");
-//				}
 				int limit = Integer.parseInt(input.readLine());
 				String[] outputFields = input.readLine().split("\\s+");
 				String[] groupingFields = input.readLine().split("\\s+");
