@@ -74,6 +74,7 @@ import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore;
+import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore.DocumentNotFoundException;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSrsConstants.SrsDocumentEvent.SrsDocumentEventListener;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.CollectionStatistics;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentList;
@@ -1162,6 +1163,19 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	normalize UUID
 		docId = normalizeId(docId);
 		
+		//	try plain ID lookup first (way faster)
+		try {
+			return this.dst.getDocumentAttributes(docId, includeUpdateHistory);
+		}
+		
+		//	catch invalid document ID errors, as those can just as well indicate the need for resolving a UUID
+		catch (DocumentNotFoundException dnfe) {}
+		
+		//	if another IO error occurs, there is no use in trying any further
+		catch (IOException dnfe) {
+			return null;
+		}
+		
 		//	resolve UUID
 		String resolverQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
 				" FROM " + DOCUMENT_TABLE_NAME + 
@@ -1251,7 +1265,19 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	public DocumentReader getDocumentAsStream(String docId, boolean includeUpdateHistory) throws IOException {
 		
 		//	normalize UUID
+//		System.out.println("GoldenGateSRS getting document '" + docId + "' as stream");
+//		long start = System.currentTimeMillis();
 		docId = normalizeId(docId);
+		
+		//	try plain ID lookup first (way faster)
+		try {
+			DocumentReader dr = this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
+//			System.out.println(" - unresolved document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
+			return dr;
+		}
+		
+		//	catch invalid document ID errors, as those can just as well indicate the need for resolving a UUID
+		catch (DocumentNotFoundException dnfe) {}
 		
 		//	resolve UUID
 		String resolverQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
@@ -1272,10 +1298,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		finally {
 			if (sqr != null)
 				sqr.close();
+//			System.out.println(" - document ID resolved to '" + docId + "' after " + (System.currentTimeMillis() - start) + " ms");
 		}
 		
 		//	return document
-		return this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
+		DocumentReader dr = this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
+//		System.out.println(" - document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
+		return dr;
 	}
 	
 	/**
@@ -2259,6 +2288,62 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					this.addToDleBuffer((DocumentListElement) dleList.get(d));
 			}
 		};
+	}
+	/**
+	 * Retrieve a list of the documents hosted in GoldenGATE SRS for retrieval.
+	 * As this method retrieves all individual documents, it can incur
+	 * considerable effort, both for generation and for processing. Use with
+	 * care.
+	 * @param orderField the field to order the list by (prepend with '-' for
+	 *            descending order); an invalid field name will simply be
+	 *            ignored
+	 * @return the list of the documents in the SRS' collection
+	 * @throws IOException
+	 */
+	public DocumentList getDocumentListFull(String orderField) throws IOException {
+		StringBuffer query = new StringBuffer("SELECT ");
+		for (int f = 0; f < documentListQueryFields.length; f++) {
+			if (f != 0)
+				query.append(", ");
+			query.append(documentListQueryFields[f]);
+		}
+		query.append(" FROM " + DOCUMENT_TABLE_NAME);
+		if ((orderField != null) && (orderField.length() != 0)) {
+			String orderDirection = "";
+			if (orderField.startsWith("-")) {
+				orderField = orderField.substring("-".length());
+				orderDirection = " DESC";
+			}
+			for (int f = 0; f < documentListQueryFields.length; f++)
+				if (documentListQueryFields[f].equalsIgnoreCase(orderField)) {
+					query.append(" ORDER BY " + orderField + orderDirection + ";");
+					break;
+				}
+		}
+		query.append(";");
+		
+		SqlQueryResult sqr = null;
+		try {
+			sqr = this.io.executeSelectQuery(query.toString());
+			return new SqlDocumentList(documentListFields, sqr) {
+				protected DocumentListElement decodeListElement(String[] elementData) {
+					DocumentListElement dle = new DocumentListElement();
+					for (int f = 0; f < documentListQueryFields.length; f++) {
+						if ((elementData[f] == null) || (elementData[f].trim().length() == 0))
+							continue;
+						if (DOCUMENT_UUID_ATTRIBUTE.equals(documentListQueryFields[f]) && (elementData[f].length() >= 32))
+							dle.setAttribute(documentListQueryFields[f], (elementData[f].substring(0, 8) + "-" + elementData[f].substring(8, 12) + "-" + elementData[f].substring(12, 16) + "-" + elementData[f].substring(16, 20) + "-" + elementData[f].substring(20)));
+						else dle.setAttribute(documentListQueryFields[f], elementData[f]);
+					}
+					return dle;
+				}
+			};
+		}
+		catch (SQLException sqle) {
+			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+			System.out.println("  query was " + query);
+			throw new IOException(sqle.getMessage());
+		}
 	}
 	
 	private static abstract class SqlDocumentList extends DocumentList {
