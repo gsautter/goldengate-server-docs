@@ -335,7 +335,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 			eventBr.close();
 		}
 		catch (Exception e) {
-			System.out.println(getExporterName() + ": Error restoring pending update events from file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
+			System.out.println(this.getExporterName() + ": Error restoring pending update events from file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
 			e.printStackTrace(System.out);
 		}
 	}
@@ -372,7 +372,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 				eventFile.delete();
 			}
 			catch (Exception e) {
-				System.out.println(getExporterName() + ": Error deleting update event file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
+				System.out.println(this.getExporterName() + ": Error deleting update event file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
 				e.printStackTrace(System.out);
 			}
 		}
@@ -389,7 +389,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 			eventBw.close();
 		}
 		catch (Exception e) {
-			System.out.println(getExporterName() + ": Error storing pending update events to file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
+			System.out.println(this.getExporterName() + ": Error storing pending update events to file '" + eventFile.getAbsolutePath() + "': " + e.getMessage());
 			e.printStackTrace(System.out);
 		}
 	}
@@ -698,7 +698,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length != 0)
 					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
-				else System.out.println(eventQueue.size() + " update events pending.");
+				else System.out.println(eventQueue.size() + " update events pending, " + eventQueue.highPriorityQueue.size() + " high priority ones");
 			}
 		};
 		cal.add(ca);
