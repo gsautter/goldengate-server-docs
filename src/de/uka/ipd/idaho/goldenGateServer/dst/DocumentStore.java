@@ -830,9 +830,6 @@ public class DocumentStore implements LiteratureConstants, GoldenGateServerDocCo
 		
 		try {
 			File docFile = new File(this.docFolder, (primaryFolderName + "/" + secondaryFolderName + "/" + docId + ((fileVersion == 0) ? "" : ("." + fileVersion)) + ".xml"));
-//			Reader docIn = new InputStreamReader(new FileInputStream(docFile), this.encoding);
-//			int docSize = ((int) docFile.length());
-//			DocumentReader dr = new DocumentReader(docIn, docSize);
 			InputStream docIn;
 			int docSize;
 			if (docFile.exists()) {

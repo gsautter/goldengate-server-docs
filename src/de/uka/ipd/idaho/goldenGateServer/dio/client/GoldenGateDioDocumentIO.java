@@ -93,6 +93,7 @@ import de.uka.ipd.idaho.gamta.util.GamtaClassLoader.InputStreamProvider;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.gamta.util.ProgressMonitor;
+import de.uka.ipd.idaho.gamta.util.swing.DialogFactory;
 import de.uka.ipd.idaho.gamta.util.swing.ProgressMonitorDialog;
 import de.uka.ipd.idaho.gamta.util.swing.ProgressMonitorWindow;
 import de.uka.ipd.idaho.goldenGate.DocumentEditor;
@@ -632,6 +633,28 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 		pm.setInfo("Checking authentication at GoldenGATE Server ...");
 		this.ensureLoggedIn();
 		
+		
+		//	offer fetching document directly by name or ID, without loading whole list
+		pm.setInfo("Opening direct loading dialog ...");
+		
+		//	display document ID input
+		DocumentLoadDialog dlod = new DocumentLoadDialog("Open Document Directly");
+		dlod.setLocationRelativeTo(DialogPanel.getTopWindow());
+		dlod.setVisible(true);
+		
+		//	get selected document
+		DocumentData docData = dlod.getDocumentData();
+		if (docData == null)
+			return null;
+		
+		//	forwarded to document list
+		if (docData == LOAD_DOCUMENT_LIST)
+			docData = null;
+		
+		//	return selected document
+		else return docData;
+		
+		
 		//	get list of documents
 		DocumentListBuffer documentList;
 		boolean documentListEmpty = true;
@@ -704,6 +727,146 @@ public class GoldenGateDioDocumentIO extends AbstractDocumentIO implements Golde
 			return null;
 		}
 	}
+	
+	private class DocumentLoadDialog extends DialogPanel {
+		
+		private JTextField docIdField = new JTextField();
+		
+		private DocumentData loadData = null;
+		
+		DocumentLoadDialog(String title) {
+			super(title, true);
+			
+			JPanel docIdPanel = new JPanel(new BorderLayout(), true);
+			docIdPanel.add(new JLabel("Document ID: ", JLabel.LEFT), BorderLayout.WEST);
+			docIdPanel.add(this.docIdField, BorderLayout.CENTER);
+			this.docIdField.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent ae) {
+					openDoc();
+				}
+			});
+			
+			JPanel contentPanel = new JPanel(new BorderLayout(), true);
+			contentPanel.add(new JLabel("Enter document ID to load a specific document directly, or proceed to document list.", JLabel.CENTER), BorderLayout.CENTER);
+			contentPanel.add(docIdPanel, BorderLayout.SOUTH);
+			
+			JButton listButton = new JButton("Show List");
+			listButton.setBorder(BorderFactory.createRaisedBevelBorder());
+			listButton.setPreferredSize(new Dimension(100, 21));
+			listButton.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent ae) {
+					loadData = LOAD_DOCUMENT_LIST;
+					dispose();
+				}
+			});
+			
+			JButton loadButton = new JButton("Load");
+			loadButton.setBorder(BorderFactory.createRaisedBevelBorder());
+			loadButton.setPreferredSize(new Dimension(100, 21));
+			loadButton.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent ae) {
+					openDoc();
+				}
+			});
+			
+			JButton cancelButton = new JButton("Cancel");
+			cancelButton.setBorder(BorderFactory.createRaisedBevelBorder());
+			cancelButton.setPreferredSize(new Dimension(100, 21));
+			cancelButton.addActionListener(new ActionListener() {
+				public void actionPerformed(ActionEvent ae) {
+					if ((cache != null) && (dioClient != null))
+						cache.cleanup(dioClient);
+					dispose();
+				}
+			});
+			
+			JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+			buttonPanel.add(listButton);
+			buttonPanel.add(loadButton);
+			buttonPanel.add(cancelButton);
+			
+			this.add(contentPanel, BorderLayout.CENTER);
+			this.add(buttonPanel, BorderLayout.SOUTH);
+			
+			this.setSize(new Dimension(500, 120));
+		}
+		
+		private void openDoc() {
+			String docId = this.docIdField.getText().trim();
+			docId = docId.replaceAll("\\-", "");
+			if (docId.matches("[0-9A-Fa-f]{32}"))
+				this.openDoc(docId);
+			else DialogFactory.alert("Please enter a valid document ID for direct loading.", "Invalid Document ID", JOptionPane.ERROR_MESSAGE);
+		}
+		
+		private void openDoc(final String docId) {
+			
+			//	create progress monitor
+			final ProgressMonitorDialog pmd = new ProgressMonitorDialog(false, true, DialogPanel.getTopWindow(), "Loading Document from GoldenGATE DIO ...");
+			pmd.setAbortExceptionMessage("ABORTED BY USER");
+			pmd.setInfoLineLimit(1);
+			pmd.getWindow().setSize(400, 100);
+			pmd.getWindow().setLocationRelativeTo(pmd.getWindow().getOwner());
+			
+			//	load in separate thread
+			Thread dl = new Thread() {
+				public void run() {
+					
+					//	open document
+					try {
+						MutableAnnotation doc = null;
+						
+						if ((cache != null) && (cache.containsDocument(docId))) {
+							pmd.setInfo("Loading document from cache ...");
+							doc = cache.loadDocument(docId, (dioClient == null));
+							pmd.setInfo("Document loaded from cache.");
+							pmd.setProgress(100);
+						}
+						
+						if ((doc == null) && (dioClient != null))
+							doc = checkoutDocumentFromServer(docId, 0, docId, 10, pmd);
+						
+						if (doc == null)
+							throw new IOException("Cannot open a document from GoldenGATE Server without authentication.");
+						
+						String docName = ((String) doc.getAttribute(DOCUMENT_NAME_ATTRIBUTE));
+						
+						ServerDocumentSaveOperation dso = new ServerDocumentSaveOperation(docId, docName);
+						loadData = new DocumentData(doc, docName, dso.format, dso);
+						
+//						loadException = null; // clean up exception from earlier loading attempts
+						
+						if (cache != null) {
+							cache.markOpen(docId);
+							if (dioClient != null)
+								cache.cleanup(dioClient);
+						}
+						
+						dispose();
+					}
+					catch (RuntimeException re) {
+						if (!"ABORTED BY USER".equals(re.getMessage()))
+							throw re;
+					}
+					catch (IOException ioe) {
+//						loadException = new Exception(("An error occurred while loading document '" + docName + "' from the DIO at\n" + authManager.getHost() + ":" + authManager.getPort() + "\n" + ioe.getMessage()), ioe);
+					}
+					finally {
+						pmd.close();
+					}
+				}
+			};
+			
+			dl.start();
+			pmd.popUp(true);
+		}
+		
+		DocumentData getDocumentData() {
+			return this.loadData;
+		}
+	}
+	
+	private static final DocumentData LOAD_DOCUMENT_LIST = new DocumentData(null, null, null);
 	
 	private DocumentRoot checkoutDocumentFromServer(String docId, int version, String docName, int readTimeout, ProgressMonitor pm) throws IOException, TimeoutException {
 		pm.setInfo("Loading document from GoldenGATE DIO ...");

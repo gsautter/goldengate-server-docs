@@ -72,6 +72,7 @@ import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
+import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventNotifier;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore.DocumentNotFoundException;
@@ -112,6 +113,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private DocumentUuidFetcher[] uuidFetchers = new DocumentUuidFetcher[0];
 	
 	private IoProvider io;
+	
+	private GoldenGateServerEventNotifier eventNotifier; 
 	
 	// TODO in the long haul, consider processing index queries directly against database where possible
 	
@@ -156,6 +159,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		TableDefinition td = new TableDefinition(DOCUMENT_TABLE_NAME);
 		td.addColumn(Indexer.DOC_NUMBER_COLUMN);
 		td.addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
+		td.addColumn(DOCUMENT_TYPE_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
 		td.addColumn(DOCUMENT_CHECKSUM_COLUMN_NAME, TableDefinition.VARCHAR_DATATYPE, 32);
 		td.addColumn(DOCUMENT_UUID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
 		td.addColumn(DOCUMENT_UUID_HASH_COLUMN_NAME, TableDefinition.INT_DATATYPE, 0);
@@ -419,6 +423,29 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 			}
 		};
+		
+		//	create event notifier
+		this.eventNotifier = new GoldenGateServerEventNotifier("SrsUpdateNotifier") {
+			protected GoldenGateServerEvent prepareEventNotification(GoldenGateServerEvent gse) throws Exception {
+				if (gse instanceof SrsDocumentEvent) {
+					final SrsDocumentEvent sde = ((SrsDocumentEvent) gse);
+					if (sde.type != SrsDocumentEvent.UPDATE_TYPE)
+						return sde;
+					if (sde.document != null)
+						return sde;
+					QueriableAnnotation doc = dst.loadDocument(sde.documentId);
+					return new SrsDocumentEvent(sde.user, sde.documentId, doc, sde.version, sde.sourceClassName, sde.eventTime, null) {
+						public void notificationComplete() {
+							sde.notificationComplete();
+						}
+						public void writeLog(String logEntry) {
+							sde.writeLog(logEntry);
+						}
+					};
+				}
+				else return super.prepareEventNotification(gse);
+			}
+		};
 	}
 	
 	/* (non-Javadoc)
@@ -429,6 +456,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		this.indexerService.shutdown();
 		System.out.println("  - indexer service shut down");
+		
+		this.eventNotifier.shutdown();
+		System.out.println("  - event notifier shut down");
 		
 		for (int i = 0; i < this.indexers.length; i++)
 			this.indexers[i].exit();
@@ -460,6 +490,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final String LIST_FILTERS_COMMAND = "filters";
 	private static final String LIST_SPLITTERS_COMMAND = "splitters";
 	private static final String LIST_UUID_FETCHERS_COMMAND = "uuidFetchers";
+	
+	private static final String REINDEX_COMMAND = "reIndex";
 	
 	private static final String ISSUE_EVENTS_COMMAND = "issueEvents";
 	
@@ -857,6 +889,28 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	issue update events
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
+				return REINDEX_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						REINDEX_COMMAND + " <masterDocId> <indexerName>",
+						"Re-index all documents from a specific master document:",
+						"- <masterDocId>: the ID of the master document to re-index",
+						"- <indexerName>: the name of the indexer to re-index the document with (optional)",
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if ((arguments.length < 1) || (arguments.length > 2))
+					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID and indexer name as the only arguments.");
+				else reIndex(arguments[0], ((arguments.length == 1) ? null : arguments[1]));
+			}
+		};
+		cal.add(ca);
+		
+		//	issue update events
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
 				return ISSUE_EVENTS_COMMAND;
 			}
 			public String[] getExplanation() {
@@ -912,6 +966,54 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		return plugins;
 	}
 	
+	private void reIndex(final String masterDocId, String indexerName) {
+		
+		//	assemble query
+		StringBuffer query = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE);
+		query.append(" FROM " + DOCUMENT_TABLE_NAME);
+		query.append(" WHERE " + MASTER_DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(masterDocId) + "'");
+		query.append(" AND " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + " = " + masterDocId.hashCode() + "");
+		
+		//	get document IDs
+		SqlQueryResult sqr = null;
+		int count = 0;
+		try {
+			sqr = io.executeSelectQuery(query.toString(), true);
+			while (sqr.next()) {
+				final long docNr = sqr.getLong(0);
+				final String docId = sqr.getString(1);
+				for (int i = 0; i < this.indexers.length; i++) {
+					if ((indexerName != null) && !indexerName.equals(this.indexers[i].getIndexName()))
+						continue;
+					final Indexer indexer = this.indexers[i];
+					this.enqueueIndexerAction(new Runnable() {
+						public void run() {
+							try {
+								QueriableAnnotation doc = dst.loadDocument(docId);
+								indexer.deleteDocument(docNr);
+								indexer.index(doc, docNr);
+							}
+							catch (IOException ioe) {
+								System.out.println("GoldenGateSRS: error re-indexing document '" + docId + "': " + ioe.getMessage());
+								ioe.printStackTrace(System.out);
+							}
+						}
+					});
+					count++;
+				}
+			}
+		}
+		catch (SQLException sqle) {
+			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+			System.out.println("  query was " + query);
+		}
+		finally {
+			if (sqr != null)
+				sqr.close();
+		}
+		System.out.println("Scheduled re-indexing of for " + count + " documents.");
+	}
+	
 	private Thread eventIssuer = null;
 	private void issueEvents(final String masterDocId) {
 		
@@ -938,9 +1040,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						String updateUser = sqr.getString(1);
 						long updateTime = sqr.getLong(2);
 						try {
-							QueriableAnnotation doc = dst.loadDocument(docId);
+							QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 128) ? dst.loadDocument(docId) : null);
 							int docVersion = dst.getVersion(docId);
-							GoldenGateServerEventService.notify(new SrsDocumentEvent(updateUser, docId, doc, docVersion, this.getClass().getName(), updateTime, new EventLogger() {
+							eventNotifier.notify(new SrsDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateSRS.class.getName(), updateTime, new EventLogger() {
 								public void writeLog(String logEntry) {}
 							}));
 							count++;
@@ -1133,6 +1235,34 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			};
 		}
 	}
+	
+	private String resolveDocumentId(String docId) {
+		
+		//	resolve UUID
+		String resolverQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
+				" FROM " + DOCUMENT_TABLE_NAME + 
+				" WHERE (" + DOC_NUMBER_COLUMN_NAME + " = " + getDocNr(docId) + " AND " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "')" +
+				" OR (" + DOCUMENT_UUID_HASH_COLUMN_NAME + " = " + docId.hashCode() + " AND " + DOCUMENT_UUID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "')" +
+				";";
+		SqlQueryResult sqr = null;
+		try {
+			sqr = this.io.executeSelectQuery(resolverQuery, true);
+			if (sqr.next())
+				return sqr.getString(0);
+		}
+		catch (SQLException sqle) {
+			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document ID for '" + docId + "'.");
+			System.out.println("  Query was " + resolverQuery);
+		}
+		finally {
+			if (sqr != null)
+				sqr.close();
+		}
+		
+		//	nothing found for UUID
+		return docId;
+	}
+	
 	/**
 	 * Retrieve the attributes of a document, as stored in the SRS's storage.
 	 * There is no guarantee with regard to the attributes contained in the
@@ -1177,25 +1307,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		}
 		
 		//	resolve UUID
-		String resolverQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
-				" FROM " + DOCUMENT_TABLE_NAME + 
-				" WHERE (" + DOC_NUMBER_COLUMN_NAME + " = " + getDocNr(docId) + " AND " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "')" +
-				" OR (" + DOCUMENT_UUID_HASH_COLUMN_NAME + " = " + docId.hashCode() + " AND " + DOCUMENT_UUID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "')" +
-				";";
-		SqlQueryResult sqr = null;
-		try {
-			sqr = this.io.executeSelectQuery(resolverQuery, true);
-			if (sqr.next())
-				docId = sqr.getString(0);
-		}
-		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document ID for '" + docId + "'.");
-			System.out.println("  Query was " + resolverQuery);
-		}
-		finally {
-			if (sqr != null)
-				sqr.close();
-		}
+		docId = this.resolveDocumentId(docId);
 		
 		//	get attributes
 		try {
@@ -1213,6 +1325,18 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @see de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore#isDocumentAvailable(String)
 	 */
 	public boolean isDocumentAvailable(String docId) {
+		
+		//	normalize UUID
+		docId = normalizeId(docId);
+		
+		//	try plain ID lookup first (way faster)
+		if (this.dst.isDocumentAvailable(docId))
+			return true;
+		
+		//	resolve UUID
+		docId = this.resolveDocumentId(docId);
+		
+		//	try resolved document ID
 		return this.dst.isDocumentAvailable(docId);
 	}
 	
@@ -1280,26 +1404,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		catch (DocumentNotFoundException dnfe) {}
 		
 		//	resolve UUID
-		String resolverQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
-				" FROM " + DOCUMENT_TABLE_NAME + 
-				" WHERE (" + DOC_NUMBER_COLUMN_NAME + " = " + getDocNr(docId) + " AND " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "')" +
-				" OR (" + DOCUMENT_UUID_HASH_COLUMN_NAME + " = " + docId.hashCode() + " AND " + DOCUMENT_UUID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "')" +
-				";";
-		SqlQueryResult sqr = null;
-		try {
-			sqr = this.io.executeSelectQuery(resolverQuery, true);
-			if (sqr.next())
-				docId = sqr.getString(0);
-		}
-		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document ID for '" + docId + "'.");
-			System.out.println("  Query was " + resolverQuery);
-		}
-		finally {
-			if (sqr != null)
-				sqr.close();
-//			System.out.println(" - document ID resolved to '" + docId + "' after " + (System.currentTimeMillis() - start) + " ms");
-		}
+		docId = this.resolveDocumentId(docId);
 		
 		//	return document
 		DocumentReader dr = this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
@@ -1452,16 +1557,16 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final int KEEP_DOC = 0;
 	private static final int UPDATE_DOC = 1;
 	private static final int NEW_DOC = 2;
-	private int updateDocument(final QueriableAnnotation doc, String docId, String masterDocId, long updateTime, EventLogger logger) throws IOException {
+	private int updateDocument(final QueriableAnnotation doc, final String docId, String masterDocId, final long updateTime, final EventLogger logger) throws IOException {
 		long storageStepStart;
 		final long docNr = getDocNr(docId);
 		final int documentStatus;
 		
 		storageStepStart = System.currentTimeMillis();
 		String docCheckSum = getChecksum(doc);
-		String updateUser;
+		final String userName = ((String) doc.getAttribute(UPDATE_USER_ATTRIBUTE, doc.getAttribute(CHECKIN_USER_ATTRIBUTE, "Unknown User")));
 		
-		String existQuery = "SELECT " + DOCUMENT_CHECKSUM_COLUMN_NAME + ", " + DOCUMENT_UUID_ATTRIBUTE + ", " + DOCUMENT_UUID_SOURCE_ATTRIBUTE + ", " + MASTER_DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_AUTHOR_ATTRIBUTE + ", " + DOCUMENT_ORIGIN_ATTRIBUTE + ", " + DOCUMENT_DATE_ATTRIBUTE + ", " + PAGE_NUMBER_ATTRIBUTE + ", " + LAST_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_LAST_PAGE_NUMBER_ATTRIBUTE + ", " + DOCUMENT_SOURCE_LINK_ATTRIBUTE + 
+		String existQuery = "SELECT " + DOCUMENT_CHECKSUM_COLUMN_NAME + ", " + DOCUMENT_UUID_ATTRIBUTE + ", " + DOCUMENT_UUID_SOURCE_ATTRIBUTE + ", " + MASTER_DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_AUTHOR_ATTRIBUTE + ", " + DOCUMENT_ORIGIN_ATTRIBUTE + ", " + DOCUMENT_DATE_ATTRIBUTE + ", " + PAGE_NUMBER_ATTRIBUTE + ", " + LAST_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_LAST_PAGE_NUMBER_ATTRIBUTE + ", " + DOCUMENT_SOURCE_LINK_ATTRIBUTE + ", " + DOCUMENT_TYPE_ATTRIBUTE + 
 				" FROM " + DOCUMENT_TABLE_NAME +
 				" WHERE " + DOC_NUMBER_COLUMN_NAME + " = " + docNr + "" +
 				" AND " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
@@ -1486,7 +1591,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				if (docCheckSum.equals(oldDocCheckSum)) {
 					if (DEBUG_UPDATE_DOCUMENT) System.out.println("    - document unmodified");
 					documentStatus = KEEP_DOC;
-					updateUser = "";
 				}
 				
 				//	we have an update
@@ -1507,12 +1611,20 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					String dataMasterDocPageNumber = sqr.getString(10);
 					String dataMasterDocLastPageNumber = sqr.getString(11);
 					String dataDocSourceLink = sqr.getString(12);
+					String dataDocType = sqr.getString(13);
 					if (DEBUG_UPDATE_DOCUMENT) System.out.println("    - got document data");
 					
 					StringVector assignments = new StringVector();
 					
 					//	update checksum
 					assignments.addElement(DOCUMENT_CHECKSUM_COLUMN_NAME + " = '" + EasyIO.sqlEscape(docCheckSum) + "'");
+					
+					//	check document type
+					String type = ((String) doc.getAttribute(DOCUMENT_TYPE_ATTRIBUTE, "")).trim();
+					if (type.length() > 32)
+						type = type.substring(0, 32).trim();
+					if (!type.equals(dataDocType))
+						assignments.addElement(DOCUMENT_TYPE_ATTRIBUTE + " = '" + EasyIO.sqlEscape(type) + "'");
 					
 					//	check UUID
 					String uuid = normalizeId((String) doc.getAttribute(DOCUMENT_UUID_ATTRIBUTE, ""));
@@ -1603,7 +1715,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						assignments.addElement(MASTER_LAST_PAGE_NUMBER_ATTRIBUTE + " = " + masterDocLastPageNumber);
 					
 					//	get update user
-					updateUser = ((String) doc.getAttribute(UPDATE_USER_ATTRIBUTE, ""));
+					String updateUser = userName;
 					if (updateUser.length() > USER_LENGTH)
 						updateUser = updateUser.substring(0, USER_LENGTH);
 					if (updateUser.length() != 0)
@@ -1649,6 +1761,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				storageStepStart = System.currentTimeMillis();
 				documentStatus = NEW_DOC;
 				
+				//	get document type
+				String type = ((String) doc.getAttribute(DOCUMENT_TYPE_ATTRIBUTE, "")).trim();
+				if (type.length() > 32)
+					type = type.substring(0, 32).trim();
+				
 				//	get UUID
 				String uuid = normalizeId((String) doc.getAttribute(DOCUMENT_UUID_ATTRIBUTE, ""));
 				if (uuid.length() > 32)
@@ -1663,7 +1780,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				String checkinUser = ((String) doc.getAttribute(CHECKIN_USER_ATTRIBUTE, "Unknown User"));
 				if (checkinUser.length() > USER_LENGTH)
 					checkinUser = checkinUser.substring(0, USER_LENGTH);
-				updateUser = checkinUser;
 				
 				//	get and (if necessary) truncate title 
 				String masterTitle = ((String) doc.getAttribute(MASTER_DOCUMENT_TITLE_ATTRIBUTE, "Unknown Document")).trim();
@@ -1717,9 +1833,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				//	store data in collection main table
 				storageStepStart = System.currentTimeMillis();
 				String insertQuery = "INSERT INTO " + DOCUMENT_TABLE_NAME + " (" + 
-									DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + ", " + DOCUMENT_UUID_ATTRIBUTE + ", " + DOCUMENT_UUID_HASH_COLUMN_NAME + ", " + DOCUMENT_UUID_SOURCE_ATTRIBUTE + ", " + DOCUMENT_CHECKSUM_COLUMN_NAME + ", " + MASTER_DOCUMENT_ID_ATTRIBUTE + ", " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + ", " + CHECKIN_USER_ATTRIBUTE + ", " + CHECKIN_TIME_ATTRIBUTE + ", " + UPDATE_USER_ATTRIBUTE + ", " + UPDATE_TIME_ATTRIBUTE + ", " + MASTER_DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_AUTHOR_ATTRIBUTE + ", " + DOCUMENT_ORIGIN_ATTRIBUTE + ", " + DOCUMENT_DATE_ATTRIBUTE + ", " + DOCUMENT_SOURCE_LINK_ATTRIBUTE + ", " + PAGE_NUMBER_ATTRIBUTE + ", " + LAST_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_LAST_PAGE_NUMBER_ATTRIBUTE + ", " + DOCUMENT_SIZE_ATTRIBUTE + 
+									DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + ", " + DOCUMENT_TYPE_ATTRIBUTE + ", " + DOCUMENT_UUID_ATTRIBUTE + ", " + DOCUMENT_UUID_HASH_COLUMN_NAME + ", " + DOCUMENT_UUID_SOURCE_ATTRIBUTE + ", " + DOCUMENT_CHECKSUM_COLUMN_NAME + ", " + MASTER_DOCUMENT_ID_ATTRIBUTE + ", " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + ", " + CHECKIN_USER_ATTRIBUTE + ", " + CHECKIN_TIME_ATTRIBUTE + ", " + UPDATE_USER_ATTRIBUTE + ", " + UPDATE_TIME_ATTRIBUTE + ", " + MASTER_DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_AUTHOR_ATTRIBUTE + ", " + DOCUMENT_ORIGIN_ATTRIBUTE + ", " + DOCUMENT_DATE_ATTRIBUTE + ", " + DOCUMENT_SOURCE_LINK_ATTRIBUTE + ", " + PAGE_NUMBER_ATTRIBUTE + ", " + LAST_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_LAST_PAGE_NUMBER_ATTRIBUTE + ", " + DOCUMENT_SIZE_ATTRIBUTE + 
 									") VALUES (" +
-									docNr + ", '" + EasyIO.sqlEscape(docId) + "', '" + EasyIO.sqlEscape(uuid) + "', " + uuid.hashCode() + ", '" + EasyIO.sqlEscape(uuidSource) + "', '" + EasyIO.sqlEscape(docCheckSum) + "', '" + EasyIO.sqlEscape(masterDocId) + "', " + masterDocId.hashCode() + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(masterTitle) + "', '" + EasyIO.sqlEscape(title) + "', '" + EasyIO.sqlEscape(author) + "', '" + EasyIO.sqlEscape(origin) + "', " + EasyIO.sqlEscape(year) + ", '" + EasyIO.sqlEscape(sourceLink) + "', " + pageNumber + ", " + lastPageNumber + ", " + masterDocPageNumber + ", " + masterDocLastPageNumber + ", " + doc.size() + 
+									docNr + ", '" + EasyIO.sqlEscape(docId) + "', '" + EasyIO.sqlEscape(type) + "', '" + EasyIO.sqlEscape(uuid) + "', " + uuid.hashCode() + ", '" + EasyIO.sqlEscape(uuidSource) + "', '" + EasyIO.sqlEscape(docCheckSum) + "', '" + EasyIO.sqlEscape(masterDocId) + "', " + masterDocId.hashCode() + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(masterTitle) + "', '" + EasyIO.sqlEscape(title) + "', '" + EasyIO.sqlEscape(author) + "', '" + EasyIO.sqlEscape(origin) + "', " + EasyIO.sqlEscape(year) + ", '" + EasyIO.sqlEscape(sourceLink) + "', " + pageNumber + ", " + lastPageNumber + ", " + masterDocPageNumber + ", " + masterDocLastPageNumber + ", " + doc.size() + 
 									");";
 				try {
 					this.io.executeUpdateQuery(insertQuery);
@@ -1756,7 +1872,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	store document
 		storageStepStart = System.currentTimeMillis();
-		int version = this.dst.storeDocument(doc, docId);
+		final int version = this.dst.storeDocument(doc, docId);
 		System.out.println("   - document stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	run document through indexers asynchronously for better upload performance
@@ -1771,9 +1887,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		}
 		System.out.println("   - indexing scheduled in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
-		//	issue event
+		//	do event notification asynchronously for quick response
 		storageStepStart = System.currentTimeMillis();
-		GoldenGateServerEventService.notify(new SrsDocumentEvent(updateUser, docId, doc, version, this.getClass().getName(), updateTime, logger));
+		this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 128) ? doc : null), version, this.getClass().getName(), updateTime, logger));
 		System.out.println("   - update notification done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	report whether update or insert
@@ -1898,7 +2014,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 				
 				//	issue event
-				GoldenGateServerEventService.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
+				this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
 				
 				//	update statistics
 				deleteCount++;
@@ -2054,6 +2170,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	
 	private static final String[] documentListFields = {
 			DOCUMENT_ID_ATTRIBUTE,
+			DOCUMENT_TYPE_ATTRIBUTE,
 			DOCUMENT_UUID_ATTRIBUTE,
 			DOCUMENT_UUID_SOURCE_ATTRIBUTE,
 			MASTER_DOCUMENT_ID_ATTRIBUTE,
@@ -2072,9 +2189,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			UPDATE_USER_ATTRIBUTE,
 			UPDATE_TIME_ATTRIBUTE,
 		};
+	
 	private static final String[] documentListQueryFields = {
 			DOC_NUMBER_COLUMN_NAME,
 			DOCUMENT_ID_ATTRIBUTE,
+			DOCUMENT_TYPE_ATTRIBUTE,
 			DOCUMENT_UUID_ATTRIBUTE,
 			DOCUMENT_UUID_SOURCE_ATTRIBUTE,
 			MASTER_DOCUMENT_ID_ATTRIBUTE,
@@ -2289,6 +2408,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 		};
 	}
+	
 	/**
 	 * Retrieve a list of the documents hosted in GoldenGATE SRS for retrieval.
 	 * As this method retrieves all individual documents, it can incur
@@ -2439,8 +2559,10 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private int resultMergeMode = DEFAULT_RESULT_MERRGE_MODE;
 	
 	private static final boolean DEBUG_DOCUMENT_SEARCH = false;
+	
 	private static final String[] documentSearchResultAttributes = {
 		DOCUMENT_ID_ATTRIBUTE,
+		DOCUMENT_TYPE_ATTRIBUTE,
 		DOCUMENT_UUID_ATTRIBUTE,
 		DOCUMENT_UUID_SOURCE_ATTRIBUTE,
 		MASTER_DOCUMENT_ID_ATTRIBUTE,
@@ -2535,7 +2657,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				HashMap docNrsToDocData = new HashMap();
 				SqlQueryResult sqr = null;
 				try {
-					sqr = io.executeSelectQuery(docNrToDocDataQuery.toString());
+					sqr = this.io.executeSelectQuery(docNrToDocDataQuery.toString());
 					
 					//	read & store data
 					while (sqr.next()) {
@@ -2692,6 +2814,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	
 	private static final String[] documentDataSearchResultAttributes = {
 		DOCUMENT_ID_ATTRIBUTE,
+		DOCUMENT_TYPE_ATTRIBUTE,
 		DOCUMENT_UUID_ATTRIBUTE,
 		DOCUMENT_UUID_SOURCE_ATTRIBUTE,
 		MASTER_DOCUMENT_ID_ATTRIBUTE,
@@ -2724,6 +2847,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	
 	private static final String[] documentIndexSearchResultAttributes = {
 		DOCUMENT_ID_ATTRIBUTE,
+		DOCUMENT_TYPE_ATTRIBUTE,
 		DOCUMENT_UUID_ATTRIBUTE,
 		DOCUMENT_UUID_SOURCE_ATTRIBUTE,
 		MASTER_DOCUMENT_ID_ATTRIBUTE,
@@ -3428,7 +3552,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			query.setIndexNameMask(null);
 		}
 		
-		//	retrieve user and timestamp filters
+		//	retrieve timestamp filters
 		long modifiedSince;
 		try {
 			String modifiedSinceString = query.getValue(LAST_MODIFIED_SINCE, "0");
@@ -3438,7 +3562,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				modifiedSinceString = (modifiedSinceString + "-01");
 			if (modifiedSinceString.matches("[12][0-9]{3}\\-[01]?[0-9]\\-[0-3]?[0-9]"))
 				modifiedSince = MODIFIED_DATE_FORMAT.parse(modifiedSinceString).getTime();
-			else modifiedSince = Long.parseLong(modifiedSinceString);
+			else modifiedSince = Long.parseLong(query.getValue(LAST_MODIFIED_SINCE, "0"));
 		}
 		catch (NumberFormatException nfe) {
 			modifiedSince = 0;
@@ -3455,7 +3579,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				modifiedBeforeString = (modifiedBeforeString + "-01");
 			if (modifiedBeforeString.matches("[12][0-9]{3}\\-[01]?[0-9]\\-[0-3]?[0-9]"))
 				modifiedBefore = MODIFIED_DATE_FORMAT.parse(modifiedBeforeString).getTime();
-			else modifiedBefore = Long.parseLong(query.getValue(LAST_MODIFIED_SINCE, "0"));
+			else modifiedBefore = Long.parseLong(query.getValue(LAST_MODIFIED_BEFORE, "0"));
 		}
 		catch (NumberFormatException nfe) {
 			modifiedBefore = 0;
@@ -3463,7 +3587,12 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		catch (ParseException pe) {
 			modifiedBefore = 0;
 		}
+		
+		//	retrieve user filter
 		String user = query.getValue(UPDATE_USER_ATTRIBUTE, query.getValue(CHECKIN_USER_ATTRIBUTE));
+		
+		//	retrieve type filter
+		String type = query.getValue(DOCUMENT_TYPE_ATTRIBUTE);
 		
 		//	do document data filtering
 		QueryResult docDataResult = null;
@@ -3474,6 +3603,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					" WHERE " + ((modifiedSince == 0) ? "0=0" : (UPDATE_TIME_ATTRIBUTE + " >= " + modifiedSince)) + 
 					" AND " + ((modifiedBefore == 0) ? "0=0" : (UPDATE_TIME_ATTRIBUTE + " <= " + modifiedSince)) + 
 					" AND " + ((user == null) ? "0=0" : ("(" + UPDATE_USER_ATTRIBUTE + " = '" + EasyIO.sqlEscape(user) + "' OR " + CHECKIN_USER_ATTRIBUTE + " = '" + EasyIO.sqlEscape(user) + "')")) +
+					" AND " + ((type == null) ? "0=0" : (DOCUMENT_TYPE_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(type) + "'")) +
 					";";
 			SqlQueryResult sqr = null;
 			try {
@@ -3840,7 +3970,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						
 						//	aggregate and de-duplicate sub result elements
 						for (Iterator dnrit = ireDocNrSet.iterator(); dnrit.hasNext();) {
-//							LinkedList docNrSubIreList = ((LinkedList) docNrSubIreBuckets.get(((Integer) dnrit.next()).intValue() + "." + subIndexName));
 							LinkedList docNrSubIreList = ((LinkedList) docNrSubIreBuckets.get(((Long) dnrit.next()).longValue() + "." + subIndexName));
 							if (docNrSubIreList != null)
 								for (Iterator siit = docNrSubIreList.iterator(); siit.hasNext();) {
@@ -4007,77 +4136,17 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		}
 		return (docNrHigh ^ docNrLow);
 	}
-//	
-//	private static final long getDocNrOld(String docId) {
-//		long docNr = 0;
-//		for (int c = 0; c < docId.length(); c++) {
-//			char ch = docId.charAt(c);
-//			if (('0' <= ch) && (ch <= '9')) {
-//				docNr <<= 4;
-//				docNr |= ((long) (ch - '0'));
-//			}
-//			else if (('A' <= ch) && (ch <= 'F')) {
-//				docNr <<= 4;
-//				docNr |= ((long) (ch - 'A' + 10));
-//			}
-//			else if (('a' <= ch) && (ch <= 'f')) {
-//				docNr <<= 4;
-//				docNr |= ((long) (ch - 'a' + 10));
-//			}
-//		}
-//		return docNr;
-//	}
-//	
-//	public static void main(String[] args) throws Exception {
-//		GoldenGateSrsClient srsc = new GoldenGateSrsClient(ServerConnection.getServerConnection("http://plazi.cs.umb.edu/GgServer/proxy"));
-//		srsc.setCacheFolder(new File("E:/Testdaten/SrsTestCache"));
-//		HashSet masterDocIDs = new HashSet();
-//		DocumentList masterDocList = srsc.getDocumentList(null);
-//		System.out.println("Got master document list");
-//		while (masterDocList.hasNextElement()) {
-//			DocumentListElement dle = masterDocList.getNextDocumentListElement();
-//			if (!"1".equals(dle.getAttribute(SUB_DOCUMENT_COUNT_ATTRIBUTE)))
-//				masterDocIDs.add(dle.getAttribute(DOCUMENT_ID_ATTRIBUTE));
-//		}
-//		System.out.println("Got " + masterDocIDs.size() + " master document IDs");
-//		HashSet docIDs = new HashSet();
-//		HashMap docNrsToDocIDs = new HashMap();
-//		HashMap oldDocNrsToDocIDs = new HashMap();
-//		int masterDocCount = 0;
-//		for (Iterator midit = masterDocIDs.iterator(); midit.hasNext();) try {
-//			String masterDocId = ((String) midit.next());
-//			masterDocCount++;
-//			System.out.println("  doing master document ID " + masterDocId + " (" + masterDocCount + " of " + masterDocIDs.size() + ")");
-//			int docIdCount = 0;
-//			DocumentList docList = srsc.getDocumentList(masterDocId);
-//			while (docList.hasNextElement()) {
-//				DocumentListElement dle = docList.getNextDocumentListElement();
-//				String docId = ((String) dle.getAttribute(DOCUMENT_ID_ATTRIBUTE));
-//				docIDs.add(docId);
-//				Long docNr = new Long(getDocNr(docId));
-//				if (docNrsToDocIDs.containsKey(docNr))
-//					System.out.println("    got DocNr collision (" + docNr + ") for document IDs " + docNrsToDocIDs.get(docNr) + " and " + docId);
-//				else docNrsToDocIDs.put(docNr, docId);
-//				Long oldDocNr = new Long(getDocNrOld(docId));
-//				if (oldDocNrsToDocIDs.containsKey(oldDocNr))
-//					System.out.println("    got old DocNr collision (" + oldDocNr + ") for document IDs " + oldDocNrsToDocIDs.get(oldDocNr) + " and " + docId);
-//				else oldDocNrsToDocIDs.put(oldDocNr, docId);
-//				docIdCount++;
-//			}
-//			System.out.println("  got " + docIdCount + " document IDs");
-//		}
-//		catch (Exception e) {
-//			e.printStackTrace(System.out);
-//		}
-//		System.out.println("Got " + docIDs.size() + " document IDs, " + docNrsToDocIDs.size() + " document numbers");
-//	}
 	
 	private static final String normalizeId(String id) {
 		if (id == null)
 			return null;
 		id = id.trim(); // truncate whitespace (there should be none, but we never know)
 		id = id.substring(id.lastIndexOf(':') + 1).trim(); // remove URI prefixes
+		if (id.indexOf('.') >= 32) // truncate any file extensions that might have come in
+			id = id.substring(0, id.indexOf('.'));
 		id = id.replaceAll("[^0-9a-fA-F]", "").toUpperCase(); // generate compact version
+		if (id.length() > 32) // truncate any excess characters
+			id = id.substring(0, 32);
 		return id;
 	}
 	

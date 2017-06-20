@@ -1097,6 +1097,10 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 		 * result in a RuntimException being thrown.
 		 */
 		public final QueriableAnnotation document;
+		//	TODOnot eliminate this field, as it clogs memory when many events queue up
+		//	TODOnot introduce overwritable getter method instead, returning null, overwritten inside SRS for updates only
+		//	TODOnot back said getter with 256 or so sized cache in SRS
+		//	==> NO NEED, as EXP doesn't enqueue objects of this class proper, only update events that only store the document ID
 		
 		/**
 		 * The current version number of the document affected by this event, -1

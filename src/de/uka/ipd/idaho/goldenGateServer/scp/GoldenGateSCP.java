@@ -416,7 +416,7 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 			}
 			public String[] getExplanation() {
 				String[] explanation = {
-						SCHEDULE_DUMP_COMMAND + "<time> <name>",
+						SCHEDULE_DUMP_COMMAND + " <time> <name>",
 						"Schedule repacking one or all dumps of the document collection:",
 						"- <time>: the time to repack the dump(s) in (in seconds, or prefixed with 'd' for days, 'h' for hours, 'm' for minutes)",
 						"- <name>: the name of the dump to repack (optional, omitting schedules all)"
@@ -533,22 +533,21 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 		
 		//	cache document list locally, so we don't block database table for all too long
 		LinkedList docList = new LinkedList();
+		while (srsDocList.hasNextElement())
+			docList.addLast(srsDocList.getNextElement());
+		this.setExportStatus((" - document list retrieved, got " + docList.size() + " documents to export"), true);
+		
+		//	filter document list
 		DocumentListElementWrapper dleWrapper = new DocumentListElementWrapper();
 		int fDocCount = 0;
-		while (srsDocList.hasNextElement()) {
-			
-			//	get and check document
-			DocumentListElement dle = srsDocList.getNextDocumentListElement();
-			dleWrapper.setDocumentListElement(dle);
+		for (Iterator dleit = docList.iterator(); dleit.hasNext();) {
+			dleWrapper.setDocumentListElement((DocumentListElement) dleit.next());
 			if (this.filterOut(dleWrapper)) {
+				dleit.remove();
 				fDocCount++;
-				continue;
 			}
-			
-			//	put document in local list
-			docList.addLast(dle);
 		}
-		this.setExportStatus((" - document list retrieved, got " + docList.size() + " documents to export, filtered out " + fDocCount), true);
+		this.setExportStatus((" - document list filtered, retained " + docList.size() + " documents to export, filtered out " + fDocCount), true);
 		
 		//	write documents
 		int pDocCount = 0;

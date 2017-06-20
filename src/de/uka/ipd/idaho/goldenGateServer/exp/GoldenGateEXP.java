@@ -1112,7 +1112,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 	private class UpdateEventHandler extends Thread {
 		private boolean shutdown = false;
 		private boolean flushing = false;
-		public UpdateEventHandler(String name) {
+		UpdateEventHandler(String name) {
 			super(name);
 		}
 		public void run() {
@@ -1234,7 +1234,7 @@ public abstract class GoldenGateEXP extends AbstractGoldenGateServerComponent im
 			} catch (InterruptedException ie) {}
 		}
 		
-		private ArrayList shutdown() {
+		ArrayList shutdown() {
 			synchronized (eventQueue) {
 				this.shutdown = true;
 				ArrayList events = eventQueue.getEvents();

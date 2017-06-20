@@ -73,7 +73,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	
 	private GoldenGateDcsStatEngine statEngine;
 	
-	private FormattedStaticStatExport[] staticStatExports = null;
+	private FormattedStaticStatExport[] staticStatExports = new FormattedStaticStatExport[0];
 	private long staticStatExportsDue = -1;
 	private StaticStatExportThread staticStatExportThread = null;
 	
@@ -590,6 +590,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	
 	private class StaticStatExportThread extends Thread {
 		StaticStatExportThread() {
+			super("DcsStaticStatisticsExportThread");
 			staticStatExportThread = this;
 			this.start();
 		}

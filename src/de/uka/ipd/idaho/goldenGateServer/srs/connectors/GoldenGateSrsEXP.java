@@ -73,7 +73,7 @@ public class GoldenGateSrsEXP extends GoldenGateExpBinding {
 	 */
 	public void connect() {
 		
-		//	establish DIO uplink
+		//	establish SRS uplink
 		this.srs.addDocumentEventListener(new SrsDocumentEventListener() {
 			public void documentUpdated(SrsDocumentEvent dse) {
 				host.documentUpdated(dse.documentId, dse.document);

@@ -8,7 +8,7 @@
 	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip,dgpackerzip">
 	</target>
 	
-	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,srsdiojar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar,scpjar">
+	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,dprjar,dprslavejar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,srsdiojar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar,scpjar">
 		<delete file="${pack.serverdocs}"/>
 		<zip destfile="${pack.serverdocs}">
 			<fileset dir="${file.home}/server"/>
@@ -82,6 +82,31 @@
 			</fileset>
 			<fileset dir="${src.home}">
 				<include name="**/goldenGateServer/dio/connectors/GoldenGateDioEXP.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	
+	<target name="dprjar">
+		<delete file="${jar.dpr}" />
+		<jar destfile="${jar.dpr}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/dpr/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/dpr/*.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="dprslavejar" depends="check-gg" if="${gg.exists}">
+		<delete file="${jar.dprslave}" />
+		<jar destfile="${jar.dprslave}" manifest="${file.home}/MANIFEST.dprSlave.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/dpr/slave/*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/dpr/slave/*.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>

@@ -32,6 +32,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Properties;
 
@@ -175,7 +176,7 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 			String query = request.getQueryString();
 			if ((query != null) && (query.indexOf('=') == -1)) {
 				
-				//	cut leading slash
+				//	cut leading question mark
 				if (query.startsWith("?"))
 					query = query.substring(1);
 				
@@ -242,6 +243,10 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 			//	do transformation
 			else {
 				
+				//	log slow transformations
+				XslTransformationTimer xtt = new XslTransformationTimer(docId, Arrays.toString(xsltUrls));
+				xtt.start();
+				
 				//	remove XML namespace declarations from root element so XSLT can define its own
 				String[] docAns = doc.getAttributeNames();
 				for (int a = 0; a < docAns.length; a++) {
@@ -263,7 +268,10 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 				catch (TransformerException te) {
 //					System.out.println(" - XSL transformation failed after " + (System.currentTimeMillis() - start));
 					throw new IOException(te.getMessageAndLocation());
-				}						
+				}
+				finally {
+					xtt.done();
+				}
 			}
 		}
 		
@@ -275,6 +283,35 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 		out.newLine();
 		out.flush();
 //		System.out.println(" - request done after " + (System.currentTimeMillis() - start));
+	}
+	
+	private static class XslTransformationTimer extends Thread {
+		private static final int transformationLogTimeThreshold = (1000 * 20); // 20 seconds for starters, so we find the _real_ oddjobs first
+		private final long startTime = System.currentTimeMillis();
+		private boolean transformationRunning = true;
+		private String docId;
+		private String xsltUrl;
+		XslTransformationTimer(String docId, String xsltUrl) {
+			this.docId = docId;
+			this.xsltUrl = xsltUrl;
+		}
+		public void run() {
+			final long timeoutTime = (this.startTime + transformationLogTimeThreshold);
+			while (this.transformationRunning) try {
+				long time = System.currentTimeMillis();
+				if (time < timeoutTime)
+					Thread.sleep(Math.min((transformationLogTimeThreshold / 10), (timeoutTime - time)));
+				else break;
+			} catch (InterruptedException ie) {}
+			if (this.transformationRunning)
+				System.out.println("SLOW XSLT ON '" + this.docId + "' :'" + this.xsltUrl + "' failed to finish in " + transformationLogTimeThreshold + "ms");
+		}
+		void done() {
+			this.transformationRunning = false;
+			long transformationTime = (System.currentTimeMillis() - this.startTime);
+			if (transformationTime > transformationLogTimeThreshold)
+				System.out.println("SLOW XSLT ON '" + this.docId + "' :'" + this.xsltUrl + "' finished only in " + transformationTime + "ms");
+		}
 	}
 	
 	private Properties xsltNamesToStylesheetUrls = new Properties();

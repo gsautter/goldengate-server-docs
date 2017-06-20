@@ -38,6 +38,8 @@
     		<include name="**/goldenGateServer/dio/connectors/*.java" />
     		<include name="**/goldenGateServer/dio/data/*.java" />
     		<include name="**/goldenGateServer/dio/util/*.java" />
+    		<include name="**/goldenGateServer/dpr/*.java" />
+    		<include name="**/goldenGateServer/dpr/slave/*.java" />
     		<include name="**/goldenGateServer/drs/*.java" />
     		<include name="**/goldenGateServer/dst/*.java" />
     		<include name="**/goldenGateServer/eXist/*.java" />

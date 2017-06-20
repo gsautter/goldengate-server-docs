@@ -73,6 +73,7 @@ import de.uka.ipd.idaho.gamta.util.gPath.exceptions.GPathSyntaxException;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
+import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventNotifier;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
@@ -91,7 +92,7 @@ import de.uka.ipd.idaho.stringUtils.regExUtils.RegExUtils;
  * Server component for storing and retrieving documents by ID over the network,
  * basically the "active part" or "front end" of DocumentStore, named GoldenGATE
  * Document IO Server (DIO). This component also locks documents when checked
- * out by a user for editing, which is the prerequise for being able to update
+ * out by a user for editing, which is the prerequisite for being able to update
  * any existing document.
  * 
  * @author sautter
@@ -103,6 +104,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	private DocumentStore dst;
 	
 	private IoProvider io;
+	
+	private GoldenGateServerEventNotifier eventNotifier;
 	
 	/*
 	 * The name of the DIO's document data table in the backing database. This
@@ -125,7 +128,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	private static final int DOCUMENT_TITLE_COLUMN_LENGTH = 511;
 	private static final int DOCUMENT_KEYWORDS_COLUMN_LENGTH = 1023;
 	
-//	private String externalIdentifierAttributeName = null;
 	private String extIdAttributeNameList = "";
 	private String[] extIdAttributeNames = {};
 	
@@ -678,6 +680,29 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		this.uaa.registerPermission(UPLOAD_DOCUMENT_PERMISSION);
 		this.uaa.registerPermission(UPDATE_DOCUMENT_PERMISSION);
 		this.uaa.registerPermission(DELETE_DOCUMENT_PERMISSION);
+		
+		//	create event notifier
+		this.eventNotifier = new GoldenGateServerEventNotifier("DioUpdateNotifier") {
+			protected GoldenGateServerEvent prepareEventNotification(GoldenGateServerEvent gse) throws Exception {
+				if (gse instanceof DioDocumentEvent) {
+					final DioDocumentEvent dde = ((DioDocumentEvent) gse);
+					if (dde.type != DioDocumentEvent.UPDATE_TYPE)
+						return dde;
+					if (dde.document != null)
+						return dde;
+					QueriableAnnotation doc = dst.loadDocument(dde.documentId);
+					return new DioDocumentEvent(dde.user, dde.documentId, doc, dde.version, dde.type, dde.sourceClassName, dde.eventTime, null) {
+						public void notificationComplete() {
+							dde.notificationComplete();
+						}
+						public void writeLog(String logEntry) {
+							dde.writeLog(logEntry);
+						}
+					};
+				}
+				else return super.prepareEventNotification(gse);
+			}
+		};
 	}
 	
 	/*
@@ -685,6 +710,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @see de.goldenGateScf.AbstractServerComponent#exitComponent()
 	 */
 	protected void exitComponent() {
+		
+		//	shut down input folder watchers
 		Settings inputFoldersSettings = this.configuration.getSubset(INPUT_FOLDER_SUBSET_PREFIX);
 		for (int i = 0; i < this.inputFolderWatchers.size(); i++) {
 			InputFolderWatcher ifw = ((InputFolderWatcher) this.inputFolderWatchers.get(i));
@@ -694,6 +721,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			inputFolderSettings.setSetting(INPUT_FOLDER_SETTING, ifw.folderName);
 		}
 		this.inputFolderWatchers.clear();
+		
+		//	shut down event notifier
+		this.eventNotifier.shutdown();
 		
 		//	disconnect from database
 		this.io.close();
@@ -1489,9 +1519,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 						String updateUser = sqr.getString(1);
 						long updateTime = sqr.getLong(2);
 						try {
-							QueriableAnnotation doc = dst.loadDocument(docId);
+							QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 8) ? dst.loadDocument(docId) : null);
 							int docVersion = dst.getVersion(docId);
-							GoldenGateServerEventService.notify(new DioDocumentEvent(updateUser, docId, doc, docVersion, this.getClass().getName(), updateTime, new EventLogger() {
+							eventNotifier.notify(new DioDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
 								public void writeLog(String logEntry) {}
 							}));
 							count++;
@@ -1889,25 +1919,14 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			throw new IOException(sqle.getMessage());
 		}
 		
-		//	update coming through network interface, do event notification asynchronously for quick response
-		if (logger instanceof UpdateProtocol) {
-			Thread dunThread = new Thread() {
-				public void run() {
-					// issue update event, immediately followed by release event (document is not locked, free for editing)
-					GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
-					GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
+		//	do event notification asynchronously for quick response
+		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 8) ? doc : null), version, GoldenGateDIO.class.getName(), time, logger) {
+			public void notificationComplete() {
+				if (logger instanceof UpdateProtocol)
 					((UpdateProtocol) logger).close();
-				}
-			};
-			dunThread.start();
-		}
-		
-		//	component API update, we can work synchronously
-		else {
-			// issue update event, immediately followed by release event (document is not locked, free for editing)
-			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
-			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
-		}
+			}
+		});
+		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
 		
 		// report new version
 		return version;
@@ -2193,19 +2212,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			throw new IOException(sqle.getMessage());
 		}
 		
-		//	update coming through network interface, do event notification asynchronously for quick response
-		if (logger instanceof UpdateProtocol) {
-			Thread dunThread = new Thread() {
-				public void run() {
-					GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
+		//	do event notification asynchronously for quick response
+		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 8) ? doc : null), version, GoldenGateDIO.class.getName(), time, logger) {
+			public void notificationComplete() {
+				if (logger instanceof UpdateProtocol)
 					((UpdateProtocol) logger).close();
-				}
-			};
-			dunThread.start();
-		}
-		
-		//	component API update, we can work synchronously
-		else GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger));
+			}
+		});
 		
 		// report new version
 		return version;
@@ -2221,7 +2234,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 *            process
 	 * @throws IOException
 	 */
-	public synchronized void deleteDocument(String userName, String docId, EventLogger logger) throws IOException {
+	public synchronized void deleteDocument(String userName, String docId, final EventLogger logger) throws IOException {
 		String checkoutUser = this.getCheckoutUser(docId);
 		
 		//	check if document exists
@@ -2261,9 +2274,12 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		}
 		
 		// issue event
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, GoldenGateDIO.class.getName(), System.currentTimeMillis(), logger));
-		if (logger instanceof UpdateProtocol)
-			((UpdateProtocol) logger).close();
+		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, GoldenGateDIO.class.getName(), System.currentTimeMillis(), logger) {
+			public void notificationComplete() {
+				if (logger instanceof UpdateProtocol)
+					((UpdateProtocol) logger).close();
+			}
+		});
 	}
 
 	/**
@@ -2473,7 +2489,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			
 			//	log checkout and notify listeners
 			this.writeLogEntry("document " + docId + " checked out by '" + userName + "'.");
-			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime, null));
+			this.eventNotifier.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime, null));
 			
 			return dr;
 		}
@@ -2525,7 +2541,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		//	release document if possible
 		if (this.uaa.isAdmin(userName) || checkoutUser.equals(userName)) { // admin user, or user holding the lock
 			this.setCheckoutUser(docId, "", -1);
-			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), System.currentTimeMillis(), null));
+			this.eventNotifier.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), System.currentTimeMillis(), null));
 		}
 	}
 
