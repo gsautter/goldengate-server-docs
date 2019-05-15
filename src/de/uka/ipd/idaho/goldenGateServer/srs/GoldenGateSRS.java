@@ -33,8 +33,6 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.net.URLDecoder;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
@@ -54,7 +52,6 @@ import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
 import de.uka.ipd.idaho.easyIO.SqlQueryResult;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
-import de.uka.ipd.idaho.easyIO.util.RandomByteSource;
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.AttributeUtils;
 import de.uka.ipd.idaho.gamta.Attributed;
@@ -64,15 +61,16 @@ import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.Token;
 import de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed;
+import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest;
+import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest.AttributeFilter;
+import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest.TypeFilter;
 import de.uka.ipd.idaho.gamta.util.AnnotationFilter;
-import de.uka.ipd.idaho.gamta.util.AnnotationInputStream;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader.ComponentInitializer;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
-import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventNotifier;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore.DocumentNotFoundException;
@@ -98,11 +96,9 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * @author sautter
  */
 public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements GoldenGateSrsConstants {
-	
-	private static final String ANNOTATION_NESTING_ORDER_SETTING = "ANNOTATION_NESTING_ORDER";
+	private static final String ANNOTATION_NESTING_ORDER_SETTING = "annotationNestingOrder";
 	
 	private static final String MASTER_DOCUMENT_ID_HASH_COLUMN_NAME = "masterDocIdHash";
-	
 	private static final String DOCUMENT_UUID_HASH_COLUMN_NAME = "docUuidHash";
 	
 	private Indexer[] indexers = new Indexer[0];
@@ -113,8 +109,10 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private DocumentUuidFetcher[] uuidFetchers = new DocumentUuidFetcher[0];
 	
 	private IoProvider io;
+//	
+//	private GoldenGateServerEventNotifier eventNotifier; 
 	
-	private GoldenGateServerEventNotifier eventNotifier; 
+	private int activityLogTimeout = 5000;
 	
 	// TODO in the long haul, consider processing index queries directly against database where possible
 	
@@ -133,6 +131,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final int DOCUMENT_ORIGIN_COLUMN_LENGTH = 192;
 	private static final int DOCUMENT_SOURCE_LINK_COLUMN_LENGTH = 192;
 	private static final String DOCUMENT_SIZE_ATTRIBUTE = "docSize";
+	
+	private AnnotationChecksumDigest checksumDigest;
 	
 	private DocumentStore dst;
 	
@@ -195,6 +195,19 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	report status
 		System.out.println("  - database connection established");
 		
+		
+		//	set up checksum digest, filtering update user an time
+		this.checksumDigest = new AnnotationChecksumDigest();
+		this.checksumDigest.addAttributeFilter(new AttributeFilter() {
+			public boolean filterAttribute(String attributeName) {
+				return (false
+						|| UPDATE_USER_ATTRIBUTE.equals(attributeName)
+						|| UPDATE_TIME_ATTRIBUTE.equals(attributeName)
+						|| attributeName.startsWith(UPDATE_USER_ATTRIBUTE + "-")
+						|| attributeName.startsWith(UPDATE_TIME_ATTRIBUTE + "-")
+						);
+			}
+		});
 		
 		//	get document storage folder
 		String docFolderName = this.configuration.getSetting("documentFolderName", "Documents");
@@ -269,7 +282,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		
 		//	set annotation nesting order for data model
-		Gamta.setAnnotationNestingOrder(this.configuration.getSetting(ANNOTATION_NESTING_ORDER_SETTING));
+		Gamta.setAnnotationNestingOrder(this.configuration.getSetting(ANNOTATION_NESTING_ORDER_SETTING, Gamta.getAnnotationNestingOrder()));
 		System.out.println("  - annotation nesting order set");
 		
 		
@@ -423,29 +436,29 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 			}
 		};
-		
-		//	create event notifier
-		this.eventNotifier = new GoldenGateServerEventNotifier("SrsUpdateNotifier") {
-			protected GoldenGateServerEvent prepareEventNotification(GoldenGateServerEvent gse) throws Exception {
-				if (gse instanceof SrsDocumentEvent) {
-					final SrsDocumentEvent sde = ((SrsDocumentEvent) gse);
-					if (sde.type != SrsDocumentEvent.UPDATE_TYPE)
-						return sde;
-					if (sde.document != null)
-						return sde;
-					QueriableAnnotation doc = dst.loadDocument(sde.documentId);
-					return new SrsDocumentEvent(sde.user, sde.documentId, doc, sde.version, sde.sourceClassName, sde.eventTime, null) {
-						public void notificationComplete() {
-							sde.notificationComplete();
-						}
-						public void writeLog(String logEntry) {
-							sde.writeLog(logEntry);
-						}
-					};
-				}
-				else return super.prepareEventNotification(gse);
-			}
-		};
+//		
+//		//	create event notifier
+//		this.eventNotifier = new GoldenGateServerEventNotifier("SrsUpdateNotifier") {
+//			protected GoldenGateServerEvent prepareEventNotification(GoldenGateServerEvent gse) throws Exception {
+//				if (gse instanceof SrsDocumentEvent) {
+//					final SrsDocumentEvent sde = ((SrsDocumentEvent) gse);
+//					if (sde.type != SrsDocumentEvent.UPDATE_TYPE)
+//						return sde;
+//					if (sde.document != null)
+//						return sde;
+//					QueriableAnnotation doc = dst.loadDocument(sde.documentId);
+//					return new SrsDocumentEvent(sde.user, sde.documentId, doc, sde.version, sde.sourceClassName, sde.eventTime, null) {
+//						public void notificationComplete() {
+//							sde.notificationComplete();
+//						}
+//						public void writeLog(String logEntry) {
+//							sde.writeLog(logEntry);
+//						}
+//					};
+//				}
+//				else return super.prepareEventNotification(gse);
+//			}
+//		};
 	}
 	
 	/* (non-Javadoc)
@@ -456,9 +469,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		this.indexerService.shutdown();
 		System.out.println("  - indexer service shut down");
-		
-		this.eventNotifier.shutdown();
-		System.out.println("  - event notifier shut down");
+//		
+//		this.eventNotifier.shutdown();
+//		System.out.println("  - event notifier shut down");
 		
 		for (int i = 0; i < this.indexers.length; i++)
 			this.indexers[i].exit();
@@ -490,6 +503,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final String LIST_FILTERS_COMMAND = "filters";
 	private static final String LIST_SPLITTERS_COMMAND = "splitters";
 	private static final String LIST_UUID_FETCHERS_COMMAND = "uuidFetchers";
+	
+	private static final String SET_ACTIVITY_LOG_TIMEOUT_COMMAND = "setAlt";
 	
 	private static final String REINDEX_COMMAND = "reIndex";
 	
@@ -527,6 +542,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	document search query
 		ca = new ComponentActionNetwork() {
+			public long getActivityLogTimeout() {
+				return activityLogTimeout;
+			}
 			public String getActionCommand() {
 				return SEARCH_DOCUMENTS;
 			}
@@ -538,8 +556,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				//	get result
 				DocumentResult dr = searchDocuments(query, !"false".equals(query.getValue(INCLUDE_UPDATE_HISTORY_PARAMETER, "false")));
-				if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: document search complete");
-				if (DEBUG_DOCUMENT_SEARCH) System.out.println("  query was " + query.toString());
+				logActivity("GgSRS: document search complete");
+				logActivity("  query was " + query.toString());
 				
 				//	indicate result coming
 				output.write(SEARCH_DOCUMENTS);
@@ -556,6 +574,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	document metadata search
 		ca = new ComponentActionNetwork() {
+			public long getActivityLogTimeout() {
+				return activityLogTimeout;
+			}
 			public String getActionCommand() {
 				return SEARCH_DOCUMENT_DETAILS;
 			}
@@ -567,8 +588,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				//	get result
 				DocumentResult dr = searchDocumentDetails(query, !"false".equals(query.getValue(INCLUDE_UPDATE_HISTORY_PARAMETER, "false")));
-				if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: document search complete");
-				if (DEBUG_DOCUMENT_SEARCH) System.out.println("  query was " + query.toString());
+				logActivity("GgSRS: document search complete");
+				logActivity("  query was " + query.toString());
 				
 				//	send data
 				dr.writeXml(output);
@@ -581,6 +602,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	document metadata search
 		ca = new ComponentActionNetwork() {
+			public long getActivityLogTimeout() {
+				return activityLogTimeout;
+			}
 			public String getActionCommand() {
 				return SEARCH_DOCUMENT_DATA;
 			}
@@ -609,6 +633,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	document ID search
 		ca = new ComponentActionNetwork() {
+			public long getActivityLogTimeout() {
+				return activityLogTimeout;
+			}
 			public String getActionCommand() {
 				return SEARCH_DOCUMENT_IDS;
 			}
@@ -636,6 +663,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	index entry search
 		ca = new ComponentActionNetwork() {
+			public long getActivityLogTimeout() {
+				return activityLogTimeout;
+			}
 			public String getActionCommand() {
 				return SEARCH_INDEX;
 			}
@@ -703,6 +733,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	thesaurus search query
 		ca = new ComponentActionNetwork() {
+			public long getActivityLogTimeout() {
+				return activityLogTimeout;
+			}
 			public String getActionCommand() {
 				return SEARCH_THESAURUS;
 			}
@@ -765,6 +798,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	list documents
 		ca = new ComponentActionNetwork() {
+			public long getActivityLogTimeout() {
+				return activityLogTimeout;
+			}
 			public String getActionCommand() {
 				return LIST_DOCUMENTS;
 			}
@@ -786,7 +822,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					output.flush();
 				}
 				catch (IOException ioe) {
-					System.out.println("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while listing documents.");
+					logError("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while listing documents.");
 					output.write("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while listing documents.");
 					output.newLine();
 				}
@@ -808,11 +844,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
-					System.out.println(" There " + ((indexers.length == 1) ? "is" : "are") + " " + ((indexers.length == 0) ? "no" : ("" + indexers.length)) + " Indexer" + ((indexers.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
+					this.reportResult(" There " + ((indexers.length == 1) ? "is" : "are") + " " + ((indexers.length == 0) ? "no" : ("" + indexers.length)) + " Indexer" + ((indexers.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
 					for (int i = 0; i < indexers.length; i++)
-						System.out.println(" - " + indexers[i].getIndexName() + " (" + indexers[i].getClass().getName() + ")");
+						this.reportResult(" - " + indexers[i].getIndexName() + " (" + indexers[i].getClass().getName() + ")");
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -831,11 +867,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
-					System.out.println(" There " + ((filters.length == 1) ? "is" : "are") + " " + ((filters.length == 0) ? "no" : ("" + filters.length)) + " StorageFilter" + ((filters.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
+					this.reportResult(" There " + ((filters.length == 1) ? "is" : "are") + " " + ((filters.length == 0) ? "no" : ("" + filters.length)) + " StorageFilter" + ((filters.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
 					for (int f = 0; f < filters.length; f++)
-						System.out.println(" - " + filters[f].getClass().getName());
+						this.reportResult(" - " + filters[f].getClass().getName());
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -854,11 +890,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
-					System.out.println(" There " + ((splitters.length == 1) ? "is" : "are") + " " + ((splitters.length == 0) ? "no" : ("" + splitters.length)) + " DocumentSplitter" + ((splitters.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
+					this.reportResult(" There " + ((splitters.length == 1) ? "is" : "are") + " " + ((splitters.length == 0) ? "no" : ("" + splitters.length)) + " DocumentSplitter" + ((splitters.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
 					for (int s = 0; s < splitters.length; s++)
-						System.out.println(" - " + splitters[s].getClass().getName());
+						this.reportResult(" - " + splitters[s].getClass().getName());
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -877,11 +913,39 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
-					System.out.println(" There " + ((uuidFetchers.length == 1) ? "is" : "are") + " " + ((uuidFetchers.length == 0) ? "no" : ("" + uuidFetchers.length)) + " DocumentUuidFetcher" + ((splitters.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
+					this.reportResult(" There " + ((uuidFetchers.length == 1) ? "is" : "are") + " " + ((uuidFetchers.length == 0) ? "no" : ("" + uuidFetchers.length)) + " DocumentUuidFetcher" + ((splitters.length == 1) ? "" : "s") + " installed in GoldenGATE SRS:");
 					for (int u = 0; u < uuidFetchers.length; u++)
-						System.out.println(" - " + uuidFetchers[u].getClass().getName());
+						this.reportResult(" - " + uuidFetchers[u].getClass().getName());
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+			}
+		};
+		cal.add(ca);
+		
+		//	set activity log timeout
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return SET_ACTIVITY_LOG_TIMEOUT_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						SET_ACTIVITY_LOG_TIMEOUT_COMMAND + " <timout>",
+						"Set the timeout after which log messages from network actions become warnings:",
+						"- <timeout>: the timeout in milliseconds",
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length == 0)
+					this.reportResult(" Activity log timeout currently is " + activityLogTimeout + " ms");
+				else if (arguments.length != 1)
+					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as the only argument.");
+				else try {
+					activityLogTimeout = Integer.parseInt(arguments[0]);
+				}
+				catch (NumberFormatException nfe) {
+					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as an integer only.");
+				}
 			}
 		};
 		cal.add(ca);
@@ -902,7 +966,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if ((arguments.length < 1) || (arguments.length > 2))
-					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID and indexer name as the only arguments.");
+					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID and indexer name as the only arguments.");
 				else reIndex(arguments[0], ((arguments.length == 1) ? null : arguments[1]));
 			}
 		};
@@ -923,7 +987,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length != 1)
-					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID as the only argument.");
+					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID as the only argument.");
 				else issueEvents(arguments[0]);
 			}
 		};
@@ -936,6 +1000,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		ComponentAction[] dstActions = this.dst.getActions();
 		for (int a = 0; a < dstActions.length; a++)
 			cal.add(dstActions[a]);
+//		
+//		//	add event queue monitoring action
+//		cal.add(this.eventNotifier.getQueueSizeAction());
 		
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
 	}
@@ -971,8 +1038,12 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	assemble query
 		StringBuffer query = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE);
 		query.append(" FROM " + DOCUMENT_TABLE_NAME);
-		query.append(" WHERE " + MASTER_DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(masterDocId) + "'");
-		query.append(" AND " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + " = " + masterDocId.hashCode() + "");
+		if (masterDocId.matches("[0-9A-F]{32}")) {
+			query.append(" WHERE " + MASTER_DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(masterDocId) + "'");
+			query.append(" AND " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + " = " + masterDocId.hashCode() + "");
+		}
+		else query.append(" WHERE " + MASTER_DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(masterDocId) + "'");
+		query.append(";");
 		
 		//	get document IDs
 		SqlQueryResult sqr = null;
@@ -994,8 +1065,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 								indexer.index(doc, docNr);
 							}
 							catch (IOException ioe) {
-								System.out.println("GoldenGateSRS: error re-indexing document '" + docId + "': " + ioe.getMessage());
-								ioe.printStackTrace(System.out);
+								logError("GoldenGateSRS: error re-indexing document '" + docId + "': " + ioe.getMessage());
+								logError(ioe);
 							}
 						}
 					});
@@ -1004,14 +1075,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-			System.out.println("  query was " + query);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+			this.logError("  query was " + query);
 		}
 		finally {
 			if (sqr != null)
 				sqr.close();
 		}
-		System.out.println("Scheduled re-indexing of for " + count + " documents.");
+		this.logResult("Scheduled re-indexing of for " + count + " documents.");
 	}
 	
 	private Thread eventIssuer = null;
@@ -1019,7 +1090,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	let's not knock out the server
 		if (this.eventIssuer != null) {
-			System.out.println("Already issuing update events, only one document can run at a time.");
+			this.logResult("Already issuing update events, only one document can run at a time.");
 			return;
 		}
 		
@@ -1030,6 +1101,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				query.append(" FROM " + DOCUMENT_TABLE_NAME);
 				query.append(" WHERE " + MASTER_DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(masterDocId) + "'");
 				query.append(" AND " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + " = " + masterDocId.hashCode() + "");
+				query.append(";");
 				
 				SqlQueryResult sqr = null;
 				int count = 0;
@@ -1040,29 +1112,32 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						String updateUser = sqr.getString(1);
 						long updateTime = sqr.getLong(2);
 						try {
-							QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 128) ? dst.loadDocument(docId) : null);
+//							QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 128) ? dst.loadDocument(docId) : null);
 							int docVersion = dst.getVersion(docId);
-							eventNotifier.notify(new SrsDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateSRS.class.getName(), updateTime, new EventLogger() {
+//							eventNotifier.notify(new SrsDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateSRS.class.getName(), updateTime, new EventLogger() {
+//								public void writeLog(String logEntry) {}
+//							}));
+							GoldenGateServerEventService.notify(new SrsDocumentEvent(updateUser, docId, null, docVersion, GoldenGateSRS.class.getName(), updateTime, new EventLogger() {
 								public void writeLog(String logEntry) {}
 							}));
 							count++;
 						}
 						catch (IOException ioe) {
-							System.out.println("GoldenGateSRS: error issuing update event for document '" + docId + "': " + ioe.getMessage());
-							ioe.printStackTrace(System.out);
+							logError("GoldenGateSRS: error issuing update event for document '" + docId + "': " + ioe.getMessage());
+							logError(ioe);
 						}
 					}
 				}
 				catch (SQLException sqle) {
-					System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-					System.out.println("  query was " + query);
+					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+					logError("  query was " + query);
 				}
 				finally {
 					if (sqr != null)
 						sqr.close();
 					eventIssuer = null;
 				}
-				System.out.println("Issued update events for " + count + " documents.");
+				logResult("Issued update events for " + count + " documents.");
 			}
 		};
 		this.eventIssuer.start();
@@ -1104,7 +1179,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				", " + CHECKIN_TIME_ATTRIBUTE + 
 				", " + MASTER_DOCUMENT_ID_ATTRIBUTE + 
 				", " + DOCUMENT_SIZE_ATTRIBUTE + 
-				" FROM " + DOCUMENT_TABLE_NAME;
+				" FROM " + DOCUMENT_TABLE_NAME +
+				";";
 		SqlQueryResult sqr = null;
 		try {
 			sqr = this.io.executeSelectQuery(statQuery);
@@ -1174,8 +1250,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			return cachingStats.getCollectionStatistics(sinceString);
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading top 10 user statistics.");
-			System.out.println("  Query was " + statQuery);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading top 10 user statistics.");
+			this.logError("  Query was " + statQuery);
 			return null;
 		}
 		finally {
@@ -1251,8 +1327,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				return sqr.getString(0);
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document ID for '" + docId + "'.");
-			System.out.println("  Query was " + resolverQuery);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document ID for '" + docId + "'.");
+			this.logError("  Query was " + resolverQuery);
 		}
 		finally {
 			if (sqr != null)
@@ -1389,14 +1465,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	public DocumentReader getDocumentAsStream(String docId, boolean includeUpdateHistory) throws IOException {
 		
 		//	normalize UUID
-//		System.out.println("GoldenGateSRS getting document '" + docId + "' as stream");
-//		long start = System.currentTimeMillis();
+		this.logActivity("GoldenGateSRS getting document '" + docId + "' as stream");
+		long start = System.currentTimeMillis();
 		docId = normalizeId(docId);
 		
 		//	try plain ID lookup first (way faster)
 		try {
 			DocumentReader dr = this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
-//			System.out.println(" - unresolved document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
+			this.logActivity(" - unresolved document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
 			return dr;
 		}
 		
@@ -1408,7 +1484,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	return document
 		DocumentReader dr = this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
-//		System.out.println(" - document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
+		this.logActivity(" - document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
 		return dr;
 	}
 	
@@ -1437,7 +1513,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			logger.writeLog(" ===== SRS Collection Update Protocol ===== ");
 		
 		//	log duration of storage process and its steps
-		System.out.println("GoldenGATE SRS: storing document '" + masterDoc.getAttribute(DOCUMENT_TITLE_ATTRIBUTE) + "'");
+		this.logInfo("GoldenGATE SRS: storing document '" + masterDoc.getAttribute(DOCUMENT_TITLE_ATTRIBUTE) + "'");
 		long storageStart = System.currentTimeMillis();
 		long storageStepStart;
 		
@@ -1451,7 +1527,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				return 0;
 			}
 		}
-		System.out.println(" - filtering done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo(" - filtering done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	split master document
 		storageStepStart = System.currentTimeMillis();
@@ -1467,7 +1543,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			docs = ((QueriableAnnotation[]) docList.toArray(new QueriableAnnotation[docList.size()]));
 		}
-		System.out.println(" - splitting done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo(" - splitting done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	if no split occurred, copy document to facilitate modification
 		if ((docs.length == 1) && (docs[0] == masterDoc))
@@ -1477,7 +1553,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		storageStepStart = System.currentTimeMillis();
 		for (int f = 0; f < this.filters.length; f++)
 			docs = this.filters[f].filter(docs, masterDoc);
-		System.out.println(" - parts filtered in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo(" - parts filtered in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	try and import UUID if (a) not already there and (b) respective plugin given
 		storageStepStart = System.currentTimeMillis();
@@ -1489,7 +1565,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					break;
 			}
 		}
-		System.out.println(" - UUIDs fetched in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo(" - UUIDs fetched in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	initialize statistics
 		int newDocCount = 0;
@@ -1522,23 +1598,24 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			
 			//	store part document
-			int docStat = this.updateDocument(docs[d], docId, masterDocId, updateTime, logger);
+			int docStatus = this.updateDocument(docs[d], docId, masterDocId, updateTime, logger);
 			
 			//	update statistics
-			if (docStat == NEW_DOC)
+			if (docStatus == NEW_DOC)
 				newDocCount++;
-			else if (docStat == UPDATE_DOC)
+			else if (docStatus == UPDATE_DOC)
 				updateDocCount++;
 			
 			//	how long did this take?
-			System.out.println("   - part " + (d+1) + " of " + docs.length + " stored in " + (System.currentTimeMillis() - docStorageStart) + " ms");
+			this.logInfo("   - part " + (d+1) + " of " + docs.length + " stored in " + (System.currentTimeMillis() - docStorageStart) + " ms");
 		}
-		System.out.println(" - parts stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo(" - parts stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	clean up document table
 		storageStepStart = System.currentTimeMillis();
-		int deleteDocCount = this.cleanupMasterDocument(masterDocId, validIDs);
-		System.out.println(" - master document cleanup done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		String updateUser = ((String) masterDoc.getAttribute(UPDATE_USER_ATTRIBUTE, masterDoc.getAttribute(CHECKIN_USER_ATTRIBUTE, "Unknown User")));
+		int deleteDocCount = this.cleanupMasterDocument(updateUser, masterDocId, validIDs, logger);
+		this.logInfo(" - master document cleanup done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	write log
 		if (logger != null) {
@@ -1548,11 +1625,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			logger.writeLog("  - " + deleteDocCount + " " + splitResultLabel.toLowerCase() + ((deleteDocCount == 1) ? "" : "s") + " deleted");
 		}
 		
-		System.out.println(" - document stored in " + (System.currentTimeMillis() - storageStart) + " ms");
+		this.logInfo(" - document stored in " + (System.currentTimeMillis() - storageStart) + " ms");
 		return (newDocCount + updateDocCount);
 	}
-	
-	private static final boolean DEBUG_UPDATE_DOCUMENT = false;
 	
 	private static final int KEEP_DOC = 0;
 	private static final int UPDATE_DOC = 1;
@@ -1563,8 +1638,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		final int documentStatus;
 		
 		storageStepStart = System.currentTimeMillis();
-		String docCheckSum = getChecksum(doc);
-		final String userName = ((String) doc.getAttribute(UPDATE_USER_ATTRIBUTE, doc.getAttribute(CHECKIN_USER_ATTRIBUTE, "Unknown User")));
+		String docChecksum = this.getChecksum(doc);
+		String userName = ((String) doc.getAttribute(UPDATE_USER_ATTRIBUTE, doc.getAttribute(CHECKIN_USER_ATTRIBUTE, "Unknown User")));
 		
 		String existQuery = "SELECT " + DOCUMENT_CHECKSUM_COLUMN_NAME + ", " + DOCUMENT_UUID_ATTRIBUTE + ", " + DOCUMENT_UUID_SOURCE_ATTRIBUTE + ", " + MASTER_DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_AUTHOR_ATTRIBUTE + ", " + DOCUMENT_ORIGIN_ATTRIBUTE + ", " + DOCUMENT_DATE_ATTRIBUTE + ", " + PAGE_NUMBER_ATTRIBUTE + ", " + LAST_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_LAST_PAGE_NUMBER_ATTRIBUTE + ", " + DOCUMENT_SOURCE_LINK_ATTRIBUTE + ", " + DOCUMENT_TYPE_ATTRIBUTE + 
 				" FROM " + DOCUMENT_TABLE_NAME +
@@ -1576,26 +1651,26 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		storageStepStart = System.currentTimeMillis();
 		try {
 			sqr = this.io.executeSelectQuery(existQuery);
-			System.out.println("   - existing document data read in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+			this.logInfo("   - existing document data read in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 			
 			//	document exists
 			if (sqr.next()) {
 				
 				//	read data
 				storageStepStart = System.currentTimeMillis();
-				if (DEBUG_UPDATE_DOCUMENT) System.out.println("  - updating document " + docNr);
+				this.logDebug("  - updating document " + docNr);
 				
-				String oldDocCheckSum = sqr.getString(0);
+				String oldDocChecksum = sqr.getString(0);
 				
 				//	document unchanged (or we have an MD5 collision ...)
-				if (docCheckSum.equals(oldDocCheckSum)) {
-					if (DEBUG_UPDATE_DOCUMENT) System.out.println("    - document unmodified");
+				if (docChecksum.equals(oldDocChecksum)) {
+					this.logDebug("    - document unmodified");
 					documentStatus = KEEP_DOC;
 				}
 				
 				//	we have an update
 				else {
-					if (DEBUG_UPDATE_DOCUMENT) System.out.println("    - document modified");
+					this.logDebug("    - document modified");
 					documentStatus = UPDATE_DOC;
 					
 					//	read remaining data
@@ -1612,12 +1687,12 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					String dataMasterDocLastPageNumber = sqr.getString(11);
 					String dataDocSourceLink = sqr.getString(12);
 					String dataDocType = sqr.getString(13);
-					if (DEBUG_UPDATE_DOCUMENT) System.out.println("    - got document data");
+					this.logDebug("    - got document data");
 					
 					StringVector assignments = new StringVector();
 					
 					//	update checksum
-					assignments.addElement(DOCUMENT_CHECKSUM_COLUMN_NAME + " = '" + EasyIO.sqlEscape(docCheckSum) + "'");
+					assignments.addElement(DOCUMENT_CHECKSUM_COLUMN_NAME + " = '" + EasyIO.sqlEscape(docChecksum) + "'");
 					
 					//	check document type
 					String type = ((String) doc.getAttribute(DOCUMENT_TYPE_ATTRIBUTE, "")).trim();
@@ -1723,7 +1798,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					
 					//	get update timestamp
 					assignments.addElement(UPDATE_TIME_ATTRIBUTE + " = " + updateTime);					
-					System.out.println("   - document data compared in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+					this.logInfo("   - document data compared in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 					
 					//	write new values
 					if (!assignments.isEmpty()) {
@@ -1735,13 +1810,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 								";";
 						try {
 							this.io.executeUpdateQuery(updateQuery);
-							if (DEBUG_UPDATE_DOCUMENT) System.out.println("    - updates written");
+							this.logDebug("    - updates written");
 						}
 						catch (SQLException sqle) {
-							System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating data of document " + docNr + ".");
-							System.out.println("  Query was " + updateQuery);
+							this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating data of document " + docNr + ".");
+							this.logError("  Query was " + updateQuery);
 						}
-						System.out.println("   - document data updated in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+						this.logInfo("   - document data updated in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 					}
 					
 					//	remove document from this.indexers, will be re-indexed later
@@ -1807,7 +1882,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				//	get source link
 				String sourceLink = ((String) doc.getAttribute(DOCUMENT_SOURCE_LINK_ATTRIBUTE, "")).trim();
 				if (sourceLink.length() > DOCUMENT_SOURCE_LINK_COLUMN_LENGTH)
-					sourceLink = masterTitle.substring(0, DOCUMENT_SOURCE_LINK_COLUMN_LENGTH);
+					sourceLink = sourceLink.substring(0, DOCUMENT_SOURCE_LINK_COLUMN_LENGTH);
 				
 				//	get page number(s)
 				int pageNumber = -1;
@@ -1828,30 +1903,30 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				try {
 					masterDocLastPageNumber = Integer.parseInt((String) doc.getAttribute(MASTER_LAST_PAGE_NUMBER_ATTRIBUTE, "-1"));
 				} catch (NumberFormatException nfe) {}
-				System.out.println("   - document data assembled in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+				this.logInfo("   - document data assembled in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 				
 				//	store data in collection main table
 				storageStepStart = System.currentTimeMillis();
 				String insertQuery = "INSERT INTO " + DOCUMENT_TABLE_NAME + " (" + 
 									DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + ", " + DOCUMENT_TYPE_ATTRIBUTE + ", " + DOCUMENT_UUID_ATTRIBUTE + ", " + DOCUMENT_UUID_HASH_COLUMN_NAME + ", " + DOCUMENT_UUID_SOURCE_ATTRIBUTE + ", " + DOCUMENT_CHECKSUM_COLUMN_NAME + ", " + MASTER_DOCUMENT_ID_ATTRIBUTE + ", " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + ", " + CHECKIN_USER_ATTRIBUTE + ", " + CHECKIN_TIME_ATTRIBUTE + ", " + UPDATE_USER_ATTRIBUTE + ", " + UPDATE_TIME_ATTRIBUTE + ", " + MASTER_DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_TITLE_ATTRIBUTE + ", " + DOCUMENT_AUTHOR_ATTRIBUTE + ", " + DOCUMENT_ORIGIN_ATTRIBUTE + ", " + DOCUMENT_DATE_ATTRIBUTE + ", " + DOCUMENT_SOURCE_LINK_ATTRIBUTE + ", " + PAGE_NUMBER_ATTRIBUTE + ", " + LAST_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_PAGE_NUMBER_ATTRIBUTE + ", " + MASTER_LAST_PAGE_NUMBER_ATTRIBUTE + ", " + DOCUMENT_SIZE_ATTRIBUTE + 
 									") VALUES (" +
-									docNr + ", '" + EasyIO.sqlEscape(docId) + "', '" + EasyIO.sqlEscape(type) + "', '" + EasyIO.sqlEscape(uuid) + "', " + uuid.hashCode() + ", '" + EasyIO.sqlEscape(uuidSource) + "', '" + EasyIO.sqlEscape(docCheckSum) + "', '" + EasyIO.sqlEscape(masterDocId) + "', " + masterDocId.hashCode() + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(masterTitle) + "', '" + EasyIO.sqlEscape(title) + "', '" + EasyIO.sqlEscape(author) + "', '" + EasyIO.sqlEscape(origin) + "', " + EasyIO.sqlEscape(year) + ", '" + EasyIO.sqlEscape(sourceLink) + "', " + pageNumber + ", " + lastPageNumber + ", " + masterDocPageNumber + ", " + masterDocLastPageNumber + ", " + doc.size() + 
+									docNr + ", '" + EasyIO.sqlEscape(docId) + "', '" + EasyIO.sqlEscape(type) + "', '" + EasyIO.sqlEscape(uuid) + "', " + uuid.hashCode() + ", '" + EasyIO.sqlEscape(uuidSource) + "', '" + EasyIO.sqlEscape(docChecksum) + "', '" + EasyIO.sqlEscape(masterDocId) + "', " + masterDocId.hashCode() + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(checkinUser) + "', " + updateTime + ", '" + EasyIO.sqlEscape(masterTitle) + "', '" + EasyIO.sqlEscape(title) + "', '" + EasyIO.sqlEscape(author) + "', '" + EasyIO.sqlEscape(origin) + "', " + EasyIO.sqlEscape(year) + ", '" + EasyIO.sqlEscape(sourceLink) + "', " + pageNumber + ", " + lastPageNumber + ", " + masterDocPageNumber + ", " + masterDocLastPageNumber + ", " + doc.size() + 
 									");";
 				try {
 					this.io.executeUpdateQuery(insertQuery);
-					System.out.println("   - document data stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+					this.logInfo("   - document data stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 				}
 				catch (SQLException sqle) {
-					System.out.println("   - storing document data failed in " + (System.currentTimeMillis() - storageStepStart) + " ms");
-					System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while storing document.");
-					System.out.println("  Query was " + insertQuery);
+					this.logError("   - storing document data failed in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+					this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while storing document.");
+					this.logError("  Query was " + insertQuery);
 					throw new IOException("Could not store document: Error writing management table."); // don't store file if document couldn't be entered in management table
 				}
 			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while checking if document exists.");
-			System.out.println("  Query was " + existQuery);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while checking if document exists.");
+			this.logError("  Query was " + existQuery);
 			throw new IOException(sqle.getMessage());
 		}
 		finally {
@@ -1868,12 +1943,12 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		synchronized (this.collectionsStatisticsCache) {
 			this.collectionsStatisticsCache.clear();
 		}
-		System.out.println("   - statistics cache cleared in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo("   - statistics cache cleared in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	store document
 		storageStepStart = System.currentTimeMillis();
 		final int version = this.dst.storeDocument(doc, docId);
-		System.out.println("   - document stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo("   - document stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	run document through indexers asynchronously for better upload performance
 		storageStepStart = System.currentTimeMillis();
@@ -1885,19 +1960,20 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 			});
 		}
-		System.out.println("   - indexing scheduled in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		this.logInfo("   - indexing scheduled in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	do event notification asynchronously for quick response
 		storageStepStart = System.currentTimeMillis();
-		this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 128) ? doc : null), version, this.getClass().getName(), updateTime, logger));
-		System.out.println("   - update notification done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+//		this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 128) ? doc : null), version, this.getClass().getName(), updateTime, logger));
+		GoldenGateServerEventService.notify(new SrsDocumentEvent(userName, docId, doc, version, this.getClass().getName(), updateTime, logger));
+		this.logInfo("   - update notification done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	report whether update or insert
 		return documentStatus;
 	}
 	
 	//	after a document update, delete the management table entries for the parts of a master document that no longer exist
-	private int cleanupMasterDocument(String masterDocId, StringVector docIDs) throws IOException {
+	private int cleanupMasterDocument(String userName, String masterDocId, StringVector docIDs, EventLogger logger) throws IOException {
 		
 		//	get document numbers to delete
 		String dataQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + 
@@ -1928,9 +2004,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					this.dst.deleteDocument(docId);
 				}
 				catch (IOException ioe) {
-					System.out.println("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
-					ioe.printStackTrace(System.out);
+					this.logError("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
+					this.logError(ioe);
 				}
+				
+				//	issue event
+//				this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
+				GoldenGateServerEventService.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
 				
 				//	delete master table entry
 				String deleteQuery = "DELETE FROM " + DOCUMENT_TABLE_NAME + " WHERE " + DOC_NUMBER_COLUMN_NAME + " = " + docNr + ";";
@@ -1939,14 +2019,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					deleteDocCount++;
 				}
 				catch (SQLException sqle) {
-					System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
-					System.out.println("  Query was " + deleteQuery);
+					this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+					this.logError("  Query was " + deleteQuery);
 				}
 			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while cleaning document table.");
-			System.out.println("  Query was " + dataQuery);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while cleaning document table.");
+			this.logError("  Query was " + dataQuery);
 			return 0;
 		}
 		finally {
@@ -2009,20 +2089,21 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					this.dst.deleteDocument(docId);
 				}
 				catch (IOException ioe) {
-					System.out.println("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
-					ioe.printStackTrace(System.out);
+					this.logError("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
+					this.logError(ioe);
 				}
 				
 				//	issue event
-				this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
+//				this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
+				GoldenGateServerEventService.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
 				
 				//	update statistics
 				deleteCount++;
 			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
-			System.out.println("  Query was " + query);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			this.logError("  Query was " + query);
 		}
 		finally {
 			if (sqr != null)
@@ -2038,8 +2119,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			this.io.executeUpdateQuery(query);
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
-			System.out.println("  Query was " + query);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			this.logError("  Query was " + query);
 		}
 		
 		//	invalidate collection statistics
@@ -2104,8 +2185,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				indexerAction.run();
 			}
 			catch (Throwable t) {
-				System.out.println("Error on index update - " + t.getClass().getName() + " (" + t.getMessage() + ")");
-				t.printStackTrace(System.out);
+				logError("Error on index update - " + t.getClass().getName() + " (" + t.getMessage() + ")");
+				logError(t);
 			}
 		}
 		
@@ -2255,8 +2336,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				};
 			}
 			catch (SQLException sqle) {
-				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-				System.out.println("  query was " + query);
+				this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+				this.logError("  query was " + query);
 				throw new IOException(sqle.getMessage());
 			}
 		}
@@ -2294,8 +2375,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				};
 			}
 			catch (SQLException sqle) {
-				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-				System.out.println("  query was " + query);
+				this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+				this.logError("  query was " + query);
 				throw new IOException(sqle.getMessage());
 			}
 		}
@@ -2460,8 +2541,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			};
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-			System.out.println("  query was " + query);
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+			this.logError("  query was " + query);
 			throw new IOException(sqle.getMessage());
 		}
 	}
@@ -2508,15 +2589,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		}
 		
 		private void fillElementBuffer() {
-			if ((this.sqr == null) || this.gotElementInBuffer()) return;
-			
+			if ((this.sqr == null) || this.gotElementInBuffer())
+				return;
 			else if (this.sqr.next()) {
 				String[] dataCollector = new String[this.sqr.getColumnCount()];
 				for (int c = 0; c < dataCollector.length; c++)
 					dataCollector[c] = this.sqr.getString(c);
-				this.putElementInBuffer(dataCollector);
+				this.nextElementData = dataCollector;
 			}
-			
 			else {
 				this.sqr.close();
 				this.sqr = null;
@@ -2526,9 +2606,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		private boolean gotElementInBuffer() {
 			return (this.nextElementData != null);
 		}
-		private void putElementInBuffer(String[] re) {
-			this.nextElementData = re;
-		}
+		
 		private String[] getFromElementBuffer() {
 			String[] nextElementData = this.nextElementData;
 			this.nextElementData = null;
@@ -2558,8 +2636,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final int DEFAULT_RESULT_MERRGE_MODE = QueryResult.USE_AVERAGE;
 	private int resultMergeMode = DEFAULT_RESULT_MERRGE_MODE;
 	
-	private static final boolean DEBUG_DOCUMENT_SEARCH = false;
-	
 	private static final String[] documentSearchResultAttributes = {
 		DOCUMENT_ID_ATTRIBUTE,
 		DOCUMENT_TYPE_ATTRIBUTE,
@@ -2588,11 +2664,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public DocumentResult searchDocuments(Query query, boolean includeUpdateHistory) throws IOException {
-		if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: doing document search ...");
+		this.logActivity("GgSRS: doing document search ...");
 		
 		//	get document numbers
 		QueryResult docNrResult = this.searchDocumentNumbers(query);
-		if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrResult.size() + " result document numbers");
+		this.logActivity("  - got " + docNrResult.size() + " result document numbers");
 		
 		//	test if we have an ID query, and waive relevance elimination if so
 		boolean isIdQuery = (query.getValue(ID_QUERY_FIELD_NAME) != null);
@@ -2673,8 +2749,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					}
 				}
 				catch (SQLException sqle) {
-					System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
-					System.out.println("  query was " + docNrToDocDataQuery.toString());
+					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
+					logError("  query was " + docNrToDocDataQuery.toString());
 				}
 				finally {
 					if (sqr != null)
@@ -2709,8 +2785,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					doc = dst.loadDocument(dre.documentId);
 				}
 				catch (IOException ioe) {
-					System.out.println("GoldenGateSRS: Error loading document '" + dre.documentId + "' (" + ioe.getMessage() + ")");
-					ioe.printStackTrace(System.out);
+					logError("GoldenGateSRS: Error loading document '" + dre.documentId + "' (" + ioe.getMessage() + ")");
+					logError(ioe);
 					doc = Gamta.newDocument(Gamta.newTokenSequence(ioe.getMessage(), null));
 				}
 				
@@ -2740,7 +2816,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	get result
 		final DocumentResult fullDr = searchDocuments(query, includeUpdateHistory);
 		
-		//	wrap document result in order to reduce documents
+		//	wrap document result to reduce documents
 		return new DocumentResult() {
 			public boolean hasNextElement() {
 				return fullDr.hasNextElement();
@@ -2881,11 +2957,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	}
 	
 	private SrsSearchResult searchDocumentData(final Query query, boolean rankedResult) throws IOException {
-		if (DEBUG_INDEX_SEARCH || DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: doing document data search ...");
+		this.logActivity("GgSRS: doing document data search ...\r\n    query: " + query);
+		final long start = System.currentTimeMillis();
 		
 		//	get document numbers
 		QueryResult docNrResult = this.searchDocumentNumbers(query);
-		if (DEBUG_INDEX_SEARCH || DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrResult.size() + " result document numbers");
+		this.logActivity("  - finished document number search after " + (System.currentTimeMillis() - start) + "ms");
+		this.logActivity("  - got " + docNrResult.size() + " result document numbers");
 		
 		//	get sub index IDs
 		StringVector subIndexNames = new StringVector();
@@ -2894,7 +2972,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			subIndexNames.parseAndAddElements(subIndexNameString, "\n");
 		subIndexNames.removeAll("0");
 		subIndexNames.removeAll("");
-		if (DEBUG_INDEX_SEARCH || DEBUG_DOCUMENT_SEARCH) System.out.println("  - sub index names are " + subIndexNames.concatStrings(","));
+		this.logActivity("  - sub index names are " + subIndexNames.concatStrings(","));
 		
 		//	get minimum sub result size
 		int requestSubResultMinSize;
@@ -2931,7 +3009,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			 * too severely)
 			 */
 			QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, ((subResultMinSize == 0) ? queryResultPivotIndex : 0));
-			if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrResult.size() + " result document numbers after relevance elimination");
+			this.logActivity("  - got " + docNrResult.size() + " result document numbers after relevance elimination");
 			
 			//	catch empty result
 			if (relevanceResult.size() == 0) return new DocumentResult() {
@@ -2958,7 +3036,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			//	are we interested in this index?
 			if (subIndexNames.contains(subIndexName)) {
 				subIndexerList.add(this.indexers[i]);
-				if (DEBUG_INDEX_SEARCH || DEBUG_DOCUMENT_SEARCH) System.out.println("  - got sub indexer: " + subIndexName);
+				this.logActivity("  - got sub indexer: " + subIndexName);
 			}
 		}
 		final Indexer[] subIndexers = ((Indexer[]) subIndexerList.toArray(new Indexer[subIndexerList.size()]));
@@ -2983,11 +3061,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			
 			//	return result
 			return new SqlDocumentResult(documentDataSearchResultAttributes, this.io, docNrResult, bufferSize) {
+				private int loaded = 0;
 				private int returned = 0;
 				private double lastRelevance = 0;
 				private DocumentResultElement nextDre = null;
 				private void ensureNextElement() {
-					if (this.nextDre != null) return;
+					if (this.nextDre != null)
+						return;
 					
 					if (super.hasNextElement()) {
 						DocumentResultElement dre = ((DocumentResultElement) super.getNextElement());
@@ -3004,22 +3084,24 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						}
 					}
 				}
+				
 				public boolean hasNextElement() {
-					if (subResultMinSize == 0) return super.hasNextElement();
-					
+					if (subResultMinSize == 0)
+						return super.hasNextElement();
 					this.ensureNextElement();
 					return (this.nextDre != null);
 				}
+				
 				public SrsSearchResultElement getNextElement() {
-					if (subResultMinSize == 0) return super.getNextElement();
-					
+					if (subResultMinSize == 0)
+						return super.getNextElement();
 					DocumentResultElement dre = (this.hasNextElement() ? this.nextDre : null);
 					this.nextDre = null;
 					return dre;
 				}
 				
 				protected void fillDreBuffer(int dreCount) {
-					if (DEBUG_DOCUMENT_SEARCH) System.out.println("SqlDocumentResult: filling buffer with at most " + dreCount + " elements");
+					logActivity("SqlDocumentResult: filling buffer with at most " + dreCount + " elements, returned " + this.returned + " thus far.");
 					int dreAdded = 0;
 					
 					//	get query result elements for next chunk
@@ -3036,10 +3118,10 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						docNumbers[r] = qre.docNr;
 					}
 					if (docNumberCollector.isEmpty()) {
-						if (DEBUG_DOCUMENT_SEARCH) System.out.println(" - no further documents");
+						logActivity(" - no further documents");
 						return;
 					}
-					if (DEBUG_DOCUMENT_SEARCH) System.out.println(" - got " + docNumberCollector.size() + " further document numbers");
+					logActivity(" - got " + docNumberCollector.size() + " further document numbers");
 					
 					//	get document data
 					StringBuffer docNrToDocDataQuery = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME);
@@ -3055,7 +3137,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					HashMap docNrsToDocData = new HashMap();
 					SqlQueryResult sqr = null;
 					try {
-						if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - NR to doc data query is " + docNrToDocDataQuery.toString());
+						logActivity("  - NR to doc data query is " + docNrToDocDataQuery.toString());
 						sqr = io.executeSelectQuery(docNrToDocDataQuery.toString());
 						
 						//	read & store data
@@ -3069,17 +3151,18 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 								else docData[d] = sqr.getString(d+1);
 							}
 							docNrsToDocData.put(docNr, docData);
+							this.loaded++;
 						}
 					}
 					catch (SQLException sqle) {
-						System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
-						System.out.println("  query was " + docNrToDocDataQuery.toString());
+						logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
+						logError("  query was " + docNrToDocDataQuery.toString());
 					}
 					finally {
 						if (sqr != null)
 							sqr.close();
 					}
-					if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrsToDocData.size() + " doc data sets");
+					logActivity("  - got " + docNrsToDocData.size() + " doc data sets, for total of " + this.loaded);
 					
 					//	collect sub results
 					final ArrayList subResultNames = new ArrayList();
@@ -3098,7 +3181,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						
 						//	got a sub result
 						if (subIndexResult != null) {
-							if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got sub result from " + subIndexName);
+							logActivity("  - got sub result from " + subIndexName);
 							
 							//	store index meta data
 							subResultNames.add(subIndexResult.indexName);
@@ -3125,7 +3208,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					//	generate DREs from QREs and stored data
 					for (int i = 0; i < qreList.size(); i++) {
 						QueryResultElement qre = ((QueryResultElement) qreList.get(i));
-						if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - adding result document " + qre.docNr + " (" + qre.relevance + ")");
+						logActivity("  - adding result document " + qre.docNr + " (" + qre.relevance + ")");
 						
 						String[] docData = ((String[]) docNrsToDocData.remove("" + qre.docNr));
 						if (docData != null) {
@@ -3165,7 +3248,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 							}
 						}
 					}
-					if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - added " + dreAdded + " result documents");
+					logActivity("  - added " + dreAdded + " result documents");
 					
 					//	clean up
 					docNrsToDocData.clear();
@@ -3258,6 +3341,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				//	wrap result in buffer for adding sub results chunk-wise
 				return new BufferedIndexResult(baseResult, 100) {
 					protected void fillIreBuffer(int ireCount) {
+						logActivity("GgSRS: not finished index search after " + (System.currentTimeMillis() - start) + "ms\r\n        query: " + query);
 						int ireAdded = 0;
 						
 						//	get main result elements for next chunk
@@ -3287,7 +3371,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 							
 							//	got a sub result
 							if (subIndexResult != null) {
-								if (DEBUG_INDEX_SEARCH) System.out.println("  - got sub result from " + subIndexName);
+								logActivity("  - got sub result from " + subIndexName);
 								
 								//	store index meta data
 								subResultNames.add(subIndexResult.indexName);
@@ -3361,8 +3445,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				};
 			}
 			catch (SQLException sqle) {
-				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
-				System.out.println("  query was " + docNrToDocDataQuery.toString());
+				this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
+				this.logError("  query was " + docNrToDocDataQuery.toString());
 				throw new IOException(sqle.getMessage());
 			}
 		}
@@ -3381,11 +3465,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public DocumentResult searchDocumentIDs(Query query) throws IOException {
-		if (DEBUG_DOCUMENT_SEARCH) System.out.println("GgSRS: doing document ID search ...");
+		this.logActivity("GgSRS: doing document ID search ...");
 		
 		//	get document numbers
 		QueryResult docNrResult = this.searchDocumentNumbers(query);
-		if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + docNrResult.size() + " result document numbers");
+		this.logActivity("  - got " + docNrResult.size() + " result document numbers");
 		
 		//	test if we have an ID query, and waive relevance elimination if so
 		boolean isIdQuery = (query.getValue(ID_QUERY_FIELD_NAME) != null);
@@ -3404,7 +3488,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	do duplicate and relevance based elimination
 		QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
-		if (DEBUG_DOCUMENT_SEARCH) System.out.println("  - got " + relevanceResult.size() + " duplicate free, relevance sorted result document numbers");
+		this.logActivity("  - got " + relevanceResult.size() + " duplicate free, relevance sorted result document numbers");
 		
 		//	catch empty result
 		if (relevanceResult.size() == 0)
@@ -3452,8 +3536,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					}
 				}
 				catch (SQLException sqle) {
-					System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
-					System.out.println("Query was " + docNrsToDocIDsQuery);
+					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
+					logError("Query was " + docNrsToDocIDsQuery);
 				}
 				finally {
 					if (sqr != null)
@@ -3512,10 +3596,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		protected abstract void fillDreBuffer(int dreCount);
 	}
 	
-	private static final boolean DEBUG_DOCUMENT_NR_SEARCH = false;
 	private QueryResult searchDocumentNumbers(Query query) throws IOException {
-		if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("GgSRS Document Number Search ...");
-		if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - query is " + query.toString());
+		this.logActivity("GgSRS Document Number Search ...");
+		this.logActivity("  - query is " + query.toString());
 		
 		//	get merge mode
 		int queryResultMergeMode = this.resultMergeMode;
@@ -3538,7 +3621,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			fixedResultDocIDs.set(i, EasyIO.sqlEscape(normalizeId(fixedResultDocIDs.get(i))));
 		fixedResultDocIDs.removeAll("");
 		fixedResultDocIDs.removeDuplicateElements(false);
-		if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + fixedResultDocIDs.size() + " fixed IDs");
+		this.logActivity("  - got " + fixedResultDocIDs.size() + " fixed IDs");
 		
 		//	process query
 		for (int i = 0; i < this.indexers.length; i++) {
@@ -3546,9 +3629,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			QueryResult qr = this.indexers[i].processQuery(query);
 			if (qr != null) {
 				query.addPartialResult(qr);
-				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + qr.size() + " results from " + this.indexers[i].getIndexName());
+				this.logActivity("  - got " + qr.size() + " results from " + this.indexers[i].getIndexName());
 			}
-			else if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got no results from " + this.indexers[i].getIndexName());
+			else this.logActivity("  - got no results from " + this.indexers[i].getIndexName());
 			query.setIndexNameMask(null);
 		}
 		
@@ -3594,7 +3677,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	retrieve type filter
 		String type = query.getValue(DOCUMENT_TYPE_ATTRIBUTE);
 		
-		//	do document data filtering
+		//	do document meta data filtering
 		QueryResult docDataResult = null;
 		if ((modifiedSince != 0) || (modifiedBefore != 0) || (user != null)) {
 			docDataResult = new QueryResult();
@@ -3612,8 +3695,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					docDataResult.addResultElement(new QueryResultElement(sqr.getLong(0), 1));
 			}
 			catch (SQLException sqle) {
-				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
-				System.out.println("  Query was " + docDataQuery);
+				this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
+				this.logError("  Query was " + docDataQuery);
 			}
 			finally {
 				if (sqr != null)
@@ -3632,13 +3715,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			
 			//	no result at all
 			if (docDataResult == null) {
-				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got empty result");
+				this.logActivity("  - got empty result");
 				return new QueryResult();
 			}
 			
-			//	document data result
+			//	document meta data result
 			else {
-				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + docDataResult.size() + " document data based results");
+				this.logActivity("  - got " + docDataResult.size() + " document data based results");
 				return docDataResult;
 			}
 		}
@@ -3646,22 +3729,34 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	ID query only
 		else if (partialDocNrResults.isEmpty()) {
 			QueryResult result = new QueryResult();
+//			
+//			String docIdToDocNrQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + " FROM " + DOCUMENT_TABLE_NAME + " WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + DOCUMENT_UUID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + MASTER_DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "');";
+//			SqlQueryResult sqr = null;
+//			try {
+//				sqr = this.io.executeSelectQuery(docIdToDocNrQuery);
+//				while (sqr.next())
+//					result.addResultElement(new QueryResultElement(sqr.getLong(0), 1));
+//			}
+//			catch (SQLException sqle) {
+//				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
+//				System.out.println("  Query was " + docIdToDocNrQuery);
+//			}
+//			finally {
+//				if (sqr != null)
+//					sqr.close();
+//			}
 			
-			String docIdToDocNrQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + " FROM " + DOCUMENT_TABLE_NAME + " WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + DOCUMENT_UUID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + MASTER_DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "');";
-			SqlQueryResult sqr = null;
-			try {
-				sqr = this.io.executeSelectQuery(docIdToDocNrQuery);
-				while (sqr.next())
-					result.addResultElement(new QueryResultElement(sqr.getLong(0), 1));
-			}
-			catch (SQLException sqle) {
-				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
-				System.out.println("  Query was " + docIdToDocNrQuery);
-			}
-			finally {
-				if (sqr != null)
-					sqr.close();
-			}
+			//	do document ID lookup (even though we theoretically have a document number, we still have to verify it's valid)
+			if (result.size() == 0)
+				result = this.doDocIdQuery(fixedResultDocIDs, DOCUMENT_ID_ATTRIBUTE, null);
+			
+			//	do document UUID lookup
+			if (result.size() == 0)
+				result = this.doDocIdQuery(fixedResultDocIDs, DOCUMENT_UUID_ATTRIBUTE, DOCUMENT_UUID_HASH_COLUMN_NAME);
+			
+			//	do master document ID lookup
+			if (result.size() == 0)
+				result = this.doDocIdQuery(fixedResultDocIDs, MASTER_DOCUMENT_ID_ATTRIBUTE, MASTER_DOCUMENT_ID_HASH_COLUMN_NAME);
 			
 			//	apply document data filter if given
 			if (docDataResult != null)
@@ -3671,7 +3766,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			result.pruneByRelevance(Double.MIN_VALUE);
 			
 			//	return result
-			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers in result");
+			this.logActivity("  - got " + result.size() + " document numbers in result");
 			return result;
 		}
 		
@@ -3679,21 +3774,21 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		else {
 			
 			//	merge retrieval results from individual indexers
-			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - merging " + partialDocNrResults.size() + " partial results, mode is " + queryResultMergeMode);
+			this.logActivity("  - merging " + partialDocNrResults.size() + " partial results, mode is " + queryResultMergeMode);
 			while (partialDocNrResults.size() > 1) {
 				QueryResult qr1 = ((QueryResult) partialDocNrResults.removeFirst());
 				QueryResult qr2 = ((QueryResult) partialDocNrResults.removeFirst());
 				QueryResult mqr = QueryResult.merge(qr1, qr2, queryResultMergeMode, 0);
-				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + mqr.size() + " document numbers in merge result");
+				this.logActivity("  - got " + mqr.size() + " document numbers in merge result");
 				partialDocNrResults.addLast(mqr);
 			}
 			QueryResult result = ((QueryResult) partialDocNrResults.removeFirst());
-			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers in final merge result");
+			this.logActivity("  - got " + result.size() + " document numbers in final merge result");
 			
 			//	apply user and timestamp filter if given
 			if (docDataResult != null) {
 				result = QueryResult.merge(result, docDataResult, QueryResult.USE_MIN, 0);
-				if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers after merging in document data");
+				this.logActivity("  - got " + result.size() + " document numbers after merging in document data");
 			}
 			
 			//	no results left after merge
@@ -3702,16 +3797,70 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			
 			//	throw out relevance 0 results
 			result.pruneByRelevance(Double.MIN_VALUE);
-			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers after relevance pruning");
+			this.logActivity("  - got " + result.size() + " document numbers after relevance pruning");
 			
 			//	sort & return joint result
 			result.sortByRelevance(true);
-			if (DEBUG_DOCUMENT_NR_SEARCH) System.out.println("  - got " + result.size() + " document numbers in result");
+			this.logActivity("  - got " + result.size() + " document numbers in result");
 			return result;
 		}
 	}
 	
-	private final QueryResult doRelevanceElimination(QueryResult baseResult, double minRelevance, int resultPivotIndex) {
+	private QueryResult doDocIdQuery(StringVector fixedResultDocIDs, String idFieldName, String idHashFieldName) {
+		QueryResult result = new QueryResult();
+		if (fixedResultDocIDs.isEmpty())
+			return result;
+		
+		//	assemble query
+		StringBuffer docIdToDocNrQuery = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME);
+		docIdToDocNrQuery.append(" FROM " + DOCUMENT_TABLE_NAME);
+		if (fixedResultDocIDs.size() == 1) {
+			docIdToDocNrQuery.append(" WHERE " + idFieldName + " = '" + EasyIO.sqlEscape(fixedResultDocIDs.get(0)) + "'");
+			if (idHashFieldName == null)
+				docIdToDocNrQuery.append(" AND " + DOC_NUMBER_COLUMN_NAME + " = " + getDocNr(fixedResultDocIDs.get(0)));
+			else docIdToDocNrQuery.append(" AND " + idHashFieldName + " = " + fixedResultDocIDs.get(0).hashCode());
+		}
+		else {
+			docIdToDocNrQuery.append(" WHERE " + idFieldName + " IN (");
+			for (int i = 0; i < fixedResultDocIDs.size(); i++)
+				docIdToDocNrQuery.append(((i == 0) ? "" : ", ") + "'" + EasyIO.sqlEscape(fixedResultDocIDs.get(i)) + "'");
+			docIdToDocNrQuery.append(")");
+			if (idHashFieldName == null) {
+				docIdToDocNrQuery.append(" AND " + DOC_NUMBER_COLUMN_NAME + " IN (");
+				for (int i = 0; i < fixedResultDocIDs.size(); i++)
+					docIdToDocNrQuery.append(((i == 0) ? "" : ", ") + getDocNr(fixedResultDocIDs.get(i)));
+			}
+			else {
+				docIdToDocNrQuery.append(" AND " + idHashFieldName + " IN (");
+				for (int i = 0; i < fixedResultDocIDs.size(); i++)
+					docIdToDocNrQuery.append(((i == 0) ? "" : ", ") + fixedResultDocIDs.get(i).hashCode());
+			}
+			docIdToDocNrQuery.append(")");
+		}
+		docIdToDocNrQuery.append(";");
+		
+		//	do lookup
+		SqlQueryResult sqr = null;
+		try {
+			sqr = this.io.executeSelectQuery(docIdToDocNrQuery.toString());
+			while (sqr.next())
+				result.addResultElement(new QueryResultElement(sqr.getLong(0), 1));
+		}
+		catch (SQLException sqle) {
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
+			this.logError("  Query was " + docIdToDocNrQuery);
+		}
+		finally {
+			if (sqr != null)
+				sqr.close();
+		}
+		
+		//	return result
+		this.logActivity("  - got " + result.size() + " document numbers in result for " + idFieldName);
+		return result;
+	}
+	
+	private QueryResult doRelevanceElimination(QueryResult baseResult, double minRelevance, int resultPivotIndex) {
 		if (baseResult.size() == 0)
 			return baseResult;
 		
@@ -3752,16 +3901,15 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		return reducedResult;
 	}
 	
-	private static final boolean DEBUG_INDEX_SEARCH = false;
 	private IndexResult searchIndex(final Query query) throws IOException {
-		if (DEBUG_INDEX_SEARCH) System.out.println("GgSRS Index Search ...");
-		if (DEBUG_INDEX_SEARCH) System.out.println("  - query is " + query.toString());
+		this.logActivity("GgSRS Index Search ...");
+		this.logActivity("  - query is " + query.toString());
 		
 		//	get index ID
 		String searchIndexName = query.getValue(INDEX_NAME);
 		if (searchIndexName == null)
 			throw new IOException("No such index.");
-		if (DEBUG_INDEX_SEARCH) System.out.println("  - index name is " + searchIndexName);
+		this.logActivity("  - index name is " + searchIndexName);
 		
 		//	search for document index, search document data and wrap it in IndexResult
 		if ("0".equals(searchIndexName) || "doc".equals(searchIndexName) || "document".equals(searchIndexName))
@@ -3773,14 +3921,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			String indexName = this.indexers[i].getIndexName();
 			if (searchIndexName.equals(indexName)) {
 				mainIndexer = this.indexers[i];
-				if (DEBUG_INDEX_SEARCH) System.out.println("  - got indexer");
+				this.logActivity("  - got indexer");
 			}
 		}
 		
 		//	index not found
 		if (mainIndexer == null) {
-			System.out.println("GoldenGateSRS: request for non-existing index '" + searchIndexName + "'");
-			System.out.println("Query is " + query.toString());
+			this.logError("GoldenGateSRS: request for non-existing index '" + searchIndexName + "'");
+			this.logError("Query is " + query.toString());
 			throw new IOException("No such index: '" + searchIndexName + "'.");
 		}
 		
@@ -3795,7 +3943,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		subIndexNames.removeAll(searchIndexName);
 		subIndexNames.removeAll("0");
 		subIndexNames.removeAll("");
-		if (DEBUG_INDEX_SEARCH) System.out.println("  - subIndexName(s) are " + subIndexNames.concatStrings(","));
+		this.logActivity("  - subIndexName(s) are " + subIndexNames.concatStrings(","));
 		
 		//	get minimum sub result size
 		int srms;
@@ -3812,7 +3960,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	get document numbers
 		QueryResult qr = this.searchDocumentNumbers(query);
-		if (DEBUG_INDEX_SEARCH) System.out.println("  - got " + qr.size() + " result doc numbers");
+		this.logActivity("  - got " + qr.size() + " result doc numbers");
 		if (qr.size() == 0) {
 			String[] emptyFields = {indexer.getIndexName()};
 			return new IndexResult(emptyFields, indexer.getIndexName(), indexer.getIndexName()) {
@@ -3846,7 +3994,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			//	are we interested in this index?
 			if (subIndexNames.contains(subIndexName)) {
 				subIndexerList.add(this.indexers[i]);
-				if (DEBUG_INDEX_SEARCH) System.out.println("  - got sub indexer: " + subIndexName);
+				this.logActivity("  - got sub indexer: " + subIndexName);
 			}
 		}
 		final Indexer[] subIndexers = ((Indexer[]) subIndexerList.toArray(new Indexer[subIndexerList.size()]));
@@ -3882,7 +4030,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			ireDocNrSet.add(new Long(ire.docNr));
 		}
-		if (DEBUG_INDEX_SEARCH) System.out.println("  - got " + distinctIreList.size() + " distinct index entries");
+		this.logActivity("  - got " + distinctIreList.size() + " distinct index entries");
 		
 		//	create duplicate-free index result
 		indexResult = new IndexResult(indexResult.resultAttributes, indexResult.indexName, indexResult.indexLabel) {
@@ -3931,7 +4079,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					
 					//	got a sub result
 					if (subIndexResult != null) {
-						if (DEBUG_INDEX_SEARCH) System.out.println("  - got sub result from " + subIndexName);
+						logActivity("  - got sub result from " + subIndexName);
 						
 						//	store index meta data
 						subResultNames.add(subIndexResult.indexName);
@@ -3951,7 +4099,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 							}
 							subIreList.add(subIre);
 						}
-						if (DEBUG_INDEX_SEARCH) System.out.println("  - sub result from " + subIndexName + " bucketized");
+						logActivity("  - sub result from " + subIndexName + " bucketized");
 					}
 				}
 				
@@ -4050,26 +4198,25 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		protected abstract void fillIreBuffer(int ireCount);
 	}
 	
-	private static final boolean DEBUG_THESAURUS_SEARCH = true;
 	private ThesaurusResult searchThesaurus(Query query) {
-		if (DEBUG_THESAURUS_SEARCH) System.out.println("GgSRS Thesaurus Search ...");
-		if (DEBUG_THESAURUS_SEARCH) System.out.println("  - query is " + query.toString());
+		this.logActivity("GgSRS Thesaurus Search ...");
+		this.logActivity("  - query is " + query.toString());
 		
 		//	process query through this.indexers one by one
 		String thesaurusName = query.getValue(INDEX_NAME);
-		if (DEBUG_THESAURUS_SEARCH) System.out.println("  - thesaurus name is " + thesaurusName);
+		this.logActivity("  - thesaurus name is " + thesaurusName);
 		ThesaurusResult result = null;
 		for (int i = 0; i < this.indexers.length; i++) {
-			if (DEBUG_THESAURUS_SEARCH) System.out.println("  - indexer is " + this.indexers[i].getClass().getName());
+			this.logActivity("  - indexer is " + this.indexers[i].getClass().getName());
 			String indexName = this.indexers[i].getIndexName();
-			if (DEBUG_THESAURUS_SEARCH) System.out.println("  - index name is " + indexName);
+			this.logActivity("  - index name is " + indexName);
 			if ((thesaurusName == null) || thesaurusName.equals(indexName)) {
-				if (DEBUG_THESAURUS_SEARCH) System.out.println("  - got indexer");
+				this.logActivity("  - got indexer");
 				query.setIndexNameMask(indexName);
 				result = this.indexers[i].doThesaurusLookup(query);
 				query.setIndexNameMask(null);
 				if (result != null) {
-					if (DEBUG_THESAURUS_SEARCH) System.out.println("  - got result!");
+					this.logActivity("  - got result!");
 					return result;
 				}
 			}
@@ -4150,40 +4297,42 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		return id;
 	}
 	
-	private static MessageDigest checksumDigester = null;
-	private static String getChecksum(QueriableAnnotation document) {
-		if (checksumDigester == null) {
-			try {
-				checksumDigester = MessageDigest.getInstance("MD5");
-			}
-			catch (NoSuchAlgorithmException nsae) {
-				System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
-				nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
-				return Gamta.getAnnotationID(); // use random value so a document is regarded as new
-			}
-		}
-//		long start = System.currentTimeMillis();
-		checksumDigester.reset();
-		//	omit updateUser & updateTimestamp in checksum computation
-		AnnotationInputStream ais = new AnnotationInputStream(document, ENCODING, null, new HashSet() {
-			public boolean contains(Object obj) {
-				return (!UPDATE_USER_ATTRIBUTE.equals(obj) && !UPDATE_TIME_ATTRIBUTE.equals(obj) && !obj.toString().startsWith(UPDATE_USER_ATTRIBUTE + "-") && !obj.toString().startsWith(UPDATE_TIME_ATTRIBUTE + "-"));
-			}
-		});
+//	private static MessageDigest checksumDigester = null;
+	private String getChecksum(QueriableAnnotation document) {
+//		if (checksumDigester == null) {
+//			try {
+//				checksumDigester = MessageDigest.getInstance("MD5");
+//			}
+//			catch (NoSuchAlgorithmException nsae) {
+//				this.logError(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
+//				this.logError(nsae); // should not happen, but Java don't know ...
+//				return Gamta.getAnnotationID(); // use random value so a document is regarded as new
+//			}
+//		}
+		long start = System.currentTimeMillis();
+//		checksumDigester.reset();
+//		//	omit updateUser & updateTimestamp in checksum computation
+//		AnnotationInputStream ais = new AnnotationInputStream(document, ENCODING, null, new HashSet() {
+//			public boolean contains(Object obj) {
+//				return (!UPDATE_USER_ATTRIBUTE.equals(obj) && !UPDATE_TIME_ATTRIBUTE.equals(obj) && !obj.toString().startsWith(UPDATE_USER_ATTRIBUTE + "-") && !obj.toString().startsWith(UPDATE_TIME_ATTRIBUTE + "-"));
+//			}
+//		});
+		String checksum;
 		try {
-			byte[] buffer = new byte[1024];
-			int read;
-			while ((read = ais.read(buffer)) != -1)
-				checksumDigester.update(buffer, 0, read);
+			checksum = this.checksumDigest.computeChecksum(document);
+//			byte[] buffer = new byte[1024];
+//			for (int read; (read = ais.read(buffer)) != -1;)
+//				checksumDigester.update(buffer, 0, read);
+//			ais.close();
 		}
 		catch (IOException ioe) {
-			System.out.println(ioe.getClass().getName() + " (" + ioe.getMessage() + ") while computing document checksum.");
-			ioe.printStackTrace(System.out); // should not happen, but Java don't know ...
+			this.logError(ioe.getClass().getName() + " (" + ioe.getMessage() + ") while computing document checksum.");
+			this.logError(ioe); // should not happen, but Java don't know ...
 			return Gamta.getAnnotationID(); // use random value so a document is regarded as new
 		}
-		byte[] checksumBytes = checksumDigester.digest();
-		String checksum = new String(RandomByteSource.getHexCode(checksumBytes));
-//		System.out.println("Checksum computed in " + (System.currentTimeMillis() - start) + " ms: " + checksum);
+//		byte[] checksumBytes = checksumDigester.digest();
+//		String checksum = new String(RandomByteSource.getHexCode(checksumBytes));
+		this.logInfo("Checksum computed in " + (System.currentTimeMillis() - start) + " ms: " + checksum);
 		return checksum;
 	}
 	
@@ -4202,5 +4351,45 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 */
 	public void removeDocumentEventListener(SrsDocumentEventListener del) {
 		GoldenGateServerEventService.removeServerEventListener(del);
+	}
+	
+	/**
+	 * Add a filter excluding application specific annotation types from document
+	 * checksum computation. The latter serves as an indicator of whether or not
+	 * an update actually changes a document from a content point of view and thus
+	 * represents a new version. This helps prevent unnecessary propagation of
+	 * updates and thus reduces load.
+	 * @param tf the type filter to add
+	 */
+	public void addDocumentChecksumTypeFilter(TypeFilter tf) {
+		this.checksumDigest.addTypeFilter(tf);
+	}
+	
+	/**
+	 * Remove a filter.
+	 * @param tf the filter to remove
+	 */
+	public void removeDocumentChecksumTypeFilter(TypeFilter tf) {
+		this.checksumDigest.removeTypeFilter(tf);
+	}
+	
+	/**
+	 * Add a filter excluding application specific annotation attributes from
+	 * document checksum computation. The latter serves as an indicator of
+	 * whether or not an update actually changes a document from a content point
+	 * of view and thus represents a new version. This helps prevent unnecessary
+	 * propagation of updates and thus reduces load.
+	 * @param af the attribute filter to add
+	 */
+	public void addDocumentChecksumAttributeFilter(AttributeFilter af) {
+		this.checksumDigest.addAttributeFilter(af);
+	}
+	
+	/**
+	 * Remove a filter.
+	 * @param af the filter to remove
+	 */
+	public void removeDocumentChecksumAttributeFilter(AttributeFilter af) {
+		this.checksumDigest.removeAttributeFilter(af);
 	}
 }

@@ -29,7 +29,6 @@ package de.uka.ipd.idaho.goldenGateServer.srs.webPortal;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Properties;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -39,7 +38,6 @@ import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.goldenGateServer.client.GgServerClientServlet;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSrsConstants;
 import de.uka.ipd.idaho.goldenGateServer.srs.client.GoldenGateSrsClient;
-import de.uka.ipd.idaho.goldenGateServer.srs.webPortal.SearchPortalConstants.AttributePattern;
 import de.uka.ipd.idaho.htmlXmlUtil.Parser;
 import de.uka.ipd.idaho.htmlXmlUtil.grammars.StandardGrammar;
 
@@ -94,16 +92,16 @@ public abstract class AbstractSrsWebPortalServlet extends GgServerClientServlet 
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
 		this.doPost(request, response);
 	}
-	
-	//	!!! for test purposes only !!!
-	public static void main(String[] args) throws Exception {
-//		String pattern = "@title (@author, @year)";
-		String pattern = "@author@year: @author\\s @year publication '@title'";
-		AttributePattern ap = AttributePattern.buildPattern(pattern);
-		Properties data = new Properties();
-		data.setProperty("title", "Nice Strings from XML");
-		data.setProperty("author", "Sautter");
-		data.setProperty("year", "2008");
-		System.out.println(ap.createDisplayString(data));
-	}
+//	
+//	//	!!! for test purposes only !!!
+//	public static void main(String[] args) throws Exception {
+////		String pattern = "@title (@author, @year)";
+//		String pattern = "@author@year: @author\\s @year publication '@title'";
+//		AttributePattern ap = AttributePattern.buildPattern(pattern);
+//		Properties data = new Properties();
+//		data.setProperty("title", "Nice Strings from XML");
+//		data.setProperty("author", "Sautter");
+//		data.setProperty("year", "2008");
+//		System.out.println(ap.createDisplayString(data));
+//	}
 }

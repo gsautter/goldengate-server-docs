@@ -162,7 +162,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		
 		void loadXslt(boolean allowCache) {
 			if (this.xsltUrl != null) try {
-				if (this.xsltUrl.startsWith("http://"))
+				if (this.xsltUrl.startsWith("http://") || this.xsltUrl.startsWith("https://"))
 					this.xslt = XsltUtils.getTransformer(this.xsltUrl, allowCache);
 				else this.xslt = XsltUtils.getTransformer(new File(dataPath, this.xsltUrl), allowCache);
 			}
@@ -285,10 +285,10 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 					for (Iterator wit = wikis.keySet().iterator(); wit.hasNext();) {
 						String wikiName = ((String) wit.next());
 						Wiki wiki = ((Wiki) wikis.get(wikiName));
-						System.out.println(" - " + wikiName + ": " + wiki.wikiUrl);
+						this.reportResult(" - " + wikiName + ": " + wiki.wikiUrl);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
 			}
 		};
 		cal.add(ca);
@@ -310,10 +310,10 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				if (arguments.length == 1) {
 					Wiki wiki = ((Wiki) wikis.get(arguments[0]));
 					if (wiki == null)
-						System.out.println(" Invalid Wiki '" + arguments[0] + "'");
+						this.reportError(" Invalid Wiki '" + arguments[0] + "'");
 					else wiki.loadXslt(false);
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the name of the Wiki to update as the only argument.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the name of the Wiki to update as the only argument.");
 			}
 		};
 		cal.add(ca);
@@ -335,10 +335,10 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				if (arguments.length == 1) {
 					Wiki wiki = ((Wiki) wikis.get(arguments[0]));
 					if (wiki == null)
-						System.out.println(" Invalid Wiki '" + arguments[0] + "'");
+						this.reportError(" Invalid Wiki '" + arguments[0] + "'");
 					else wiki.shutdown();
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the name of the Wiki to log out from as the only argument.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the name of the Wiki to log out from as the only argument.");
 			}
 		};
 		cal.add(ca);

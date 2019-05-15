@@ -46,6 +46,7 @@ import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
 
 import de.uka.ipd.idaho.easyIO.settings.Settings;
+import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.util.AnnotationInputStream;
@@ -133,12 +134,20 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.webPortal.AbstractSrsWebPortalServlet#doGet(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+		this.doXsltGet(request, request.getParameterValues(XSLT_URL_PARAMETER), response);
+	}
+	
+	void doXsltGet(HttpServletRequest request, String xsltName, HttpServletResponse response) throws ServletException, IOException {
+		String xsltUrl = this.xsltNamesToStylesheetUrls.getProperty(xsltName, xsltName);
+		this.doXsltGet(request, xsltUrl.trim().split("\\s++"), response);
+	}
+	
+	private void doXsltGet(HttpServletRequest request, String[] xsltUrls, HttpServletResponse response) throws ServletException, IOException {
 //		System.out.println("GoldenGateSRS XSLT: handling request");
 //		long start = System.currentTimeMillis();
 		
 		//	request for specific plain XML document
 		String docId = request.getParameter(ID_QUERY_FIELD_NAME);
-		String[] xsltUrls = request.getParameterValues(XSLT_URL_PARAMETER);
 		
 		//	get client requested media type (browsers tend to be stubborn about what to do with files ...)
 		String requestContentType = request.getParameter("type");
@@ -247,11 +256,38 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 				XslTransformationTimer xtt = new XslTransformationTimer(docId, Arrays.toString(xsltUrls));
 				xtt.start();
 				
-				//	remove XML namespace declarations from root element so XSLT can define its own
+				//	collect XML namespace declarations actually used in document
+				Annotation[] docAnnots = doc.getAnnotations();
+				HashSet docXmlns = new HashSet();
+				for (int a = 0; a < docAnnots.length; a++) {
+					String annotType = docAnnots[a].getType();
+					if (annotType.indexOf(':') != -1)
+						docXmlns.add(annotType.substring(0, annotType.indexOf(':')));
+					String[] annotAns = docAnnots[a].getAttributeNames();
+					for (int n = 0; n < annotAns.length; n++) {
+						if (annotAns[n].startsWith("xmlns:"))
+							continue;
+						if (annotAns[n].indexOf(':') != -1)
+							docXmlns.add(annotAns[n].substring(0, annotAns[n].indexOf(':')));
+					}
+				}
+				
+				//	remove unused XML namespace declarations so XSLT can define its own
 				String[] docAns = doc.getAttributeNames();
-				for (int a = 0; a < docAns.length; a++) {
-					if (docAns[a].startsWith("xmlns:"))
-						doc.removeAttribute(docAns[a]);
+				for (int n = 0; n < docAns.length; n++) {
+					if (!docAns[n].startsWith("xmlns:"))
+						continue;
+					if (!docXmlns.contains(docAns[n].substring("xmlns:".length())))
+						doc.removeAttribute(docAns[n]);
+				}
+				for (int a = 0; a < docAnnots.length; a++) {
+					String[] annotAns = docAnnots[a].getAttributeNames();
+					for (int n = 0; n < annotAns.length; n++) {
+						if (!annotAns[n].startsWith("xmlns:"))
+							continue;
+						if (!docXmlns.contains(annotAns[n].substring("xmlns:".length())))
+							docAnnots[a].removeAttribute(annotAns[n]);
+					}
 				}
 				
 				//	build transformer chain

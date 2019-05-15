@@ -275,7 +275,7 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements Sea
 		if (xsltUrl == null)
 			return null;
 		try {
-			Transformer transformer = (xsltUrl.startsWith("http://") ? XsltUtils.getTransformer(new URL(xsltUrl), false) : XsltUtils.getTransformer(new File(this.rootFolder, xsltUrl), false));
+			Transformer transformer = ((xsltUrl.startsWith("http://") || xsltUrl.startsWith("https://")) ? XsltUtils.getTransformer(new URL(xsltUrl), false) : XsltUtils.getTransformer(new File(this.rootFolder, xsltUrl), false));
 			transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
 			return transformer;
 		}

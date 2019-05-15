@@ -39,7 +39,6 @@ import java.util.Vector;
 public class Query {
 	
 	private Properties variables = new Properties();
-//	private String indexerIdMask = null;
 	private String indexNameMask = null;
 	
 	private Vector partialResults = new Vector();
@@ -57,16 +56,6 @@ public class Query {
 		this.variables.setProperty(name, value);
 	}
 	
-//	/** add a variable to this Query which is dedicated for some custom indexer
-//	 * @param	indexerID	the ID of the Indexer the variable is dedicated to
-//	 * @param	name		the name of the variable to add
-//	 * @param	value		the value of the variable to add
-//	 * Note: this method does the same as invoking setValue(indexerID.name, value)
-//	 */
-//	public void setValue(String indexerID, String name, String value) {
-//		this.setValue((indexerID + "." + name), value);
-//	}
-//	
 	/** add a variable to this Query which is dedicated for some custom indexer
 	 * @param	indexName	the name of the Indexer the variable is dedicated to
 	 * @param	name		the name of the variable to add
@@ -77,13 +66,6 @@ public class Query {
 		this.setValue((indexName + "." + name), value);
 	}
 	
-//	/**	set the Indexer ID mask (this Indexer ID will be put before any variable name automatically)
-//	 * @param	mask	the Indexer ID to use for masking the variable names (null resets the mask)
-//	 */
-//	public void setIndexerIdMask(String mask) {
-//		this.indexerIdMask = mask;
-//	}
-//	
 	/**	set the index name mask (this index name will be put before any variable name automatically)
 	 * @param	mask	the Indexer ID to use for masking the variable names (null resets the mask)
 	 */
@@ -99,16 +81,6 @@ public class Query {
 		return this.getValue(name, null);
 	}
 	
-//	/** retrieve the value of a query variable
-//	 * @param	name	the name of the variable to retrieve (will be prefixed with Indexer ID mask if set)
-//	 * @param	def		the value to return if the variable with the specified name does not exist
-//	 * @return the value of the variable with the specified name, of def, if there is no such variable
-//	 */
-//	public String getValue(String name, String def) {
-//		if (this.indexerIdMask != null) name = (this.indexerIdMask + "." + name);
-//		return this.variables.getProperty(name, def);
-//	}
-//	
 	/** retrieve the value of a query variable
 	 * @param	name	the name of the variable to retrieve (will be prefixed with index name mask if set)
 	 * @param	def		the value to return if the variable with the specified name does not exist

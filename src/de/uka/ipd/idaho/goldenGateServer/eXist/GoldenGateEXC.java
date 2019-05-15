@@ -205,7 +205,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 		}
 		
 		private Transformer getTransformer(String xsltUrl) throws IOException {
-			if (xsltUrl.startsWith("http://"))
+			if (xsltUrl.startsWith("http://") || xsltUrl.startsWith("https://"))
 				return XsltUtils.getTransformer(xsltUrl);
 			else return XsltUtils.getTransformer(new File(dataPath, xsltUrl));
 		}
@@ -481,7 +481,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					}
 					
 					for (int x = 0; x < sf.xsltUrls.length; x++) try {
-						if (sf.xsltUrls[x].startsWith("http://"))
+						if (sf.xsltUrls[x].startsWith("http://") || sf.xsltUrls[x].startsWith("https://"))
 							XsltUtils.getTransformer(sf.xsltUrls[x], false);
 						else XsltUtils.getTransformer(new File(dataPath, sf.xsltUrls[x]), false);
 					}

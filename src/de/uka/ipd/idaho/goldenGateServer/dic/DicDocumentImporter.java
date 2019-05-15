@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
+import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.easyIO.util.RandomByteSource;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.gamta.Gamta;
@@ -86,6 +87,9 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	/** the importer's data path */
 	protected File dataPath;
 	
+	/** the importer's configuration */
+	protected Settings configuration;
+	
 	/** the GoldenGATE DIC this importer is run in */
 	protected GoldenGateDIC parent;
 	
@@ -119,7 +123,21 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	 */
 	public void setDataPath(File dataPath) {
 		this.dataPath = dataPath;
-		this.cacheFolder = new File(this.dataPath, "cache");
+		
+		//	load configuration
+		File configFile = new File(this.dataPath, "config.cnfg");
+		if (configFile.exists()) {
+			this.configuration = Settings.loadSettings(configFile);
+			String cacheFolderName = this.configuration.getSetting("cacheFolderName", "cache");
+			while (cacheFolderName.startsWith("./"))
+				cacheFolderName = cacheFolderName.substring("./".length());
+			this.cacheFolder = (((cacheFolderName.indexOf(":\\") == -1) && (cacheFolderName.indexOf(":/") == -1) && !cacheFolderName.startsWith("/")) ? new File(this.dataPath, cacheFolderName) : new File(cacheFolderName));
+		}
+		else this.configuration = new Settings();
+		
+		//	make sure we have a cache folder
+		if (this.cacheFolder == null)
+			this.cacheFolder = new File(this.dataPath, "cache");
 		if (!this.cacheFolder.exists())
 			this.cacheFolder.mkdirs();
 	}

@@ -170,12 +170,17 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				Properties fieldPredicates = new Properties();
 				Properties fieldAggregates = new Properties();
 				Properties aggregatePredicates = new Properties();
+				StringVector customFilters = new StringVector();
 				for (String line; (line = input.readLine()) != null;) {
 					line = line.trim();
 					if (line.length() == 0)
 						break;
 					if (line.indexOf(":") == -1)
 						continue;
+					if (line.startsWith("CF:")) {
+						line = line.substring("CF:".length()).trim();
+						customFilters.addElementIgnoreDuplicates(URLDecoder.decode(line, ENCODING));
+					}
 					if (line.indexOf("=") == -1)
 						continue;
 					if (line.startsWith("FP:")) {
@@ -203,7 +208,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					}
 				}
 				
-				DcStatistics stat = getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, limit);
+				DcStatistics stat = getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters.toStringArray(), limit);
 				
 				output.write(letterCode + GET_STATISTICS_COMMAND_SUFFIX);
 				output.newLine();
@@ -270,7 +275,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	 */
 	protected String getIndexFieldValue(String fieldName, QueriableAnnotation doc) {
 		if (DOCUMENT_NAME_ATTRIBUTE.equals(fieldName))
-			return ((String) doc.getAttribute(DOCUMENT_NAME_ATTRIBUTE));
+			return ((String) doc.getAttribute(DOCUMENT_NAME_ATTRIBUTE, doc.getAttribute(DOCUMENT_ID_ATTRIBUTE)));
 		else return super.getIndexFieldValue(fieldName, doc);
 	}
 	
@@ -297,11 +302,12 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) {
-		return this.statEngine.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates);
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters) {
+		return this.statEngine.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters);
 	}
 	
 	/**
@@ -315,12 +321,13 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @param limit the maximum number of output rows (-1 returns all rows)
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, int limit) {
-		return this.statEngine.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, limit);
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters, int limit) {
+		return this.statEngine.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters, limit);
 	}
 	
 	/* (non-Javadoc)
@@ -386,6 +393,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		private Properties fieldPredicates;
 		private Properties fieldAggregates;
 		private Properties aggregatePredicates;
+		private String[] customFilters;
 		
 		FormattedStaticStatExport(String destination, String format, int limit) {
 			super(destination);
@@ -396,7 +404,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		void exportStaticStat() throws IOException {
 			
 			//	get statistics & fields
-			DcStatistics stats = getStatistics(this.outputFields, this.groupingFields, this.orderingFields, this.fieldPredicates, this.fieldAggregates, this.aggregatePredicates, this.limit);
+			DcStatistics stats = getStatistics(this.outputFields, this.groupingFields, this.orderingFields, this.fieldPredicates, this.fieldAggregates, this.aggregatePredicates, this.customFilters, this.limit);
 			
 			//	create export file & writer
 			File destCreateFile = new File(this.destination + ".exporting");
@@ -474,9 +482,9 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	}
 	
 	private FormattedStaticStatExport[] loadStaticStatExports() throws IOException {
-		BufferedReader sseBr = new BufferedReader(new InputStreamReader(new FileInputStream(new File(this.dataPath, "staticExports.xml")), "UTF-8"));
-		final ArrayList sseList = new ArrayList();
-		StatFieldSet.parser.stream(sseBr, new TokenReceiver() {
+		BufferedReader fsseBr = new BufferedReader(new InputStreamReader(new FileInputStream(new File(this.dataPath, "staticExports.xml")), "UTF-8"));
+		final ArrayList fsseList = new ArrayList();
+		StatFieldSet.parser.stream(fsseBr, new TokenReceiver() {
 			private FormattedStaticStatExport fsse = null;
 			private StringVector outputFields = null;
 			private StringVector groupingFields = null;
@@ -484,6 +492,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			private Properties fieldPredicates = null;
 			private Properties fieldAggregates = null;
 			private Properties aggregatePredicates = null;
+			private StringVector customFilters = null;
 			public void storeToken(String token, int treeDepth) throws IOException {
 				if (!StatFieldSet.grammar.isTag(token))
 					return;
@@ -499,7 +508,8 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 							this.fsse.fieldPredicates = this.fieldPredicates;
 							this.fsse.fieldAggregates = this.fieldAggregates;
 							this.fsse.aggregatePredicates = this.aggregatePredicates;
-							sseList.add(this.fsse);
+							this.fsse.customFilters = this.customFilters.toStringArray();
+							fsseList.add(this.fsse);
 						}
 						this.fsse = null;
 						this.outputFields = null;
@@ -508,6 +518,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 						this.fieldPredicates = null;
 						this.fieldAggregates = null;
 						this.aggregatePredicates = null;
+						this.customFilters = null;
 					}
 					
 					else {
@@ -537,6 +548,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 						this.fieldPredicates = new Properties();
 						this.fieldAggregates = new Properties();
 						this.aggregatePredicates = new Properties();
+						this.customFilters = new StringVector();
 					}
 				}
 				
@@ -566,6 +578,16 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 						this.orderingFields.addElement(("desc".equalsIgnoreCase(sortOrder) ? "-" : "") + name);
 				}
 				
+				else if ("filter".equals(type)) {
+					TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, StatFieldSet.grammar);
+					String target = tnas.getAttribute("target", "raw");
+					String leftField = tnas.getAttribute("left");
+					String operator = tnas.getAttribute("operator");
+					String rightField = tnas.getAttribute("right");
+					if ((leftField != null) && (operator != null) && (rightField != null))
+						this.customFilters.addElementIgnoreDuplicates(target + " " + leftField + " " + operator + " " + rightField);
+				}
+				
 				else if ("derivative".equals(type) && "XML".equals(this.fsse.format)) {
 					TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, StatFieldSet.grammar);
 					String destination = tnas.getAttribute("destination");
@@ -585,7 +607,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			public void close() throws IOException {}
 		});
 		
-		return ((FormattedStaticStatExport[]) sseList.toArray(new FormattedStaticStatExport[sseList.size()]));
+		return ((FormattedStaticStatExport[]) fsseList.toArray(new FormattedStaticStatExport[fsseList.size()]));
 	}
 	
 	private class StaticStatExportThread extends Thread {

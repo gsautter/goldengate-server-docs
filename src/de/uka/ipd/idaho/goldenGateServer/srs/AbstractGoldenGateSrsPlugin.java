@@ -32,10 +32,10 @@ import java.io.File;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentHost;
 
 /**
- * Generic abstract subperclass for for the plugin classes, namely
+ * Generic abstract superclass for for the plugin classes, namely
  * StorageFilter, DocumentSplitter, and Indexer. This class provides the
  * plugin's data path and host. The default implementations of init() and exit()
- * do nothing, sub classes are welcome to overwrite tham as needed.
+ * do nothing, sub classes are welcome to overwrite them as needed.
  * 
  * @author sautter
  */
@@ -46,7 +46,6 @@ public abstract class AbstractGoldenGateSrsPlugin implements GoldenGateSrsPlugin
 	
 	/** the plugin's data path, the folder the plugin's data is located in */
 	protected File dataPath;
-	
 	
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.GoldenGateSrsPlugin#setDataPath(java.io.File)

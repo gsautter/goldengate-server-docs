@@ -203,7 +203,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 	public static abstract class DocumentIoExtension implements Comparable {
 		
 		/**
-		 * The extension's priority infulences order of application if multiple
+		 * The extension's priority influences order of application if multiple
 		 * extensions are present, on a scale from 0 to 100, with higher
 		 * priority extensions being applied earlier. In favor of performance,
 		 * extensions that filter out data should be applied before ones that
@@ -241,7 +241,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * apply some filter should overwrite this method as well.
 		 * @param selectivity the selectivity estimated so far
 		 * @param filter the filter to estimate the selectivity for
-		 * @param user the user sublitting the filter
+		 * @param user the user submitting the filter
 		 * @return a selectivity estimate for the specified filter
 		 */
 		public int getSelectivity(int selectivity, Properties filter, String user) {
@@ -251,7 +251,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		/**
 		 * Wrap an extension around a document list. An extension can add or
 		 * remove attributes to/from document list elements, or filter out
-		 * document list elements alltogether. This default implementations
+		 * document list elements altogether. This default implementations
 		 * simply returns the argument document list, sub classes are welcome to
 		 * overwrite it as needed.<br>
 		 * This method should not return null. If it does, the extension is

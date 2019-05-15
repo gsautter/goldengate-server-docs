@@ -50,7 +50,7 @@
 	<property name="jar.dst" value="${dist.home}/Components/Bin/GgServerDST.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
-	<property name="jar.exp" value="${dist.home}/Components/GgServerEXP.jar" />
+	<property name="jar.exp" value="${dist.home}/Components/Bin/GgServerEXP.jar" />
 	
 	<!-- path to the .jar file that shall be created -->
 	<property name="jar.exc" value="${dist.home}/Components/Bin/GgServerEXist.jar" />
@@ -63,7 +63,8 @@
 	
 	<!-- path to the .jar file that shall be created -->
 	<property name="jar.srs" value="${dist.home}/Components/GgServerSRS.jar" />
-	<property name="jar.srsdio" value="${dist.home}/Components/GgServerSrsDIO.jar" />
+	<!--property name="jar.srsdio" value="${dist.home}/Components/GgServerSrsDIO.jar" /-->
+	<property name="jar.diosrs" value="${dist.home}/Components/GgServerDioSRS.jar" />
 	<property name="jar.srsexp" value="${dist.home}/Components/Bin/GgServerSrsEXP.jar" />
 	
 	<!-- path to the .jar file that shall be created -->

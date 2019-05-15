@@ -422,11 +422,12 @@ xsl:with-param select="expression"
 		};
 	}
 	
-	private interface OutputWriter {
+	private static interface OutputWriter {
 		abstract void writeOutput() throws IOException;
 		abstract String getOutputName();
 	}
-	private void doTransformation(final OutputWriter writer, PipedInputStream fromWriter, Transformer transformer, IOException transformerError, final TokenReceiver tr) throws IOException {
+//	private void doTransformation(final OutputWriter writer, PipedInputStream fromWriter, Transformer transformer, IOException transformerError, final TokenReceiver tr) throws IOException {
+	private void doTransformation(final OutputWriter writer, PipedInputStream fromWriter, Transformer transformer, IOException transformerError, final HtmlPageBuilder tr) throws IOException {
 		
 		//	report instantiation error
 		if (transformer == null)
@@ -434,7 +435,7 @@ xsl:with-param select="expression"
 		
 		final List exceptions = new LinkedList();
 		
-		//	wrap token receiver to decode XML entities in attribute values
+		//	wrap token receiver to decode XML entities in attribute values (safe for quote, that is)
 		final TokenReceiver unescapingTrWrapper = new TokenReceiver() {
 			public void close() throws IOException {
 				tr.close();
@@ -442,21 +443,22 @@ xsl:with-param select="expression"
 			public void storeToken(String token, int treeDepth) throws IOException {
 				if (html.isEndTag(token))
 					tr.storeToken(token, treeDepth);
-				
 				else if (html.isSingularTag(token))
-					tr.storeToken(html.unescape(token), treeDepth);
-				
+//					tr.storeToken(html.unescape(token), treeDepth);
+					tr.storeToken(unescapeHtmlTag(token), treeDepth);
 				else if (html.isTag(token))
-					tr.storeToken(html.unescape(token), treeDepth);
-				
+//					tr.storeToken(html.unescape(token), treeDepth);
+					tr.storeToken(unescapeHtmlTag(token), treeDepth);
 				else tr.storeToken(token, treeDepth);
 			}
 		};
 		
 		//	build sender infrastructure
-		Thread transformerInputWriterThread = new Thread("TransformerInputWriter") {
+		final boolean[] transformerInputWriterFinished = {false};
+		final Thread transformerInputWriterThread = new Thread("TransformerInputWriter") {
 			public void run() {
 				try {
+//					TreeNodeAttributeSet.watch();
 					writer.writeOutput();
 				}
 				catch (InterruptedIOException iioe) {
@@ -476,27 +478,69 @@ xsl:with-param select="expression"
 					if (ioe != null)
 						exceptions.add(ioe);
 				}
-				if (DEBUG_XSLT)
-					System.out.println("Transformer Input Writer finished.");
+				finally {
+//					TreeNodeAttributeSet.unwatch();
+					transformerInputWriterFinished[0] = true;
+					if (DEBUG_XSLT)
+						System.out.println("Transformer Input Writer finished.");
+				}
 			}
 		};
-		transformerInputWriterThread.start();
 		
 		//	build receiver infrastructure
 		final PipedOutputStream fromTransformer = new PipedOutputStream();
 		final BufferedReader br = new BufferedReader(new InputStreamReader(new PipedInputStream(fromTransformer), "utf-8"));
-		Thread transformerOutputUnescaperThread = new Thread("TransformerOutputUnescaper") {
+		final boolean[] transformerOutputUnescaperFinished = {false};
+		final Thread transformerOutputUnescaperThread = new Thread("TransformerOutputUnescaper") {
 			public void run() {
 				try {
+//					TreeNodeAttributeSet.watch();
 					parser.stream(br, unescapingTrWrapper);
 				}
 				catch (IOException pe) {
 					exceptions.add(pe);
 				}
-				if (DEBUG_XSLT)
-					System.out.println("Transformer Output Unescaper finished.");
+				finally {
+//					TreeNodeAttributeSet.unwatch();
+					transformerOutputUnescaperFinished[0] = true;
+					if (DEBUG_XSLT)
+						System.out.println("Transformer Output Unescaper finished.");
+				}
 			}
 		};
+		
+		//	create guard thread TODO remove this once hang-ups clarified
+		final StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+		final String queryUrl = (tr.request.getServerName() + tr.request.getContextPath() + tr.request.getServletPath() + tr.request.getPathInfo() + "?" + tr.request.getQueryString());
+		Thread transformerPipelineGuard = new Thread("TransformerPipelineGuard") {
+			public void run() {
+				try {
+					sleep(60 * 1000);
+				} catch (InterruptedException ie) {}
+				if (transformerInputWriterFinished[0] && transformerOutputUnescaperFinished[0])
+					return;
+				if (!transformerInputWriterFinished[0]) {
+					System.out.println("Transformer Input Writer failed to finish after one minute; current stack:");
+		    		final StackTraceElement[] tiwStackTrace = transformerInputWriterThread.getStackTrace();
+		            for (int s = 0; s < tiwStackTrace.length; s++)
+		            	System.out.println("\tat " + tiwStackTrace[s]);
+				}
+				if (!transformerOutputUnescaperFinished[0]) {
+					System.out.println("Transformer Output Unescaper failed to finish after one minute; current stack:");
+		    		final StackTraceElement[] touStackTrace = transformerOutputUnescaperThread.getStackTrace();
+		            for (int s = 0; s < touStackTrace.length; s++)
+		            	System.out.println("\tat " + touStackTrace[s]);
+				}
+				System.out.println("Query was " + queryUrl);
+				System.out.println("Call stack:");
+	            for (int s = 0; s < stackTrace.length; s++)
+	            	System.out.println("\tat " + stackTrace[s]);
+			}
+		};
+		transformerPipelineGuard.start();
+		
+		//	start thread pipeline
+		transformerInputWriterThread.start();
 		transformerOutputUnescaperThread.start();
 		
 		//	do transformation
@@ -545,6 +589,97 @@ xsl:with-param select="expression"
 		}
 	}
 	
+	static String unescapeHtmlTag(String tag) {
+		StringBuffer unescaped = new StringBuffer();
+		for (int c = 0; c < tag.length();) {
+			char ch = tag.charAt(c);
+			if (ch == '&') {
+				if (tag.startsWith("amp;", (c+1))) {
+					unescaped.append('&');
+					c+=5;
+				}
+				else if (tag.startsWith("lt;", (c+1))) {
+					unescaped.append('<');
+					c+=4;
+				}
+				else if (tag.startsWith("gt;", (c+1))) {
+					unescaped.append('>');
+					c+=4;
+				}
+//				DO NOT UNESCAPE QUOTE, WRECKS HAVOC TO PARSERS DOWNSTREAM
+//				else if (tag.startsWith("quot;", (c+1))) {
+//					unescaped.append('"');
+//					c+=6;
+//				}
+				else if (tag.startsWith("apos;", (c+1))) {
+					unescaped.append('\'');
+					c+=6;
+				}
+				else if ((tag.startsWith("#", (c+1)) || tag.startsWith("x", (c+1))) && (tag.indexOf(';', (c+1)) != -1)) {
+					String cc = tag.substring(c, (tag.indexOf(';', (c+1))+1));
+					char dch = getPlainChar(cc);
+					if (dch == 0) {
+						unescaped.append(ch);
+						c++;
+					}
+					else if (dch == '"') {
+						unescaped.append("&quot;");
+						c+=cc.length();
+					}
+					else {
+						unescaped.append(dch);
+						c+=cc.length();
+					}
+				}
+				else {
+					unescaped.append(ch);
+					c++;
+				}
+			}
+			else {
+				unescaped.append(ch);
+				c++;
+			}
+		}
+		return unescaped.toString();
+	}
+	
+	private static char getPlainChar(String code) {
+		if ((code == null) || (code.trim().length() == 0))
+			return 0;
+		code = code.trim();
+		
+		//	decode hex code
+		if (code.startsWith("&#x")) {
+			if (code.endsWith(";"))
+				code = code.substring(0, (code.length() - 1));
+			try {
+				return ((char) Integer.parseInt(code.substring("&#x".length()), 16));
+			} catch (NumberFormatException nfe) {}
+		}
+		
+		//	decode hex code
+		else if (code.startsWith("&x")) {
+			if (code.endsWith(";"))
+				code = code.substring(0, (code.length() - 1));
+			try {
+				return ((char) Integer.parseInt(code.substring("&x".length()), 16));
+			} catch (NumberFormatException nfe) {}
+		}
+		
+		//	handle decimal encoding
+		else if (code.startsWith("&#")) {
+			if (code.endsWith(";"))
+				code = code.substring(0, (code.length() - 1));
+			try {
+				return ((char) Integer.parseInt(code.substring("&#".length())));
+			} catch (NumberFormatException nfe) {}
+		}
+		
+		//	we could not handle this one ...
+		return 0;
+	}
+	
 	private void writeExceptionAsXmlComment(String label, Throwable t, HtmlPageBuilder hpb) throws IOException {
 		hpb.writeLine("<!-- " + label + ": " + t.getMessage());
 		StackTraceElement[] ste = t.getStackTrace();
@@ -555,7 +690,7 @@ xsl:with-param select="expression"
 			this.writeExceptionAsXmlComment("Cause", t.getCause(), hpb);
 	}
 	
-	private static final boolean DEBUG_XSLT = false;
+	private static final boolean DEBUG_XSLT = true;
 	
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.webPortal.SearchPortalLayout#includeNavigationLinks(de.goldenGateSrs.webPortal.SearchPortalServletFlexLayout.NavigationLink[], de.htmlXmlUtil.HtmlPageBuilder)
@@ -2083,12 +2218,75 @@ xsl:with-param select="expression"
 //		xspl.init();
 //		Gamta.setAnnotationNestingOrder("document section subSection footnote treatment subSubSection caption paragraph sentence");
 //		
+//		//	194C87D0FFBEFF84F387F8CFFC80F8D5 some XSLT hangup
+//		//	194C87D0FF6AFF57F387FE4EFA7CF9F3 another XSLT hanup
+//		final String docId = "194C87D0FFBEFF84F387F8CFFC80F8D5";
+//		AbstractHttpsEnabler https = new AbstractHttpsEnabler(false) {
+//			protected OutputStream getKeyStoreOutputStream() throws IOException {
+//				return null;
+//			}
+//			protected InputStream getKeyStoreInputStream() throws IOException {
+//				return null;
+//			}
+//			protected boolean askPermissionToAccept(X509Certificate[] chain) throws CertificateEncodingException {
+//				return true;
+//			}
+//		};
+//		https.init();
+//		GoldenGateSrsClient srsc = new GoldenGateSrsClient(ServerConnection.getServerConnection("https://srv1.plazi.org/GgServer/proxy"));
+//		Properties query = new Properties();
+//		query.setProperty(ID_QUERY_FIELD_NAME, docId);
+//		DocumentResult dr = srsc.searchDocuments(query, true, true);
+//		BufferedDocumentResult bdr = new BufferedDocumentResult(dr);
+//		bdr.sort(); // just need to make sure result is retrieved completely
+//		dr = bdr.getDocumentResult();
+//		final DocumentResultElement dre = dr.getNextDocumentResultElement();
+////		File docFolder = new File("E:/Projektdaten/PlaziWebPortal2015/XsltTrouble");
+////		docFolder.mkdirs();
+////		File docFile = new File(docFolder, (docId + ".xml"));
+////		QueriableAnnotation doc = srsc.getXmlDocument(docId, false);
+////		GenericGamtaXML.storeDocument(doc, dcoFile));
+//		
+//		//	get document
+////		final MutableAnnotation doc = GenericGamtaXML.readDocument(docFile);
+//		final MutableAnnotation doc = dre.document;
+//		
+//		//	pipe input
+//		PipedInputStream pis = new PipedInputStream();
+//		final BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new PipedOutputStream(pis), "utf-8"));
+//		OutputWriter writer = new OutputWriter() {
+//			public void writeOutput() throws IOException {
+//				xspl.writeResultDocument(doc, bw);
+//				bw.flush();
+//				bw.close();
+//			}
+//			public String getOutputName() {
+//				return ("Document " + docId);
+//			}
+//		};
+//		
+//		//	do transformation
+//		xspl.doTransformation(writer, pis, xspl.documentTransformer, xspl.documentTransformerError, new TokenReceiver() {
+//			public void storeToken(String token, int treeDepth) throws IOException {
+//				System.out.println(token.trim());
+//			}
+//			public void close() throws IOException {}
+//		});
+//	}
+//	
+//	public static void main(String[] args) throws Exception {
+//		final XsltSearchPortalLayout xspl = new XsltSearchPortalLayout();
+////		xspl.setDataPath(new File("E:/GoldenGATEv3.WebApp/WEB-INF/srsWebPortalData/Layouts/XsltSearchPortalLayoutData"));
+//		xspl.setDataPath(new File("E:/Projektdaten/PlaziWebPortal2015/XsltSearchPortalLayoutData"));
+//		xspl.init();
+//		Gamta.setAnnotationNestingOrder("document section subSection footnote treatment subSubSection caption paragraph sentence");
+//		
 //		//	get document
 //		//	DB722DA08B1A0E329FF6F7869A1D14FA Monomorium dentatum
 //		//	BDA70EC9F8ABAED6C2B7628596A1714A Pardosa zyuzini (design example)
 //		//	8AD0DAEF2180649D27DBA7CE08E4FF93 Anochetus boltoni
 //		//	E97BBEDED4F4AF14E895B31CF33940C8 Pardosa zyuzini ZooBank stub
-//		GoldenGateSrsClient srsc = new GoldenGateSrsClient(ServerConnection.getServerConnection("http://plazi.cs.umb.edu/GgServer/proxy"));
+//		GoldenGateSrsClient srsc = new GoldenGateSrsClient(ServerConnection.getServerConnection("https://srv1.plazi.org/GgServer/proxy"));
 //		srsc.setCacheFolder(new File("E:/Projektdaten/PlaziWebPortal2015/srsCache"));
 //		Properties query = new Properties();
 //		query.setProperty(ID_QUERY_FIELD_NAME, "BDA70EC9F8ABAED6C2B7628596A1714A");

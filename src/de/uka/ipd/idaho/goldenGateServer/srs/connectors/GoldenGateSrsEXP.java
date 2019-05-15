@@ -76,10 +76,10 @@ public class GoldenGateSrsEXP extends GoldenGateExpBinding {
 		//	establish SRS uplink
 		this.srs.addDocumentEventListener(new SrsDocumentEventListener() {
 			public void documentUpdated(SrsDocumentEvent dse) {
-				host.documentUpdated(dse.documentId, dse.document);
+				host.documentUpdated(dse.documentId, dse.document, dse.user);
 			}
 			public void documentDeleted(SrsDocumentEvent dse) {
-				host.documentDeleted(dse.documentId);
+				host.documentDeleted(dse.documentId, dse.user);
 			}
 		});
 	}
@@ -120,7 +120,7 @@ public class GoldenGateSrsEXP extends GoldenGateExpBinding {
 						DocumentListElement dle = docList.getNextDocumentListElement();
 						String docId = ((String) dle.getAttribute(LiteratureConstants.DOCUMENT_ID_ATTRIBUTE));
 						if (docId != null) {
-							host.documentUpdated(docId, null);
+							host.documentUpdated(docId, null, ((String) dle.getAttribute(GoldenGateSRS.UPDATE_USER_ATTRIBUTE)));
 							count++;
 							subCount++;
 							this.loopRoundComplete("Re-ingested " + subCount + " documents for master document ID '" + mDocId + "', " + count + " documents in total.");

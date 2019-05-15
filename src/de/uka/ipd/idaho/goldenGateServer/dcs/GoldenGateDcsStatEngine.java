@@ -334,8 +334,13 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 					else try {
 						fieldValues.append(", " + Integer.parseInt(value.asString().value));
 					}
-					catch (NumberFormatException nfe) {
-						fieldValues.append(", 0");
+					catch (NumberFormatException nfeInt) {
+						try {
+							fieldValues.append(", " + ((int) Math.round(Double.parseDouble(value.asString().value))));
+						}
+						catch (NumberFormatException nfeCast) {
+							fieldValues.append(", 0");
+						}
 					}
 				}
 				else if (StatField.REAL_TYPE.equals(fields[f].dataType)) {
@@ -441,11 +446,12 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) {
-		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, -1);
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters) {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters, -1);
 	}
 	
 	/**
@@ -459,11 +465,12 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @param limit the maximum number of output rows (-1 returns all rows)
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, int limit) {
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters, int limit) {
 		System.out.println(this.statName + ": processing query:");
 		System.out.println(" - output fields: " + Arrays.toString(outputFields));
 		System.out.println(" - grouping fields: " + Arrays.toString(groupingFields));
@@ -471,6 +478,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 		System.out.println(" - field predicates: " + String.valueOf(fieldPredicates));
 		System.out.println(" - field aggregates: " + String.valueOf(fieldAggregates));
 		System.out.println(" - aggregate predicates: " + String.valueOf(aggregatePredicates));
+		System.out.println(" - custom filters: " + Arrays.toString(customFilters));
 		
 		//	prepare parsing and SQL query assembly
 		FieldListBuffer outputFieldString = new FieldListBuffer(null);
@@ -480,6 +488,19 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 		StringBuffer havingString = new StringBuffer("1=1");
 		FieldListBuffer orderFieldString = new FieldListBuffer(" ORDER BY ");
 		HashSet filterFieldSet = new HashSet();
+		
+		//	parse custom filters
+		ArrayList whereCustomFilters = new ArrayList();
+		ArrayList havingCustomFilters = new ArrayList();
+		for (int f = 0; f < customFilters.length; f++) {
+			CustomFilter cf = parseCustomFilter(customFilters[f]);
+			if (cf == null)
+				continue;
+			if ("raw".equals(cf.target))
+				whereCustomFilters.add(cf);
+			else if ("res".equals(cf.target))
+				havingCustomFilters.add(cf);
+		}
 		
 		//	prepare output fields
 		StringVector statFields = new StringVector();
@@ -506,8 +527,8 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			if (groupFieldString.containsField(field))
 				outputFieldString.append(field);
 			else {
-				String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate);
-				if ((";sum;avg;".indexOf(";" + aggregate + ";") != -1) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
+				String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate).toLowerCase();
+				if (("sum".equals(aggregate) || "avg".equals(aggregate)) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
 					continue;
 				outputFieldString.append(field, aggregate);
 			}
@@ -533,7 +554,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			String dataType = field.dataType;
 			if (!groupFieldString.containsField(field)) {
 				String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate);
-				if (";count;count-distinct;".indexOf(";" + aggregate.toLowerCase() + ";") != -1)
+				if ("count".equals(aggregate) || "count-distinct".equals(aggregate))
 					dataType = StatField.INTEGER_TYPE;
 			}
 			orderFieldString.append(field, ((StatField.STRING_TYPE.equals(dataType) == defaultOrder) ? " ASC" : " DESC"));
@@ -593,6 +614,18 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			whereString.append(" AND " + predicate.getSql(this.getQualifiedFieldName(field)));
 			tableString.appendTableForField(field);
 		}
+		for (int f = 0; f < whereCustomFilters.size(); f++) {
+			CustomFilter cf = ((CustomFilter) whereCustomFilters.get(f));
+			StatField leftField = ((StatField) this.fieldsByFullName.get(cf.leftField));
+			if (leftField == null)
+				continue;
+			StatField rightField = ((StatField) this.fieldsByFullName.get(cf.rightField));
+			if (rightField == null)
+				continue;
+			whereString.append(" AND " + this.getQualifiedFieldName(leftField) + " " + cf.operator + " " + this.getQualifiedFieldName(rightField));
+			tableString.appendTableForField(leftField);
+			tableString.appendTableForField(rightField);
+		}
 		
 		//	assemble aggregate predicates
 		for (Iterator ffit = aggregatePredicates.keySet().iterator(); ffit.hasNext();) {
@@ -616,13 +649,13 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			String predicateString = aggregatePredicates.getProperty(field.fullName);
 			if ((predicateString == null) || (predicateString.trim().length() == 0))
 				continue;
-			String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate);
-			if ((";sum;avg;".indexOf(";" + aggregate + ";") != -1) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
+			String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate).toLowerCase();
+			if (("sum".equals(aggregate) || "avg".equals(aggregate)) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
 				continue;
 			String aggregateDataType = field.dataType;
-			if (";count;count-distinct;".indexOf(";" + aggregate.toLowerCase() + ";") != -1)
+			if ("count".equals(aggregate) || "count-distinct".equals(aggregate))
 				aggregateDataType = StatField.INTEGER_TYPE;
-			else if (";sum;avg;".indexOf(";" + aggregate.toLowerCase() + ";") != -1)
+			else if ("sum".equals(aggregate) || "avg".equals(aggregate))
 				aggregateDataType = (StatField.REAL_TYPE.equals(field.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
 			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(aggregateDataType) || StatField.REAL_TYPE.equals(aggregateDataType)));
 			if (predicate.isEmpty()) {
@@ -633,6 +666,42 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			String aggreateField = ("count-distinct".equals(aggregate) ? ("count(DISTINCT " + this.getQualifiedFieldName(field) + ")") : (aggregate + "(" + this.getQualifiedFieldName(field) + ")"));
 			havingString.append(" AND " + predicate.getSql(aggreateField));
 			tableString.appendTableForField(field);
+		}
+		for (int f = 0; f < havingCustomFilters.size(); f++) {
+			CustomFilter cf = ((CustomFilter) havingCustomFilters.get(f));
+			
+			StatField leftField = ((StatField) this.fieldsByFullName.get(cf.leftField));
+			if (leftField == null)
+				continue;
+			String leftAggregate = fieldAggregates.getProperty(leftField.fullName, leftField.defAggregate).toLowerCase();
+			if (("sum".equals(leftAggregate) || "avg".equals(leftAggregate)) && !StatField.INTEGER_TYPE.equals(leftField.dataType) && !StatField.REAL_TYPE.equals(leftField.dataType))
+				continue;
+			String leftAggregateDataType = leftField.dataType;
+			if ("count".equals(leftAggregate) || "count-distinct".equals(leftAggregate))
+				leftAggregateDataType = StatField.INTEGER_TYPE;
+			else if ("sum".equals(leftAggregate) || "avg".equals(leftAggregate))
+				leftAggregateDataType = (StatField.REAL_TYPE.equals(leftField.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
+			
+			StatField rightField = ((StatField) this.fieldsByFullName.get(cf.rightField));
+			if (rightField == null)
+				continue;
+			String rightAggregate = fieldAggregates.getProperty(rightField.fullName, rightField.defAggregate).toLowerCase();
+			if (("sum".equals(rightAggregate) || "avg".equals(rightAggregate)) && !StatField.INTEGER_TYPE.equals(rightField.dataType) && !StatField.REAL_TYPE.equals(rightField.dataType))
+				continue;
+			String rightAggregateDataType = rightField.dataType;
+			if ("count".equals(rightAggregate) || "count-distinct".equals(rightAggregate))
+				rightAggregateDataType = StatField.INTEGER_TYPE;
+			else if ("sum".equals(rightAggregate) || "avg".equals(rightAggregate))
+				rightAggregateDataType = (StatField.REAL_TYPE.equals(rightField.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
+			
+			if ((StatField.INTEGER_TYPE.equals(leftAggregateDataType) || StatField.REAL_TYPE.equals(leftAggregateDataType)) != (StatField.INTEGER_TYPE.equals(rightAggregateDataType) || StatField.REAL_TYPE.equals(rightAggregateDataType)))
+				continue;
+			String leftAggreateField = ("count-distinct".equals(leftAggregate) ? ("count(DISTINCT " + this.getQualifiedFieldName(leftField) + ")") : (leftAggregate + "(" + this.getQualifiedFieldName(leftField) + ")"));
+			String rightAggreateField = ("count-distinct".equals(rightAggregate) ? ("count(DISTINCT " + this.getQualifiedFieldName(rightField) + ")") : (rightAggregate + "(" + this.getQualifiedFieldName(rightField) + ")"));
+			
+			havingString.append(" AND " + leftAggreateField + " " + cf.operator + " " + rightAggreateField);
+			tableString.appendTableForField(leftField);
+			tableString.appendTableForField(rightField);
 		}
 		
 		/* produce cache key TODO increase hit rate by exploiting commutative properties
@@ -1005,6 +1074,22 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 		}
 	}
 	
+	private static class CustomFilter {
+		final String target;
+		final String leftField;
+		final String operator;
+		final String rightField;
+		CustomFilter(String target, String leftField, String operator, String rightField) {
+			this.target = target;
+			this.leftField = leftField;
+			this.operator = operator;
+			this.rightField = rightField;
+		}
+		String getSql() {
+			return (this.leftField + " " + this.operator + " " + this.rightField);
+		}
+	}
+	
 	private static Predicate parsePredicate(String predString, boolean isNumeric) {
 		if (predString == null)
 			return null;
@@ -1254,5 +1339,31 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			//	everything else
 			return parseBracketInterval(intString, isNumeric);
 		}
+	}
+	
+	private static CustomFilter parseCustomFilter(String customFilter) {
+		String[] cfData = customFilter.split("\\s");
+		if (cfData.length != 4)
+			return null;
+		String target = cfData[0];
+		if (!"raw".equals(target) && !"res".equals(target))
+			return null;
+		String operator = cfData[2];
+		if ("lt".equals(operator))
+			operator = "<";
+		else if ("le".equals(operator))
+			operator = "<=";
+		else if ("eq".equals(operator))
+			operator = "=";
+		else if ("ne".equals(operator))
+			operator = "<>";
+		else if ("ge".equals(operator))
+			operator = ">=";
+		else if ("gt".equals(operator))
+			operator = ">";
+		else return null;
+		String leftField = cfData[1];
+		String rightField = cfData[3];
+		return new CustomFilter(target, leftField, operator, rightField);
 	}
 }

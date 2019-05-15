@@ -77,10 +77,10 @@ public class GoldenGateDioEXP extends GoldenGateExpBinding {
 			public void documentCheckedOut(DioDocumentEvent dse) {}
 			public void documentReleased(DioDocumentEvent dse) {}
 			public void documentUpdated(DioDocumentEvent dse) {
-				host.documentUpdated(dse.documentId, dse.document);
+				host.documentUpdated(dse.documentId, dse.document, dse.user);
 			}
 			public void documentDeleted(DioDocumentEvent dse) {
-				host.documentDeleted(dse.documentId);
+				host.documentDeleted(dse.documentId, dse.user);
 			}
 		});
 	}
@@ -108,7 +108,7 @@ public class GoldenGateDioEXP extends GoldenGateExpBinding {
 					DocumentListElement dle = docList.getNextDocument();
 					String docId = ((String) dle.getAttribute(LiteratureConstants.DOCUMENT_ID_ATTRIBUTE));
 					if (docId != null) {
-						host.documentUpdated(docId, null);
+						host.documentUpdated(docId, null, ((String) dle.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE)));
 						count++;
 						this.loopRoundComplete("Re-ingested document ID '" + docId + "', " + count + " documents in total.");
 					}

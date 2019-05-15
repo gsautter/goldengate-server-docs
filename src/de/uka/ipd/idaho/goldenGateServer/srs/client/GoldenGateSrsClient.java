@@ -129,7 +129,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 					if (lastUpdate == 0)
 						return;
 					
-					//	no new changes from backend
+					//	no new changes from back-end
 					if (lastUpdate <= lastCacheCleanupUpdateTime) {
 						System.out.println("No changes in back-end since last cleanup");
 						return;

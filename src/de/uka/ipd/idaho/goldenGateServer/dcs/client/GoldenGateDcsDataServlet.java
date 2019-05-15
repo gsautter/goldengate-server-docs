@@ -203,6 +203,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 		Properties fieldPredicates = new Properties();
 		Properties fieldAggregates = new Properties();
 		Properties aggregatePredicates = new Properties();
+		StringVector customFilters = new StringVector();
 		
 		for (Enumeration pe = request.getParameterNames(); pe.hasMoreElements();) {
 			String paramName = ((String) pe.nextElement());
@@ -234,6 +235,10 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				for (int v = 0; v < paramValues.length; v++)
 					aggregatePredicates.setProperty(fieldName, paramValues[v]);
 			}
+			else if (paramName.startsWith("CF-")) {
+				for (int v = 0; v < paramValues.length; v++)
+					customFilters.addElementIgnoreDuplicates(paramValues[v]);
+			}
 			if ("limit".equals(paramName)) try {
 				limit = Integer.parseInt(paramValues[0]);
 			} catch (NumberFormatException nfe) {}
@@ -247,7 +252,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 			return null;
 		
 		//	get data
-		return this.dcsClient.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), orderingFields.toStringArray(), fieldPredicates, fieldAggregates, aggregatePredicates, limit, !"force".equals(request.getParameter("cacheControl")));
+		return this.dcsClient.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), orderingFields.toStringArray(), fieldPredicates, fieldAggregates, aggregatePredicates, customFilters.toStringArray(), limit, !"force".equals(request.getParameter("cacheControl")));
 	}
 	
 	/* (non-Javadoc)
@@ -471,7 +476,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 						this.writeLine("<tr id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_options\" class=\"selectedStatFieldOptions\">");
 						
 						this.write("<td class=\"statFieldOptionTableCell\">");
-						this.write("<input type=\"checkbox\" class=\"selectedFieldOption\" id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_output\" name=\"" + fieldGroups[g].name + "_" + fields[f].name + "_output\" value=\"output\" checked=\"true\" onchange=\"outputSelectionChanged('" + fieldGroups[g].name + "_" + fields[f].name + "')\" />");
+						this.write("<input type=\"checkbox\" class=\"selectedFieldOption\" id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_output\" name=\"" + fieldGroups[g].name + "_" + fields[f].name + "_output\" value=\"output\" checked=\"true\" onchange=\"outputSelectionChanged('" + fieldGroups[g].name + "_" + fields[f].name + "');\" />");
 						this.writeLine("</td>");
 						
 						this.write("<td class=\"statFieldOptionTableCell\">");
@@ -486,7 +491,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 						this.writeLine("</td>");
 						
 						this.write("<td class=\"statFieldOptionTableCell\">");
-						this.writeLine("<select class=\"selectedFieldOption\" id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_fa\" name=\"" + fieldGroups[g].name + "_" + fields[f].name + "_fa\" onchange=\"aggregateChanged('" + fieldGroups[g].name + "_" + fields[f].name + "')\">");
+						this.writeLine("<select class=\"selectedFieldOption\" id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_fa\" name=\"" + fieldGroups[g].name + "_" + fields[f].name + "_fa\" onchange=\"aggregateChanged('" + fieldGroups[g].name + "_" + fields[f].name + "');\">");
 						this.writeLine("<option id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_fa_group\" value=\"group\">" + "Show Individual Values" + "</option>");
 						this.writeLine("<option id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_fa_count-distinct\" value=\"count-distinct\"" + (StatField.STRING_TYPE.equals(fields[f].dataType) ? " selected=\"true\"" : "") + ">" + "Count Distinct Values" + "</option>");
 						this.writeLine("<option id=\"" + fieldGroups[g].name + "_" + fields[f].name + "_fa_count\" value=\"count\">" + "Count All Values" + "</option>");
@@ -507,10 +512,23 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 					}
 				}
 				
+				this.writeLine("<tr id=\"customFilterRow\" style=\"display: none;\">");
+				this.writeLine("<td class=\"statFieldTableCell\" colspan=\"6\"><table id=\"customFilterTable\">");
+				this.writeLine("<tr>");
+				this.writeLine("<td class=\"customFilterTableHeader\">&nbsp;</td>");
+				this.writeLine("<td class=\"customFilterTableHeader\">Left Field</td>");
+				this.writeLine("<td class=\"customFilterTableHeader\">Comparison</td>");
+				this.writeLine("<td class=\"customFilterTableHeader\">Right Field</td>");
+				this.writeLine("<td class=\"customFilterTableHeader\">Apply To</td>");
+				this.writeLine("</tr>");
+				this.writeLine("</table></td>");
+				this.writeLine("</tr>");
+				
 				this.writeLine("<tr id=\"statButtonRow\">");
 				this.write("<td class=\"statFieldTableCell\" colspan=\"6\">");
 				this.write("<button value=\"Get Statistics\" class=\"statButton\" id=\"getStatButton\" onclick=\"return updateStats();\">Get Statistics</button>");
 				this.write("Maximum Rows: <input type=\"text\" class=\"selectedFieldOption\" id=\"limit\" name=\"limit\" />");
+				this.write("<button value=\"Add Custom Filter\" class=\"statButton\" id=\"addCustomFilterButton\" onclick=\"return addCustomFilter();\">Add Custom Filter</button>");
 				this.writeLine("</td>");
 				this.writeLine("</tr>");
 				
@@ -581,6 +599,14 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 						this.writeLine("dataFieldNames['" + fieldGroups[g].name + "_" + fields[f].name + "'] = '" + fields[f].fullName + "';");
 				}
 				
+				//	write data field labels
+				this.writeLine("var dataFieldLabels = new Object();");
+				for (int g = 0; g < fieldGroups.length; g++) {
+					StatField[] fields = fieldGroups[g].getFields();
+					for (int f = 0; f < fields.length; f++)
+						this.writeLine("dataFieldLabels['" + fieldGroups[g].name + "_" + fields[f].name + "'] = '" + fields[f].label + "';");
+				}
+				
 				//	write index of selected fields
 				this.writeLine("var fieldActive = new Object();");
 				for (int g = 0; g < fieldGroups.length; g++) {
@@ -598,6 +624,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				}
 				
 				//	select and de-select field
+				this.writeLine("var activeFieldNames = new Array();");
 				this.writeLine("function toggleField(fieldName) {");
 				this.writeLine("  var isActive = (fieldActive[fieldName] == 'T');");
 				this.writeLine("  var fieldSelector = getById(fieldName + '_selector');");
@@ -605,6 +632,23 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("    fieldActive[fieldName] = 'F';");
 				this.writeLine("    fieldSelector.className = 'statFieldSelector';");
 				this.writeLine("    removeElement(getById(fieldName + '_options'));");
+				this.writeLine("    for (var f = 0; f < activeFieldNames.length; f++)");
+				this.writeLine("      if (activeFieldNames[f] == fieldName) {");
+				this.writeLine("        activeFieldNames.splice(f, 1);");
+				this.writeLine("        break;");
+				this.writeLine("      }");
+				this.writeLine("    for (var i = 0; i < customFilterIDs.length; i++) {");
+				this.writeLine("      var cfLeftField = getById(customFilterIDs[i] + '_left');");
+				this.writeLine("      var cfRightField = getById(customFilterIDs[i] + '_right');");
+				this.writeLine("      if ((cfLeftField.value == fieldName) || (cfRightField.value == fieldName)) {");
+				this.writeLine("        removeCustomFilter(customFilterIDs[i]);");
+				this.writeLine("        i--; // counter loop increment, we're removing one element here");
+				this.writeLine("      }");
+				this.writeLine("      else {");
+				this.writeLine("        removeSelectOption(getById(customFilterIDs[i] + '_left'), fieldName);");
+				this.writeLine("        removeSelectOption(getById(customFilterIDs[i] + '_right'), fieldName);");
+				this.writeLine("      }");
+				this.writeLine("    }");
 				this.writeLine("  }");
 				this.writeLine("  else {");
 				this.writeLine("    fieldActive[fieldName] = 'T';");
@@ -612,6 +656,16 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("    var fieldOptionTable = getById('activeFieldTable');");
 				this.writeLine("    fieldOptionTable.style.display = '';");
 				this.writeLine("    fieldOptionTable.appendChild(fieldOptions[fieldName]);");
+				this.writeLine("    activeFieldNames[activeFieldNames.length] = fieldName;");
+				this.writeLine("    for (var i = 0; i < customFilterIDs.length; i++) {");
+				this.writeLine("      addSelectOption(getById(customFilterIDs[i] + '_left'), fieldName, dataFieldLabels[fieldName]);");
+				this.writeLine("      addSelectOption(getById(customFilterIDs[i] + '_right'), fieldName, dataFieldLabels[fieldName]);");
+				this.writeLine("    }");
+				this.writeLine("    var cfr = getById('customFilterRow');");
+				this.writeLine("    if (cfr != null) {");
+				this.writeLine("      removeElement(cfr);");
+				this.writeLine("      fieldOptionTable.appendChild(cfr);");
+				this.writeLine("    }");
 				this.writeLine("    var sbr = getById('statButtonRow');");
 				this.writeLine("    if (sbr != null) {");
 				this.writeLine("      removeElement(sbr);");
@@ -647,6 +701,130 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("    fieldApInput.disabled = true;");
 				this.writeLine("  }");
 				this.writeLine("  else fieldApInput.disabled = false;");
+				this.writeLine("  checkCustomFilters();");
+				this.writeLine("}");
+				
+				//	add custom filter functions
+				this.writeLine("var customFilterCount = 0;");
+				this.writeLine("var customFilterIDs = new Array();");
+				this.writeLine("function addCustomFilter() {");
+				this.writeLine("  var cfId = ('customFilter' + customFilterCount++);");
+				this.writeLine("  customFilterIDs[customFilterIDs.length] = cfId;");
+				this.writeLine("  var cfTr = newElement('tr', (cfId + '_row'), 'customFilterRow', null);");
+				this.writeLine("  var cfTd;");
+				this.writeLine("  cfTd = newElement('td', null, 'customFilterRemove', null);");
+				this.writeLine("  var cfRb = newElement('button', null, 'customFilterRemoveButton', 'X');");
+				this.writeLine("  cfRb.title = 'Remove Custom Filter';");
+				this.writeLine("  cfRb.value = 'X';");
+				this.writeLine("  cfRb.style.transform = 'scale(0.67, 0.67)';");
+				this.writeLine("  cfRb.style.margin = '0px';");
+				this.writeLine("  cfRb.onclick = function() {");
+				this.writeLine("    return removeCustomFilter(cfId);");
+				this.writeLine("  };");
+				this.writeLine("  cfTd.appendChild(cfRb);");
+				this.writeLine("  cfTr.appendChild(cfTd);");
+				this.writeLine("  cfTd = newElement('td', null, 'customFilterField', null);");
+				this.writeLine("  var cfLeftField = newElement('select', (cfId + '_left'), 'customFilterFieldSelect', null);");
+				this.writeLine("  fillCustomFilterFieldSelect(cfLeftField);");
+				this.writeLine("  cfLeftField.onchange = function() {");
+				this.writeLine("    checkCustomFilter(cfId);");
+				this.writeLine("  };");
+				this.writeLine("  cfTd.appendChild(cfLeftField);");
+				this.writeLine("  cfTr.appendChild(cfTd);");
+				this.writeLine("  cfTd = newElement('td', null, 'customFilterOperator', null);");
+				this.writeLine("  var cfOperator = newElement('select', (cfId + '_operator'), 'customFilterOperationSelect', null);");
+				this.writeLine("  addSelectOption(cfOperator, 'lt', 'less than');");
+				this.writeLine("  addSelectOption(cfOperator, 'le', 'less than or equal to');");
+				this.writeLine("  addSelectOption(cfOperator, 'eq', 'equal to');");
+				this.writeLine("  addSelectOption(cfOperator, 'ne', 'not equal to');");
+				this.writeLine("  addSelectOption(cfOperator, 'ge', 'greater than or equal to');");
+				this.writeLine("  addSelectOption(cfOperator, 'gt', 'greater than');");
+				this.writeLine("  cfTd.appendChild(cfOperator);");
+				this.writeLine("  cfTr.appendChild(cfTd);");
+				this.writeLine("  cfTd = newElement('td', null, 'customFilterField', null);");
+				this.writeLine("  var cfRightField = newElement('select', (cfId + '_right'), 'customFilterFieldSelect', null);");
+				this.writeLine("  fillCustomFilterFieldSelect(cfRightField);");
+				this.writeLine("  cfRightField.onchange = function() {");
+				this.writeLine("    checkCustomFilter(cfId);");
+				this.writeLine("  };");
+				this.writeLine("  cfTd.appendChild(cfRightField);");
+				this.writeLine("  cfTr.appendChild(cfTd);");
+				this.writeLine("  cfTd = newElement('td', null, 'customFilterTarget', null);");
+				this.writeLine("  var cfTarget = newElement('select', (cfId + '_target'), 'customFilterTargetSelect', null);");
+				this.writeLine("  addSelectOption(cfTarget, 'raw', 'Data Values');");
+				this.writeLine("  addSelectOption(cfTarget, 'res', 'Operation Result');");
+				this.writeLine("  cfTarget.onchange = function() {");
+				this.writeLine("    checkCustomFilter(cfId);");
+				this.writeLine("  };");
+				this.writeLine("  cfTd.appendChild(cfTarget);");
+				this.writeLine("  cfTr.appendChild(cfTd);");
+				this.writeLine("  var cfTable = getById('customFilterTable');");
+				this.writeLine("  cfTable.appendChild(cfTr);");
+				this.writeLine("  var cfRow = getById('customFilterRow');");
+				this.writeLine("  cfRow.style.display = '';");
+				this.writeLine("}");
+				this.writeLine("function fillCustomFilterFieldSelect(select) {");
+				this.writeLine("  for (var f = 0; f < activeFieldNames.length; f++)");
+				this.writeLine("    addSelectOption(select, activeFieldNames[f], dataFieldLabels[activeFieldNames[f]]);");
+				this.writeLine("}");
+				this.writeLine("function addSelectOption(select, value, label) {");
+				this.writeLine("  var option = newElement('option', null, null, (label ? label : value));");
+				this.writeLine("  option.value = value;");
+				this.writeLine("  select.options[select.options.length] = option;");
+				this.writeLine("}");
+				this.writeLine("function removeSelectOption(select, value) {");
+				this.writeLine("  for (var o = 0; o < select.options.length; o++)");
+				this.writeLine("    if (select.options[o].value == value) {");
+				this.writeLine("      select.options.remove(o);");
+				this.writeLine("      return;");
+				this.writeLine("    }");
+				this.writeLine("}");
+				this.writeLine("function checkCustomFilters() {");
+				this.writeLine("  for (var i = 0; i < customFilterIDs.length; i++)");
+				this.writeLine("    checkCustomFilter(customFilterIDs[i]);");
+				this.writeLine("}");
+				this.writeLine("function checkCustomFilter(cfId) {");
+				this.writeLine("  var cfTr = getById(cfId + '_row');");
+				this.writeLine("  if (customFilterTypeConsistent(cfId))");
+				this.writeLine("    cfTr.className = 'customFilterRow';");
+				this.writeLine("  else cfTr.className = 'customFilterRow customFilterError';");
+				this.writeLine("}");
+				this.writeLine("function customFilterTypeConsistent(cfId) {");
+				this.writeLine("  var cfTarget = getById(cfId + '_target').value;");
+				this.writeLine("  var cfLeftFieldName = getById(cfId + '_left').value;");
+				this.writeLine("  var cfRightFieldName = getById(cfId + '_right').value;");
+				this.writeLine("  var cfLeftFieldType;");
+				this.writeLine("  var cfRightFieldType;");
+				this.writeLine("  if (cfTarget == 'res') {");
+				this.writeLine("    var cfLeftFieldAggregate = getById(cfLeftFieldName + '_fa').value;");
+				this.writeLine("    if ((cfLeftFieldAggregate == 'group') || (cfLeftFieldAggregate == 'min') || (cfLeftFieldAggregate == 'max'))");
+				this.writeLine("      cfLeftFieldType = ((defaultAggregates[cfLeftFieldName] == 'sum') ? 'number' : 'string');");
+				this.writeLine("    else cfLeftFieldType = 'number';");
+				this.writeLine("    var cfRightFieldAggregate = getById(cfRightFieldName + '_fa').value;");
+				this.writeLine("    if ((cfRightFieldAggregate == 'group') || (cfRightFieldAggregate == 'min') || (cfRightFieldAggregate == 'max'))");
+				this.writeLine("      cfRightFieldType = ((defaultAggregates[cfRightFieldName] == 'sum') ? 'number' : 'string');");
+				this.writeLine("    else cfRightFieldType = 'number';");
+				this.writeLine("  }");
+				this.writeLine("  else {");
+				this.writeLine("    cfLeftFieldType = ((defaultAggregates[cfLeftFieldName] == 'sum') ? 'number' : 'string');");
+				this.writeLine("    cfRightFieldType = ((defaultAggregates[cfRightFieldName] == 'sum') ? 'number' : 'string');");
+				this.writeLine("  }");
+				this.writeLine("  return (cfLeftFieldType == cfRightFieldType);");
+				this.writeLine("}");
+				this.writeLine("function removeCustomFilter(cfId) {");
+				this.writeLine("  var cfTr = getById(cfId + '_row');");
+				this.writeLine("  if (cfTr != null)");
+				this.writeLine("    removeElement(cfTr);");
+				this.writeLine("  for (var i = 0; i < customFilterIDs.length; i++)");
+				this.writeLine("    if (customFilterIDs[i] == cfId) {");
+				this.writeLine("      customFilterIDs.splice(i, 1);");
+				this.writeLine("      break;");
+				this.writeLine("    }");
+				this.writeLine("  if (customFilterIDs.length == 0) {");
+				this.writeLine("    var cfRow = getById('customFilterRow');");
+				this.writeLine("    cfRow.style.display = 'none';");
+				this.writeLine("  }");
+				this.writeLine("  return false;");
 				this.writeLine("}");
 				
 				//	build statistics URL
@@ -687,7 +865,21 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("    statUrl = (statUrl + '&orderingFields=' + orderingFields);");
 				this.writeLine("  if (limit != -1)");
 				this.writeLine("    statUrl = (statUrl + '&limit=' + limit);");
-				this.writeLine("  return (statUrl + fieldPredicateString + fieldAggregateString + aggregatePredicateString);");
+				this.writeLine("  var customFilterString = '';");
+				this.writeLine("  if (customFilterIDs.length != 0) {");
+				this.writeLine("    var cfNumber = 0;");
+				this.writeLine("    for (var i = 0; i < customFilterIDs.length; i++) {");
+				this.writeLine("      if (!customFilterTypeConsistent(customFilterIDs[i]))");
+				this.writeLine("        continue;");
+				this.writeLine("      var cfTarget = getById(customFilterIDs[i] + '_target').value;");
+				this.writeLine("      var cfLeftFieldName = getById(customFilterIDs[i] + '_left').value;");
+				this.writeLine("      var cfOperator = getById(customFilterIDs[i] + '_operator').value;");
+				this.writeLine("      var cfRightFieldName = getById(customFilterIDs[i] + '_right').value;");
+				this.writeLine("      customFilterString = (customFilterString + '&CF-' + cfNumber + '=' + cfTarget + '+' + dataFieldNames[cfLeftFieldName] + '+' + cfOperator + '+' + dataFieldNames[cfRightFieldName]);");
+				this.writeLine("      cfNumber++;");
+				this.writeLine("    }");
+				this.writeLine("  }");
+				this.writeLine("  return (statUrl + fieldPredicateString + fieldAggregateString + aggregatePredicateString + customFilterString);");
 				this.writeLine("}");
 				
 				//	update links to statistics
@@ -735,7 +927,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 	}
 	
 	public static void main(String[] args) throws Exception {
-		final GoldenGateDcsClient dcsc = new GoldenGateDcsClient(ServerConnection.getServerConnection("http://plazi.cs.umb.edu/GgServer/proxy"), "TCS");
+		final GoldenGateDcsClient dcsc = new GoldenGateDcsClient(ServerConnection.getServerConnection("http://plazi.cs.umb.edu/GgServer/proxy"), "TCS") {};
 		GoldenGateDcsDataServlet dcss = new GoldenGateDcsDataServlet() {
 			protected GoldenGateDcsClient getDcsClient() {return dcsc;}
 		};
@@ -751,7 +943,8 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 		Properties aggregatePredicates = new Properties();
 		aggregatePredicates.setProperty("tax.genusEpithet", "5-");
 //		aggregatePredicates.setProperty("matCit.specimenCount", "1-");
-		DcStatistics stats = dcsc.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates);
+		String[] customFilters = {"raw+tax.genusEpithet+le+tax.familyEpithet"};
+		DcStatistics stats = dcsc.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters);
 		BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(System.out, ENCODING));
 		dcss.sendStats(null, bw, stats, "JSON");
 		bw.flush();

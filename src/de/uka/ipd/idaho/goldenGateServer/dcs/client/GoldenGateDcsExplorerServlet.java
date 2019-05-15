@@ -247,7 +247,7 @@ public abstract class GoldenGateDcsExplorerServlet extends GoldenGateDcsClientSe
 			groupingFields.addElementIgnoreDuplicates(etef.child.name);
 			
 			//	get stats from backend
-			DcStatistics stats = dcsc.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), new String[0], fieldPredicates, fieldAggregates, new Properties());
+			DcStatistics stats = dcsc.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), new String[0], fieldPredicates, fieldAggregates, new Properties(), new String[0]);
 			
 			//	send Javascript
 			response.setContentType("text/javascript");
@@ -313,7 +313,7 @@ public abstract class GoldenGateDcsExplorerServlet extends GoldenGateDcsClientSe
 			groupingFields.addElementIgnoreDuplicates(etef.child.name);
 			
 			//	get stats from backend
-			DcStatistics stats = dcsc.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), new String[0], fieldPredicates, fieldAggregates, new Properties());
+			DcStatistics stats = dcsc.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), new String[0], fieldPredicates, fieldAggregates, new Properties(), new String[0]);
 			
 			//	send JavaScript
 			response.setContentType("application/json");
@@ -377,7 +377,7 @@ public abstract class GoldenGateDcsExplorerServlet extends GoldenGateDcsClientSe
 		//	TODO add additional output fields and aggregates if required (e.g. UUIDs for linking to treatments or article summaries)
 		
 		//	get stats from backend
-		DcStatistics stats = dcsc.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), new String[0], fieldPredicates, fieldAggregates, new Properties());
+		DcStatistics stats = dcsc.getStatistics(outputFields.toStringArray(), groupingFields.toStringArray(), new String[0], fieldPredicates, fieldAggregates, new Properties(), new String[0]);
 		
 		//	run aggregation
 		TreeMap valueCountsByFieldName = new TreeMap();

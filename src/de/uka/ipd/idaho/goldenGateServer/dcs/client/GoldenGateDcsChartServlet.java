@@ -141,7 +141,7 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 				return getFieldSet();
 			}
 			protected DcStatistics getStatData(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, boolean allowCache) throws IOException {
-				return getDcsStats(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, allowCache);
+				return getDcsStats(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, new String[0], allowCache);
 			}
 		};
 	}
@@ -370,10 +370,10 @@ public abstract class GoldenGateDcsChartServlet extends GoldenGateDcsClientServl
 	}
 	
 	private long statsLastUpdated = 0;
-	private DcStatistics getDcsStats(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, boolean allowCache) throws IOException {
+	private DcStatistics getDcsStats(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters, boolean allowCache) throws IOException {
 		
 		//	get raw data from backing DCS
-		DcStatistics stats = this.dcsClient.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, allowCache);
+		DcStatistics stats = this.dcsClient.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters, allowCache);
 		
 		//	update stats data timestamp
 		this.statsLastUpdated = Math.max(this.statsLastUpdated, stats.lastUpdated);

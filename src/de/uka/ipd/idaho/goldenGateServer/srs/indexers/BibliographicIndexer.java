@@ -179,6 +179,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#processQuery(de.uka.ipd.idaho.goldenGateServer.srs.Query)
 	 */
 	public QueryResult processQuery(Query query) {
+		this.host.logActivity("BibliographicIndexer: processing query ...");
 		
 		//	get data
 		String id = query.getValue(EXT_ID_ATTRIBUTE, "").trim();
@@ -264,12 +265,6 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		}
 		
 		//	assemble query
-//		String queryString = ("SELECT DISTINCT d." + DOC_NUMBER_COLUMN_NAME + 
-//				" FROM " + BIB_INDEX_TABLE_NAME + " d" + 
-//					((ref.length() == 0) ? "" : (", " + BIB_REF_INDEX_TABLE_NAME + " r")) +
-//					((id.length() == 0) ? "" : (", " + BIB_ID_INDEX_TABLE_NAME + " i")) +
-//				" WHERE " + where + joinWhere +
-//				";");
 		String queryString;
 		if (tableShort.length() == 1) {
 			queryString = ("SELECT DISTINCT " + tableShort + "." + DOC_NUMBER_COLUMN_NAME + 
@@ -285,6 +280,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 					" WHERE " + where + joinWhere +
 					";");
 		}
+		this.host.logActivity("  - query is " + queryString);
 		
 		SqlQueryResult sqr = null;
 		try {
@@ -299,8 +295,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			return result;
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document IDs.");
-			System.out.println("  Query was " + queryString);
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document IDs.");
+			this.host.logError("  Query was " + queryString);
 			return null;
 		}
 		finally {
@@ -379,6 +375,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, long[], boolean)
 	 */
 	public IndexResult getIndexEntries(Query query, long[] docNumbers, boolean sort) {
+		this.host.logActivity("BibliographicIndexer: getting index entries ...");
+		
 		StringVector docNrs = new StringVector();
 		for (int n = 0; n < docNumbers.length; n++)
 			docNrs.addElementIgnoreDuplicates("" + docNumbers[n]);
@@ -408,6 +406,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			sqlQuery.append(columns[c]);
 		}
 		sqlQuery.append(";");
+		this.host.logActivity("  - query is " + sqlQuery.toString());
 		
 		SqlQueryResult sqr = null;
 		try {
@@ -433,8 +432,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			};
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting index entries.");
-			System.out.println("  Query was " + sqlQuery.toString());
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting index entries.");
+			this.host.logError("  Query was " + sqlQuery.toString());
 			return null;
 		}
 	}
@@ -449,6 +448,7 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#doThesaurusLookup(de.uka.ipd.idaho.goldenGateServer.srs.Query)
 	 */
 	public ThesaurusResult doThesaurusLookup(Query query) {
+		this.host.logActivity("BibliographicIndexer: doing thesaurus lookup ...");
 		
 		//	get data
 		String id = query.getValue(EXT_ID_ATTRIBUTE, "").trim();
@@ -546,12 +546,13 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		sqlQuery.append(" FROM " + BIB_INDEX_TABLE_NAME + " d" + ((ref.length() == 0) ? "" : (", " + BIB_REF_INDEX_TABLE_NAME + " r")) + ((id.length() == 0) ? "" : (", " + BIB_ID_INDEX_TABLE_NAME + " i"))); 
 		sqlQuery.append(" WHERE " + where + ";");
 		
+		this.host.logActivity("  - query is " + sqlQuery.toString());
 		try {
 			return new BibMetaDataThesaurusResult(columns, this.io.executeSelectQuery(sqlQuery.toString()));
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while doing thesaurus lookup.");
-			System.out.println("  Query was " + sqlQuery.toString());
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while doing thesaurus lookup.");
+			this.host.logError("  Query was " + sqlQuery.toString());
 			return null;
 		}
 	}
@@ -719,8 +720,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			this.io.executeUpdateQuery(query);
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
-			System.out.println("  Query was " + query);
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
+			this.host.logError("  Query was " + query);
 		}
 		
 		//	index full reference string
@@ -755,8 +756,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			this.io.executeUpdateQuery(query);
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
-			System.out.println("  Query was " + query);
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
+			this.host.logError("  Query was " + query);
 		}
 	}
 	
@@ -782,8 +783,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			this.io.executeUpdateQuery(query);
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
-			System.out.println("  Query was " + query);
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while indexing document.");
+			this.host.logError("  Query was " + query);
 		}
 	}
 	
@@ -796,8 +797,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			this.io.executeUpdateQuery(dataQuery);
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
-			System.out.println("  Query was " + dataQuery);
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			this.host.logError("  Query was " + dataQuery);
 		}
 		
 		String refQuery = ("DELETE FROM " + BIB_REF_INDEX_TABLE_NAME + " WHERE " + DOC_NUMBER_COLUMN_NAME + "=" + docNr + ";");
@@ -805,8 +806,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			this.io.executeUpdateQuery(refQuery);
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
-			System.out.println("  Query was " + refQuery);
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			this.host.logError("  Query was " + refQuery);
 		}
 		
 		String idQuery = ("DELETE FROM " + BIB_ID_INDEX_TABLE_NAME + " WHERE " + DOC_NUMBER_COLUMN_NAME + "=" + docNr + ";");
@@ -814,8 +815,8 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			this.io.executeUpdateQuery(idQuery);
 		}
 		catch (SQLException sqle) {
-			System.out.println("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
-			System.out.println("  Query was " + idQuery);
+			this.host.logError("BibliographicMetaDataIndexer: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			this.host.logError("  Query was " + idQuery);
 		}
 	}
 	

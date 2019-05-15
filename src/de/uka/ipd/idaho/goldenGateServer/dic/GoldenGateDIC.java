@@ -31,10 +31,12 @@ import java.io.File;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Properties;
 import java.util.TreeMap;
-import java.util.TreeSet;
 
 import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
@@ -111,6 +113,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 			throw new RuntimeException("GoldenGateDIC: Cannot work without database access.");
 		
 		//	index import table
+		this.io.indexColumn(DOCUMENT_IMPORT_TABLE_NAME, DOCUMENT_ID_ATTRIBUTE);
 		this.io.indexColumn(DOCUMENT_IMPORT_TABLE_NAME, DOCUMENT_SOURCE_NAME_ATTRIBUTE);
 	}
 	
@@ -130,17 +133,17 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 	 * @see de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent#linkInit()
 	 */
 	public void linkInit() {
-		this.loadImporters(false);
+		this.loadImporters(null);
 	}
 	
-	private synchronized void loadImporters(boolean isReload) {
+	private synchronized void loadImporters(final ComponentActionConsole cac) {
 		
 		//	if reload, shut down importers
-		if (isReload)
-			this.shutdownImporters();
+		if (cac != null)
+			this.shutdownImporters(cac);
 		
 		//	load importers
-		System.out.println("Loading importers ...");
+		this.logImporterInfo(cac, "Loading importers ...");
 		Object[] importers = GamtaClassLoader.loadComponents(
 				dataPath,
 				DicDocumentImporter.class, 
@@ -149,22 +152,22 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 						File dataPath = new File(GoldenGateDIC.this.dataPath, (componentJarName.substring(0, (componentJarName.length() - 4)) + "Data"));
 						if (!dataPath.exists()) dataPath.mkdir();
 						DicDocumentImporter importer = ((DicDocumentImporter) component);
-						System.out.println(" - initializing importer " + importer.getName() + " ...");
+						logImporterInfo(cac, " - initializing importer " + importer.getName() + " ...");
 						importer.setDataPath(dataPath);
 						importer.setParent(GoldenGateDIC.this);
 						importer.init();
-						System.out.println(" - importer " + importer.getName() + " initialized");
+						logImporterInfo(cac, " - importer " + importer.getName() + " initialized");
 					}
 				});
-		System.out.println("Importers loaded");
+		this.logImporterInfo(cac, "Importers loaded");
 		
 		//	store importers
 		for (int i = 0; i < importers.length; i++)
 			this.importers.put(((DicDocumentImporter) importers[i]).getName(), importers[i]);
-		System.out.println("Importers registered");
+		this.logImporterInfo(cac, "Importers registered");
 		
 		//	start timer thread
-		System.out.println("Starting import service ...");
+		this.logImporterInfo(cac, "Starting import service ...");
 		synchronized (this.importers) {
 			this.importService = new ImportService();
 			this.importService.start();
@@ -172,33 +175,39 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				this.importers.wait();
 			} catch (InterruptedException ie) {}
 		}
-		System.out.println("Import service started");
+		this.logImporterInfo(cac, "Import service started");
 	}
 	
-	private synchronized void shutdownImporters() {
-		System.out.println("Shutting down import service ...");
+	private synchronized void shutdownImporters(ComponentActionConsole cac) {
+		this.logImporterInfo(cac, "Shutting down import service ...");
 		this.importService.shutdown();
 		this.importService = null;
-		System.out.println("Import service shut down");
+		this.logImporterInfo(cac, "Import service shut down");
 		
-		System.out.println("Finalizing importers");
+		this.logImporterInfo(cac, "Finalizing importers");
 		for (Iterator iit = this.importers.keySet().iterator(); iit.hasNext();) {
 			String importerName = ((String) iit.next());
 			DicDocumentImporter importer = ((DicDocumentImporter) this.importers.get(importerName));
 			importer.exit();
 		}
 		this.importers.clear();
-		System.out.println("Importers finalized");
+		this.logImporterInfo(cac, "Importers finalized");
 		
 		this.importedDocumentIdCache.clear();
-		System.out.println("Cache cleared");
+		this.logImporterInfo(cac, "Cache cleared");
+	}
+	
+	private void logImporterInfo(ComponentActionConsole cac, String message) {
+		if (cac == null)
+			System.out.println(message);
+		else cac.reportResult(message);
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent#exitComponent()
 	 */
 	protected void exitComponent() {
-		this.shutdownImporters();
+		this.shutdownImporters(null);
 		
 		//	disconnect from database
 		this.io.close();
@@ -268,7 +277,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				//	start slave importer thread
 				ImportThread it = new ImportThread(this, importer);
 				it.start();
-				System.out.println("Doing import from " + importer.getName());
+				logInfo("Doing import from " + importer.getName());
 				
 				//	monitor running importer thread
 				while (this.keepRunning && it.isAlive()) {
@@ -281,12 +290,12 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 					//	time since last import thread activity report exceeds timeout plus slave communication tolerance ==> kill import
 					if ((it.lastActivity + importerTimeout + (importerTimeout / 10)) < System.currentTimeMillis()) {
 						it.keepRunning = false;
-						System.out.println("Import in sub class call for over " + (importerTimeout / (1000 * 60)) + " minutes, now at:");
+						logWarning("Import in sub class call for over " + (importerTimeout / (1000 * 60)) + " minutes, now at:");
 						StackTraceElement[] itStes = it.getStackTrace();
 						for (int e = 0; e < itStes.length; e++)
-							System.out.println("  " + itStes[e].toString());
+							logWarning("  " + itStes[e].toString());
 						it.interrupt();
-						System.out.println("Import from " + importer.getName() + " abandoned due to timeout");
+						logWarning("Import from " + importer.getName() + " abandoned due to timeout");
 						break;
 					}
 					
@@ -294,7 +303,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 					else if (!this.keepRunning) {
 						it.keepRunning = false;
 						it.interrupt();
-						System.out.println("Import from " + importer.getName() + " abandoned due to shutdown");
+						logWarning("Import from " + importer.getName() + " abandoned due to shutdown");
 						return;
 					}
 				}
@@ -335,11 +344,11 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 			this.importer.setLastImportAttempt();
 			ImportDocument[] ids = this.importer.getImportDocuments();
 			this.lastActivity = System.currentTimeMillis();
-			System.out.println(" - got " + ids.length + " documents to import");
+			logInfo(" - got " + ids.length + " documents to import");
 			
 			//	fetch previously imported documents from database
-			TreeSet imported = getImportedDocumentIDs(this.importer.getName());
-			System.out.println(" - got " + imported.size() + " documents imported before");
+			HashSet imported = getImportedDocumentIDs(this.importer.getName());
+			logInfo(" - got " + imported.size() + " documents imported before");
 			
 			//	put pending imports in queue
 			for (int d = 0; d < ids.length; d++) {
@@ -347,17 +356,17 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 					this.queue.addLast(ids[d]);
 			}
 			this.lastActivity = System.currentTimeMillis();
-			System.out.println(" - got " + this.queue.size() + " documents left to import");
+			logInfo(" - got " + this.queue.size() + " documents left to import");
 		}
 		
 		private ImportDocument downloadDocument(ImportDocument id) throws Exception {
-			System.out.println(" - importing " + id.docId + " ...");
+			logInfo(" - importing " + id.docId + " ...");
 			
 			//	start document import
 			DocumentImportThread dit = new DocumentImportThread(this.importer, id);
 			dit.start();
 			this.lastActivity = System.currentTimeMillis();
-			System.out.println("   - getting document");
+			logInfo("   - getting document");
 			
 			//	monitor running importer thread
 			while (this.keepRunning && this.parent.keepRunning && dit.isAlive()) {
@@ -369,22 +378,22 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				
 				//	time since last import thread activity report exceeds timeout ==> abandon document download, and re-initialize importer
 				if ((this.lastActivity + importerTimeout) < System.currentTimeMillis()) {
-					System.out.println("   - document download in sub class call for over " + (importerTimeout / (1000 * 60)) + " minutes, now at:");
+					logWarning("   - document download in sub class call for over " + (importerTimeout / (1000 * 60)) + " minutes, now at:");
 					StackTraceElement[] ditStes = dit.getStackTrace();
 					for (int e = 0; e < ditStes.length; e++)
-						System.out.println("  " + ditStes[e].toString());
+						logWarning("  " + ditStes[e].toString());
 					dit.interrupt();
-					System.out.println("   - document download from " + this.importer.getName() + " abandoned due to timeout");
+					logWarning("   - document download from " + this.importer.getName() + " abandoned due to timeout");
 					this.importer.exit();
 					this.importer.init();
-					System.out.println("   - importer " + this.importer.getName() + " re-initialized, staring over");
+					logWarning("   - importer " + this.importer.getName() + " re-initialized, staring over");
 					return null;
 				}
 				
 				//	we're being shut down, kill import
 				else if (!this.keepRunning || !this.parent.keepRunning) {
 					dit.interrupt();
-					System.out.println("Import from " + importer.getName() + " abandoned due to shutdown");
+					logWarning("Import from " + importer.getName() + " abandoned due to shutdown");
 					return null;
 				}
 			}
@@ -400,30 +409,51 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 			doc.setAttribute(DOCUMENT_ID_ATTRIBUTE, id.docId);
 			doc.setDocumentProperty(DOCUMENT_ID_ATTRIBUTE, id.docId);
 			doc.setAttribute(GoldenGateDIO.DOCUMENT_NAME_ATTRIBUTE, id.docName);
-			System.out.println("   - got document, storing:");
+			logInfo("   - got document, storing:");
 			
 			//	store document in DIO
+			boolean attemptUpdate = false;
 			try {
 				dio.uploadDocument(this.importer.getImportUserName(), doc, new EventLogger() {
 					public void writeLog(String logEntry) {
-						System.out.println("     - " + logEntry);
+						logInfo("     - " + logEntry);
 					}
 				}, GoldenGateDIO.EXTERNAL_IDENTIFIER_MODE_CHECK);
-				System.out.println("   - document stored");
+				logInfo("   - document stored");
 			}
 			catch (DuplicateExternalIdentifierException deie) {
-				System.out.println("   - document stored before (1): " + deie.getMessage());
+				logWarning("   - document stored before (1): " + deie.getMessage());
 			}
 			catch (IOException ioe) {
-				if (ioe.getMessage().startsWith("Document already exists,"))
-					System.out.println("   - document stored before (2): " + ioe.getMessage());
+				if (ioe.getMessage().startsWith("Document already exists,")) {
+					logInfo("   - document stored before (2): " + ioe.getMessage());
+					attemptUpdate = true;
+				}
 				else throw ioe;
+			}
+			
+			//	try and update document in DIO if importer was last to touch it (there should be a reason for the re-import)
+			if (attemptUpdate) {
+				Properties docAttributes = dio.getDocumentAttributes(id.docId);
+				if (this.importer.getImportUserName().equals(docAttributes.getProperty(GoldenGateDIO.UPDATE_USER_ATTRIBUTE))) try {
+					dio.updateDocument(this.importer.getImportUserName(), id.docId, doc, new EventLogger() {
+						public void writeLog(String logEntry) {
+							logInfo("     - " + logEntry);
+						}
+					}, GoldenGateDIO.EXTERNAL_IDENTIFIER_MODE_CHECK);
+					logInfo("   - document updated");
+					dio.releaseDocument(this.importer.getImportUserName(), id.docId);
+					logInfo("   - document released");
+				}
+				catch (DuplicateExternalIdentifierException deie) {
+					logWarning("   - document stored before (3): " + deie.getMessage());
+				}
 			}
 			
 			//	remember document imported
 			rememberDocumentImported(id.docId, this.importer.getName());
 			this.importer.setLastImportComplete();
-			System.out.println("   - import remembered");
+			logInfo("   - import remembered");
 		}
 		
 		public void run() {
@@ -431,7 +461,7 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				synchronized (activeImporter) {
 					activeImporter[0] = this;
 				}
-				System.out.println("Importing from " + this.importer.getName());
+				logInfo("Importing from " + this.importer.getName());
 				this.importer.setLastImportStart();
 				
 				//	fill importer queue
@@ -457,15 +487,15 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				
 				//	looks as if sometimes importer breaks down due to Exceptions other than IOExceptions ==> catch them all
 				catch (Exception e) {
-					System.out.println("Error on getting update " + id.docId + " from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
-					e.printStackTrace(System.out);
+					logError("Error on getting update " + id.docId + " from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
+					logError(e);
 				}
 			}
 			
 			//	looks as if sometimes importer breaks down due to Exceptions other than IOExceptions ==> catch them all
 			catch (Exception e) {
-				System.out.println("Error on getting updates from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
-				e.printStackTrace(System.out);
+				logError("Error on getting updates from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
+				logError(e);
 			}
 			
 			//	unregister in parent
@@ -489,8 +519,8 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				this.importDoc = this.importer.importDocument(this.importDoc);
 			}
 			catch (Exception e) {
-				System.out.println("Error on getting document from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
-				e.printStackTrace(System.out);
+				logError("Error on getting document from " + this.importer.getName() + " - " + e.getClass().getName() + " (" + e.getMessage() + ")");
+				logError(e);
 			}
 		}
 	}
@@ -505,14 +535,17 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 		return this.getImportedDocumentIDs(docSource).contains(docId);
 	}
 	
-	private TreeMap importedDocumentIdCache = new TreeMap();
-	private TreeSet getImportedDocumentIDs(String docSource) {
-		TreeSet imported = ((TreeSet) this.importedDocumentIdCache.get(docSource));
-		if (imported != null)
-			return imported;
-		
-		imported = new TreeSet();
-		this.importedDocumentIdCache.put(docSource, imported);
+	private HashMap importedDocumentIdCache = new HashMap();
+	private HashSet getImportedDocumentIDs(String docSource) {
+		HashSet imported;
+		synchronized (this.importedDocumentIdCache) {
+			imported = ((HashSet) this.importedDocumentIdCache.get(docSource));
+			if (imported != null)
+				return imported;
+			
+			imported = new HashSet();
+			this.importedDocumentIdCache.put(docSource, imported);
+		}
 		
 		SqlQueryResult sqr = null;
 		String query = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
@@ -527,13 +560,14 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIC: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting imported documents for '" + docSource + "'.");
-			System.out.println("  query was " + query);
+			this.logError("GoldenGateDIC: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting imported documents for '" + docSource + "'.");
+			this.logError("  query was " + query);
 		}
 		finally {
 			if (sqr != null)
 				sqr.close();
 		}
+		
 		return imported;
 	}
 	
@@ -545,10 +579,14 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				");";
 		try {
 			this.io.executeUpdateQuery(insertQuery);
+			synchronized (this.importedDocumentIdCache) {
+				if (this.importedDocumentIdCache.containsKey(docSource))
+					((HashSet) this.importedDocumentIdCache.get(docSource)).add(docId);
+			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIC: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while remembering document import.");
-			System.out.println("  Query was " + insertQuery);
+			this.logError("GoldenGateDIC: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while remembering document import.");
+			this.logError("  Query was " + insertQuery);
 		}
 	}
 	
@@ -582,11 +620,11 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				if (arguments.length == 0) {
 					synchronized (activeImporter) {
 						if (activeImporter[0] == null)
-							System.out.println(" No import running at the moment");
-						else System.out.println(" Running import from " + activeImporter[0].importer.getName() + ", " + activeImporter[0].queueSize() + " documents pending");
+							this.reportResult(" No import running at the moment");
+						else this.reportResult(" Running import from " + activeImporter[0].importer.getName() + ", " + activeImporter[0].queueSize() + " documents pending");
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -607,14 +645,14 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				if (arguments.length == 0) {
 					synchronized (activeImporter) {
 						if (activeImporter[0] == null)
-							System.out.println(" No import running at the moment");
+							this.reportResult(" No import running at the moment");
 						else {
 							activeImporter[0].clearQueue();
-							System.out.println(" Queue of imports from " + activeImporter[0].importer.getName() + " cleared");
+							this.reportResult(" Queue of imports from " + activeImporter[0].importer.getName() + " cleared");
 						}
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -637,17 +675,17 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 					try {
 						int timeout = (1000 * 60 * Integer.parseInt(arguments[0]));
 						if (timeout < 1)
-							System.out.println(" Invalid import timeout " + arguments[0]);
+							this.reportError(" Invalid import timeout " + arguments[0]);
 						else {
 							importerTimeout = timeout;
-							System.out.println(" Import timeout set to " + arguments[0] + " minutes");
+							this.reportResult(" Import timeout set to " + arguments[0] + " minutes");
 						}
 					}
 					catch (NumberFormatException nfe) {
-						System.out.println(" Invalid import timeout " + arguments[0]);
+						this.reportError(" Invalid import timeout " + arguments[0]);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as the only argument.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as the only argument.");
 			}
 		};
 		cal.add(ca);
@@ -666,14 +704,14 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
-					System.out.println(" There " + ((importers.size() == 1) ? "is" : "are") + " " + ((importers.size() == 0) ? "no" : ("" + importers.size())) + " importer" + ((importers.size() == 1) ? "" : "s") + " connected" + ((importers.size() == 0) ? "." : ":"));
+					this.reportResult(" There " + ((importers.size() == 1) ? "is" : "are") + " " + ((importers.size() == 0) ? "no" : ("" + importers.size())) + " importer" + ((importers.size() == 1) ? "" : "s") + " connected" + ((importers.size() == 0) ? "." : ":"));
 					for (Iterator iit = importers.keySet().iterator(); iit.hasNext();) {
 						String importerName = ((String) iit.next());
 						DicDocumentImporter importer = ((DicDocumentImporter) importers.get(importerName));
-						System.out.println(" - " + importerName + ": " + importer.getImportUserName());
+						this.reportResult(" - " + importerName + ": " + importer.getImportUserName());
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -695,13 +733,13 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 				if (arguments.length == 1) {
 					DicDocumentImporter ddi = ((DicDocumentImporter) importers.get(arguments[0]));
 					if (ddi == null)
-						System.out.println(" No importer found for name " + arguments[0]);
+						this.reportError(" No importer found for name " + arguments[0]);
 					else {
 						ddi.resetLastImport();
-						System.out.println(" Starting import from " + arguments[0] + " at the next possible time");
+						this.reportResult(" Starting import from " + arguments[0] + " at the next possible time");
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the name of the importer to run as the only argument.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the name of the importer to run as the only argument.");
 			}
 		};
 		cal.add(ca);
@@ -727,9 +765,9 @@ public class GoldenGateDIC extends AbstractGoldenGateServerComponent implements 
 					 * figure out how to prevent unloading and reloading importers
 					 * that are running
 					 */
-					loadImporters(true);
+					loadImporters(this);
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);

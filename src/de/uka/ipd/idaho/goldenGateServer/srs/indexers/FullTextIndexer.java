@@ -47,6 +47,7 @@ import java.util.LinkedList;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
@@ -79,7 +80,7 @@ public class FullTextIndexer extends AbstractIndexer {
 	 * - one byte 2-log of document length
 	 */
 	
-	private static final boolean DEBUG = false;
+//	private static final boolean DEBUG = false;
 	
 	private static final String FULL_TEXT_QUREY = "ftQuery";
 	private static final String MATCH_MODE = "matchMode";
@@ -95,13 +96,14 @@ public class FullTextIndexer extends AbstractIndexer {
 	private TreeMap trigramsToIndexTerms = new TreeMap();
 	
 	private HashMap termIndexCache = new LinkedHashMap();
-	private int termIndexCacheLimit = 512; // TODO: make this a config parameter
+	private int termIndexCacheLimit = 512;
 	
 	private HashSet dirtyTermIndexQueue = new LinkedHashSet();
 	private HashMap pendingTermIndexEntryCache = new LinkedHashMap();
 	
 	private HashSet invalidDocumentNumbers = new HashSet();
 	
+	private File indexRootPath;
 	private IndexUpdater indexUpdater;
 	
 	/* (non-Javadoc)
@@ -116,6 +118,25 @@ public class FullTextIndexer extends AbstractIndexer {
 	 */
 	public void init() {
 		System.out.println("FullTextIndexer: initializing ...");
+		
+		//	load configuration
+		File configFile = new File(this.dataPath, "config.cnfg");
+		if (configFile.exists()) {
+			Settings config = Settings.loadSettings(configFile);
+			String indexRootPath = config.getSetting("indexRootPath", "IndexData");
+			while (indexRootPath.startsWith("./"))
+				indexRootPath = indexRootPath.substring("./".length());
+			this.indexRootPath = (((indexRootPath.indexOf(":\\") == -1) && (indexRootPath.indexOf(":/") == -1) && !indexRootPath.startsWith("/")) ? new File(this.dataPath, indexRootPath) : new File(indexRootPath));
+			try {
+				this.termIndexCacheLimit = Integer.parseInt(config.getSetting("termIndexCacheLimit", ("" + this.termIndexCacheLimit)).trim());
+			} catch (NumberFormatException nfe) {}
+		}
+		
+		//	make sure we have an index root path
+		if (this.indexRootPath == null)
+			this.indexRootPath = this.dataPath;
+		if (!this.indexRootPath.exists())
+			this.indexRootPath.mkdirs();
 		
 		//	load stop words
 		System.out.println("  - loading stop words ...");
@@ -138,7 +159,7 @@ public class FullTextIndexer extends AbstractIndexer {
 				DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(invalidDocNrFile)));
 				synchronized (this.invalidDocumentNumbers) {
 					while (dis.available() >= 4)
-						this.invalidDocumentNumbers.add(new Integer(dis.readInt()));
+						this.invalidDocumentNumbers.add(new Long(dis.readLong()));
 				}
 				dis.close();
 				System.out.println("  - got " + this.invalidDocumentNumbers.size() + " invalid document numbers");
@@ -175,25 +196,27 @@ public class FullTextIndexer extends AbstractIndexer {
 		
 		//	store invalidated document numbers
 		try {
-			File invalidDocNrFile = new File(this.dataPath, "invalid");
+//			File invalidDocNrFile = new File(this.dataPath, "invalid");
+			File invalidDocNrFile = new File(this.indexRootPath, "invalid");
 			if (invalidDocNrFile.length() > 0) { // replace existing file
 				File oldIdnf = new File(invalidDocNrFile.getAbsolutePath() + ".old");
 				if (oldIdnf.exists()) oldIdnf.delete();
 				invalidDocNrFile.renameTo(new File(invalidDocNrFile.getAbsolutePath() + ".old"));
-				invalidDocNrFile = new File(this.dataPath, "invalid");
+//				invalidDocNrFile = new File(this.dataPath, "invalid");
+				invalidDocNrFile = new File(this.indexRootPath, "invalid");
 			}
 			invalidDocNrFile.createNewFile();
 			DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(invalidDocNrFile, true)));
 			synchronized (this.invalidDocumentNumbers) {
 				for (Iterator it = this.invalidDocumentNumbers.iterator(); it.hasNext();)
-					dos.writeInt(((Integer) it.next()).intValue());
+					dos.writeLong(((Long) it.next()).longValue());
 			}
 			dos.flush();
 			dos.close();
 		}
 		catch (IOException ioe) {
-			System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing invalid docNr file.");
-			ioe.printStackTrace(System.out);
+			this.host.logError("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing invalid docNr file.");
+			this.host.logError(ioe);
 		}
 	}
 	
@@ -219,10 +242,11 @@ public class FullTextIndexer extends AbstractIndexer {
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#processQuery(de.uka.ipd.idaho.goldenGateServer.srs.Query)
 	 */
 	public QueryResult processQuery(Query query) {
+		this.host.logActivity("FullTextIndexer processing query '" + query.toString() + "'");
 		
 		//	get raw query
 		String termString = query.getValue(FULL_TEXT_QUREY);
-		if (DEBUG) System.out.println("  - processing query '" + termString + "'");
+		this.host.logActivity("  - processing query '" + termString + "'");
 		
 		//	void raw query
 		if ((termString == null) || (termString.trim().length() == 0))
@@ -238,7 +262,7 @@ public class FullTextIndexer extends AbstractIndexer {
 			else if (Gamta.isNumber(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH))
 				terms.addElement(this.normalizeTerm(term));
 		}
-		if (DEBUG) System.out.println("  - got terms '" + terms.concatStrings("', '") + "'");
+		this.host.logActivity("  - got terms '" + terms.concatStrings("', '") + "'");
 		
 		//	no terms given
 		if (terms.isEmpty()) return null;
@@ -253,7 +277,7 @@ public class FullTextIndexer extends AbstractIndexer {
 		//	process query
 		QueryResult result = null;
 		for (int t = 0; t < distinctTerms.size(); t++) {
-			if (DEBUG) System.out.println("  - doing query term '" + distinctTerms.get(t) + "'");
+			this.host.logActivity("  - doing query term '" + distinctTerms.get(t) + "'");
 			
 			//	assemble result for current term/infix
 			QueryResult termOrInfixResult = null;
@@ -301,7 +325,7 @@ public class FullTextIndexer extends AbstractIndexer {
 						
 						//	check if actual suffix matches (trigrams are indicators, but no secure evidence)
 						if (INFIX_MATCH_MODE.equals(matchMode) ? (infixBearingTerm.indexOf(infix) != -1) : infixBearingTerm.startsWith(infix)) {
-							if (DEBUG) System.out.println("    - got " + matchMode + " match term '" + infixBearingTerm + "'");
+							this.host.logActivity("    - got " + matchMode + " match term '" + infixBearingTerm + "'");
 							
 							//	get index for wildcard matched term
 							TermIndex infixBearingTermIndex = this.getTermIndex(infixBearingTerm);
@@ -320,7 +344,7 @@ public class FullTextIndexer extends AbstractIndexer {
 					}
 			}
 			
-			if (DEBUG) System.out.println("  - got " + ((termOrInfixResult == null) ? "no" : ("" + termOrInfixResult.size())) + " results for '" + distinctTerms.get(t) + "'");
+			this.host.logActivity("  - got " + ((termOrInfixResult == null) ? "no" : ("" + termOrInfixResult.size())) + " results for '" + distinctTerms.get(t) + "'");
 			
 			//	combine result for current term/infix with results for other terms/infixes (boolean AND, vector space measure, etc)
 			if (result == null)
@@ -339,7 +363,7 @@ public class FullTextIndexer extends AbstractIndexer {
 		synchronized (this.termIndexCache) {
 			
 			//	do cache lookup
-			if (termIndexCache.containsKey(term)) {
+			if (this.termIndexCache.containsKey(term)) {
 				
 				//	have to remove and re-add index to maintain LRU ordering in linked map
 				termIndex = ((TermIndex) this.termIndexCache.remove(term));
@@ -416,8 +440,8 @@ public class FullTextIndexer extends AbstractIndexer {
 			}
 		}
 		catch (IOException ioe) {
-			System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while loading index file for '" + term + "'");
-			ioe.printStackTrace(System.out);
+			this.host.logError("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while loading index file for '" + term + "'");
+			this.host.logError(ioe);
 		}
 		
 		//	have to synchronize cache modification in order to avoid problems in the face of concurrency
@@ -441,7 +465,7 @@ public class FullTextIndexer extends AbstractIndexer {
 	}
 	
 	private File getIndexFile(String term, boolean create) throws IOException {
-		File indexFile = this.dataPath;
+		File indexFile = this.indexRootPath;
 		for (int l = 0; l < Math.min(term.length(), 3); l++)
 			indexFile = new File(indexFile, term.substring(l, (l+1)));
 		
@@ -608,6 +632,8 @@ public class FullTextIndexer extends AbstractIndexer {
 		//	index terms
 		for (Iterator tit = terms.iterator(); tit.hasNext();) {
 			String term = ((String) tit.next());
+			if (term.trim().length() == 0)
+				continue;
 			
 			//	map trigrams to terms
 			for (int t = 0; t <= (term.length() - 3); t++) {
@@ -643,15 +669,16 @@ public class FullTextIndexer extends AbstractIndexer {
 			}
 			
 			//	enqueue new entries for persistent storage (if not whole index is scheduled for rewrite)
-			if (tf != 0)
-				synchronized (this.pendingTermIndexEntryCache) {
-					LinkedList pendingEntries = ((LinkedList) this.pendingTermIndexEntryCache.get(term));
-					if (pendingEntries == null) {
-						pendingEntries = new LinkedList();
-						this.pendingTermIndexEntryCache.put(term, pendingEntries);
-					}
-					pendingEntries.add(new TermIndexEntry(docNr, tf, docLenLog));
+			if (tf == 0)
+				continue;
+			synchronized (this.pendingTermIndexEntryCache) {
+				LinkedList pendingEntries = ((LinkedList) this.pendingTermIndexEntryCache.get(term));
+				if (pendingEntries == null) {
+					pendingEntries = new LinkedList();
+					this.pendingTermIndexEntryCache.put(term, pendingEntries);
 				}
+				pendingEntries.add(new TermIndexEntry(docNr, tf, docLenLog));
+			}
 		}
 	}
 	
@@ -677,9 +704,10 @@ public class FullTextIndexer extends AbstractIndexer {
 		public void run() {
 			
 			//	initialize wildcard matching helper
-			System.out.println("  - indexing index terms by trigrams ...");
+			host.logInfo("  - indexing index terms by trigrams ...");
 			int indexTermCount = 0;
-			File[] idxFolders1 = dataPath.listFiles(new FileFilter() {
+//			File[] idxFolders1 = dataPath.listFiles(new FileFilter() {
+			File[] idxFolders1 = indexRootPath.listFiles(new FileFilter() {
 				public boolean accept(File file) {
 					return file.isDirectory();
 				}
@@ -718,7 +746,7 @@ public class FullTextIndexer extends AbstractIndexer {
 					}
 				}
 			}
-			System.out.println("  - got " + trigramsToIndexTerms.size() + " trigrams from " + indexTermCount + " index terms");
+			host.logInfo("  - got " + trigramsToIndexTerms.size() + " trigrams from " + indexTermCount + " index terms");
 			
 			//	get ready to work
 			while (this.keepRunning) {
@@ -738,8 +766,7 @@ public class FullTextIndexer extends AbstractIndexer {
 			}
 			
 			//	work off the rest before shutdown
-			if (DEBUG)
-				System.out.println("IndexUpdater shutting down, working off remaining queues ...");
+			host.logInfo("IndexUpdater shutting down, working off remaining queues ...");
 			while (this.doWork()) {}
 		}
 		
@@ -752,7 +779,7 @@ public class FullTextIndexer extends AbstractIndexer {
 					TermIndex termIndex = ((TermIndex) it.next());
 					synchronized (termIndex) {
 						try {
-							if (DEBUG) System.out.println("  - storing index file for '" + termIndex.term + "'");
+							host.logDebug("  - storing index file for '" + termIndex.term + "'");
 							File termIndexFile = getIndexFile(termIndex.term, true);
 							if (termIndexFile.length() > 0) { // replace existing file
 								File oldTif = new File(termIndexFile.getAbsolutePath() + ".old");
@@ -760,7 +787,7 @@ public class FullTextIndexer extends AbstractIndexer {
 								termIndexFile.renameTo(new File(termIndexFile.getAbsolutePath() + ".old"));
 								termIndexFile = getIndexFile(termIndex.term, true);
 							}
-							if (DEBUG) System.out.println("    - writing " + termIndex.size + " entries");
+							host.logDebug("    - writing " + termIndex.size + " entries");
 							DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(termIndexFile, false)));
 							for (int e = 0; e < termIndex.size; e++) {
 								TermIndexEntry tie = termIndex.entries[e];
@@ -771,12 +798,12 @@ public class FullTextIndexer extends AbstractIndexer {
 							dos.flush();
 							dos.close();
 							it.remove();
-							if (DEBUG) System.out.println("    - done");
+							host.logDebug("    - done");
 							return true;
 						}
 						catch (IOException ioe) {
-							System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing index file for '" + termIndex.term + "'");
-							ioe.printStackTrace(System.out);
+							host.logError("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing index file for '" + termIndex.term + "'");
+							host.logError(ioe);
 						}
 					}
 				}
@@ -789,9 +816,9 @@ public class FullTextIndexer extends AbstractIndexer {
 					String term = it.next().toString();
 					LinkedList pendingEntries = ((LinkedList) pendingTermIndexEntryCache.get(term));
 					try {
-						if (DEBUG) System.out.println("  - extending index file for '" + term + "'");
+						host.logDebug("  - extending index file for '" + term + "'");
 						File termIndexFile = getIndexFile(term, true);
-						if (DEBUG) System.out.println("    - writing " + pendingEntries.size() + " entries");
+						host.logDebug("    - writing " + pendingEntries.size() + " entries");
 						DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(termIndexFile, true)));
 						while (pendingEntries.size() != 0) {
 							TermIndexEntry tie = ((TermIndexEntry) pendingEntries.removeFirst());
@@ -802,12 +829,12 @@ public class FullTextIndexer extends AbstractIndexer {
 						dos.flush();
 						dos.close();
 						it.remove();
-						if (DEBUG) System.out.println("    - done");
+						host.logDebug("    - done");
 						return true;
 					}
 					catch (IOException ioe) {
-						System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while extending index file for '" + term + "'");
-						ioe.printStackTrace(System.out);
+						host.logError("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while extending index file for '" + term + "'");
+						host.logError(ioe);
 					}
 				}
 			}

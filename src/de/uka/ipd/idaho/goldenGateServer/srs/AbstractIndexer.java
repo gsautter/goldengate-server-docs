@@ -162,6 +162,7 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 			sb.append(charNormalizationMappings.getProperty(string.substring(c, (c+1)), StringUtils.getNormalForm(string.charAt(c))));
 		return sb.toString();
 	}
+	//	TODO use StringUtils here
 	private static Properties charNormalizationMappings = new Properties();
 	static {
 		charNormalizationMappings.setProperty("ß","ss");

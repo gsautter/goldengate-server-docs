@@ -34,13 +34,10 @@ import java.io.IOException;
 import java.io.Reader;
 import java.net.URLDecoder;
 import java.sql.SQLException;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -65,6 +62,9 @@ import de.uka.ipd.idaho.gamta.Attributed;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
+import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest;
+import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest.AttributeFilter;
+import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest.TypeFilter;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.gamta.util.SgmlDocumentReader;
@@ -73,7 +73,6 @@ import de.uka.ipd.idaho.gamta.util.gPath.exceptions.GPathSyntaxException;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
-import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventNotifier;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
@@ -99,13 +98,17 @@ import de.uka.ipd.idaho.stringUtils.regExUtils.RegExUtils;
  */
 public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements GoldenGateDioConstants {
 	
+	private static final String ANNOTATION_NESTING_ORDER_SETTING = "ANNOTATION_NESTING_ORDER";
+	
 	private UserAccessAuthority uaa = null;
+	
+	private AnnotationChecksumDigest checksumDigest;
 	
 	private DocumentStore dst;
 	
 	private IoProvider io;
-	
-	private GoldenGateServerEventNotifier eventNotifier;
+//	
+//	private GoldenGateServerEventNotifier eventNotifier;
 	
 	/*
 	 * The name of the DIO's document data table in the backing database. This
@@ -115,13 +118,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	private static final String DOCUMENT_TABLE_NAME = "GgDioDocuments";
 	
 	private static final String DOCUMENT_ID_HASH_NAME = "docIdHash";
-	
 	private static final String EXTERNAL_IDENTIFIER_NAME = "externalIdentifierName";
 	private static final int EXTERNAL_IDENTIFIER_NAME_LENGTH = 32;
-	
 	private static final String EXTERNAL_IDENTIFIER_CONFIG_HASH_NAME = "extIdConfigHash";
-	
 	private static final int EXTERNAL_IDENTIFIER_LENGTH = 255;
+	private static final String DOCUMENT_CHECKSUM_COLUMN_NAME = "DocCheckSum";
 	
 	private static final int DOCUMENT_NAME_COLUMN_LENGTH = 255;
 	private static final int DOCUMENT_AUTHOR_COLUMN_LENGTH = 255;
@@ -183,6 +184,19 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 */
 	protected void initComponent() {
 		
+		//	set up checksum digest, filtering update user an time
+		this.checksumDigest = new AnnotationChecksumDigest();
+		this.checksumDigest.addAttributeFilter(new AttributeFilter() {
+			public boolean filterAttribute(String attributeName) {
+				return (false
+						|| UPDATE_USER_ATTRIBUTE.equals(attributeName)
+						|| UPDATE_TIME_ATTRIBUTE.equals(attributeName)
+						|| attributeName.startsWith(UPDATE_USER_ATTRIBUTE + "-")
+						|| attributeName.startsWith(UPDATE_TIME_ATTRIBUTE + "-")
+						);
+			}
+		});
+		
 		//	get document storage folder
 		String docFolderName = this.configuration.getSetting("documentFolderName", "Documents");
 		while (docFolderName.startsWith("./"))
@@ -233,6 +247,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		td.addColumn(UPDATE_USER_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, UserAccessAuthority.USER_NAME_MAX_LENGTH);
 		td.addColumn(UPDATE_TIME_ATTRIBUTE, TableDefinition.BIGINT_DATATYPE, 0);
 		td.addColumn(DOCUMENT_VERSION_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
+		td.addColumn(DOCUMENT_CHECKSUM_COLUMN_NAME, TableDefinition.VARCHAR_DATATYPE, 32);
 		
 		//	ensure table
 		if (!this.io.ensureTable(td, true))
@@ -250,6 +265,10 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		this.extIdAttributeNameList = this.configuration.getSetting(EXTERNAL_IDENTIFIER_ATTRIBUTE, "");
 		if (this.extIdAttributeNameList != null)
 			this.extIdAttributeNames = this.extIdAttributeNameList.split("\\s+");
+		
+		//	set annotation nesting order for data model
+		Gamta.setAnnotationNestingOrder(this.configuration.getSetting(ANNOTATION_NESTING_ORDER_SETTING, Gamta.getAnnotationNestingOrder()));
+		System.out.println("  - annotation nesting order set");
 		
 		//	load document keywording data
 		File keywordingFolder = new File(this.dataPath, "Keywording");
@@ -396,6 +415,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				System.out.println("  query was " + updateIdHashQuery);
 			}
 		}
+		
+		//	TODO add document checksum where necessary
 		
 		//	verify external identifier (might have been set after first documents were stored)
 		if (this.extIdAttributeNames.length != 0) {
@@ -583,7 +604,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				uidSqr.close();
 		}
 		
-		//	update doaument data
+		//	update document data
 		while (!updateDocIDs.isEmpty()) {
 			String docId = ((String) updateDocIDs.removeFirst());
 			
@@ -680,29 +701,29 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		this.uaa.registerPermission(UPLOAD_DOCUMENT_PERMISSION);
 		this.uaa.registerPermission(UPDATE_DOCUMENT_PERMISSION);
 		this.uaa.registerPermission(DELETE_DOCUMENT_PERMISSION);
-		
-		//	create event notifier
-		this.eventNotifier = new GoldenGateServerEventNotifier("DioUpdateNotifier") {
-			protected GoldenGateServerEvent prepareEventNotification(GoldenGateServerEvent gse) throws Exception {
-				if (gse instanceof DioDocumentEvent) {
-					final DioDocumentEvent dde = ((DioDocumentEvent) gse);
-					if (dde.type != DioDocumentEvent.UPDATE_TYPE)
-						return dde;
-					if (dde.document != null)
-						return dde;
-					QueriableAnnotation doc = dst.loadDocument(dde.documentId);
-					return new DioDocumentEvent(dde.user, dde.documentId, doc, dde.version, dde.type, dde.sourceClassName, dde.eventTime, null) {
-						public void notificationComplete() {
-							dde.notificationComplete();
-						}
-						public void writeLog(String logEntry) {
-							dde.writeLog(logEntry);
-						}
-					};
-				}
-				else return super.prepareEventNotification(gse);
-			}
-		};
+//		
+//		//	create event notifier
+//		this.eventNotifier = new GoldenGateServerEventNotifier("DioUpdateNotifier") {
+//			protected GoldenGateServerEvent prepareEventNotification(GoldenGateServerEvent gse) throws Exception {
+//				if (gse instanceof DioDocumentEvent) {
+//					final DioDocumentEvent dde = ((DioDocumentEvent) gse);
+//					if (dde.type != DioDocumentEvent.UPDATE_TYPE)
+//						return dde;
+//					if (dde.document != null)
+//						return dde;
+//					QueriableAnnotation doc = dst.loadDocument(dde.documentId);
+//					return new DioDocumentEvent(dde.user, dde.documentId, doc, dde.version, dde.type, dde.sourceClassName, dde.eventTime, null) {
+//						public void notificationComplete() {
+//							dde.notificationComplete();
+//						}
+//						public void writeLog(String logEntry) {
+//							dde.writeLog(logEntry);
+//						}
+//					};
+//				}
+//				else return super.prepareEventNotification(gse);
+//			}
+//		};
 	}
 	
 	/*
@@ -721,27 +742,21 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			inputFolderSettings.setSetting(INPUT_FOLDER_SETTING, ifw.folderName);
 		}
 		this.inputFolderWatchers.clear();
-		
-		//	shut down event notifier
-		this.eventNotifier.shutdown();
+//		
+//		//	shut down event notifier
+//		this.eventNotifier.shutdown();
 		
 		//	disconnect from database
 		this.io.close();
 	}
 	
 	private static final String INPUT_FOLDER_SUBSET_PREFIX = "INPUT_FOLDERS";
-
 	private static final String INPUT_FOLDER_SETTING = "FOLDER";
-
 	private static final String LIST_WATCHED_FOLDERS_COMMAND = "watched";
-
 	private static final String WATCH_FOLDER_COMMAND = "watch";
-
 	private static final String STOP_WATCH_FOLDER_COMMAND = "stopwatch";
-
 	private static final String IMPORT_FILE_COMMAND = "import";
-	
-	private static final String ISSUE_EVENTS_COMMAND = "issueEvents";
+	private static final String ISSUE_EVENT_COMMAND = "issueEvent";
 	
 	/*
 	 * (non-Javadoc)
@@ -763,7 +778,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId) && !DOCUMENT_SERVLET_SESSION_ID.equals(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -837,7 +852,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId) && !DOCUMENT_SERVLET_SESSION_ID.equals(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -885,7 +900,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId) && !DOCUMENT_SERVLET_SESSION_ID.equals(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -936,7 +951,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -949,13 +964,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 				try {
 					int docSize = Integer.parseInt(input.readLine());
-					System.out.println(" - size is " + docSize);
+					logInfo(" - size is " + docSize);
 
 					String docName = input.readLine();
-					System.out.println(" - name is " + docName);
+					logInfo(" - name is " + docName);
 
 					String externalIdentifierMode = input.readLine();
-					System.out.println(" - external identifier mode is " + externalIdentifierMode);
+					logInfo(" - external identifier mode is " + externalIdentifierMode);
 
 					DocumentRoot doc = GenericGamtaXML.readDocument(new Reader() {
 						boolean end = false;
@@ -975,7 +990,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 							return (len - off);
 						}
 					});
-					System.out.println(" - got document, size is " + doc.size());
+					logInfo(" - got document, size is " + doc.size());
 					
 					// check if data transfer complete
 					if (doc.size() < docSize) {
@@ -983,10 +998,10 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 						output.newLine();
 						return;
 					}
-					else if (doc.size() > docSize) System.out.println(" - more tokens than predicted, but OK ...");
+					else if (doc.size() > docSize) logWarning(" - more tokens than predicted, but OK ...");
 					
 					String user = uaa.getUserNameForSession(sessionId);
-					System.out.println(" - user is " + user);
+					logInfo(" - user is " + user);
 
 					if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE))
 						doc.setAttribute(CHECKIN_USER_ATTRIBUTE, user);
@@ -1037,7 +1052,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -1113,7 +1128,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -1192,7 +1207,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -1205,13 +1220,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				
 				try {
 					int docSize = Integer.parseInt(input.readLine());
-					System.out.println(" - size is " + docSize);
+					logInfo(" - size is " + docSize);
 
 					String docName = input.readLine();
-					System.out.println(" - name is " + docName);
+					logInfo(" - name is " + docName);
 
 					String externalIdentifierMode = input.readLine();
-					System.out.println(" - external identifier mode is " + externalIdentifierMode);
+					logInfo(" - external identifier mode is " + externalIdentifierMode);
 					
 					DocumentRoot doc = GenericGamtaXML.readDocument(new Reader() {
 						boolean end = false;
@@ -1231,7 +1246,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 							return (len - off);
 						}
 					});
-					System.out.println(" - got document, size is " + doc.size());
+					logInfo(" - got document, size is " + doc.size());
 
 					// check if data transfer complete
 					if (doc.size() < docSize) {
@@ -1239,10 +1254,10 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 						output.newLine();
 						return;
 					}
-					else if (doc.size() > docSize) System.out.println(" - more tokens than predicted, but OK ...");
+					else if (doc.size() > docSize) logWarning(" - more tokens than predicted, but OK ...");
 
 					String user = uaa.getUserNameForSession(sessionId);
-					System.out.println(" - user is " + user);
+					logInfo(" - user is " + user);
 
 					String docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID()));
 
@@ -1271,8 +1286,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 					
 					output.write(UPDATE_DOCUMENT);
 					output.newLine();
-
-					output.write("Document '" + docName + "' stored as version " + version);
+					
+					output.write("Document '" + docName + "' " + ((version == -1) ? "unchanged" : ("stored as version " + version)));
 					output.newLine();
 				}
 				catch (IOException ioe) {
@@ -1295,7 +1310,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 				
@@ -1338,7 +1353,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				if (!uaa.isValidSession(sessionId)) {
 					output.write("Invalid session (" + sessionId + ")");
 					output.newLine();
-					writeLogEntry("Request for invalid session - " + sessionId);
+					logError("Request for invalid session - " + sessionId);
 					return;
 				}
 
@@ -1369,13 +1384,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
-					System.out.println("GoldenGATE DIO is currently watching the following folders for new documents:");
+					this.reportResult("GoldenGATE DIO is currently watching the following folders for new documents:");
 					for (int i = 0; i < inputFolderWatchers.size(); i++) {
 						InputFolderWatcher ifw = ((InputFolderWatcher) inputFolderWatchers.get(i));
-						System.out.println("- " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ")");
+						this.reportResult("- " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ")");
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -1393,9 +1408,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 1) {
 					String error = watchFolder(arguments[0]);
-					System.out.println((error == null) ? ("Now watching folder " + arguments[0]) : error);
+					if (error == null)
+						this.reportResult("Now watching folder " + arguments[0]);
+					else this.reportError(error);
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to watch only.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to watch only.");
 			}
 		};
 		cal.add(ca);
@@ -1418,13 +1435,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 						if (ifw.folderName.equals(arguments[0])) {
 							ifw.shutdown();
 							inputFolderWatchers.remove(i);
-							System.out.println("Stopped watching folder " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ").");
+							this.reportResult("Stopped watching folder " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ").");
 							return;
 						}
 					}
-					System.out.println("Never watched folder " + arguments[0] + ", cannot stop doing so.");
+					this.reportError("Never watched folder " + arguments[0] + ", cannot stop doing so.");
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to stop watching only.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to stop watching only.");
 			}
 		};
 		cal.add(ca);
@@ -1454,12 +1471,12 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 							uploadDocument(folderUserName, doc, null);
 						}
 						catch (Exception e) {
-							System.out.println("Error creating document from '" + file.getAbsolutePath() + "' - " + e.getMessage());
+							this.reportError("Error creating document from '" + file.getAbsolutePath() + "' - " + e.getMessage());
 						}
 					}
-					else System.out.println(" Cannot import non-existant file or folder '" + file.getAbsolutePath() + "'");
+					else this.reportError(" Cannot import non-existent file or folder '" + file.getAbsolutePath() + "'");
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the file to import only.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the file to import only.");
 			}
 		};
 		cal.add(ca);
@@ -1467,20 +1484,20 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		//	issue update events
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
-				return ISSUE_EVENTS_COMMAND;
+				return ISSUE_EVENT_COMMAND;
 			}
 			public String[] getExplanation() {
 				String[] explanation = {
-						ISSUE_EVENTS_COMMAND + " <docId>",
-						"Issue update events for all documents from a specific document ID:",
-						"- <docId>: the ID of the document to issue update events for"
+						ISSUE_EVENT_COMMAND + " <docId>",
+						"Issue an update event for a specific document ID:",
+						"- <docId>: the ID of the document to issue an update event for"
 					};
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length != 1)
-					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID as the only argument.");
-				else issueEvents(arguments[0]);
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID as the only argument.");
+				else issueEvent(arguments[0], this);
 			}
 		};
 		cal.add(ca);
@@ -1489,62 +1506,109 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		ComponentAction[] dstActions = this.dst.getActions();
 		for (int a = 0; a < dstActions.length; a++)
 			cal.add(dstActions[a]);
+//		
+//		//	add event queue monitoring action
+//		cal.add(this.eventNotifier.getQueueSizeAction());
 		
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
 	}
-	
-	private Thread eventIssuer = null;
-	private void issueEvents(final String docId) {
+//	
+//	private Thread eventIssuer = null;
+//	private void issueEvent(final String docId, final ComponentActionConsole cac) {
+//		
+//		//	let's not knock out the server
+//		if (this.eventIssuer != null) {
+//			cac.reportError("Already issuing update events, only one document can run at a time.");
+//			return;
+//		}
+//		
+//		//	create and start event issuer
+//		this.eventIssuer = new Thread() {
+//			public void run() {
+//				StringBuffer query = new StringBuffer("SELECT " + DOCUMENT_ID_ATTRIBUTE + ", " + UPDATE_USER_ATTRIBUTE + ", " + UPDATE_TIME_ATTRIBUTE);
+//				query.append(" FROM " + DOCUMENT_TABLE_NAME);
+//				query.append(" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'");
+//				query.append(" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "");
+//				
+//				SqlQueryResult sqr = null;
+//				int count = 0;
+//				try {
+//					sqr = io.executeSelectQuery(query.toString(), true);
+//					while (sqr.next()) {
+//						String docId = sqr.getString(0);
+//						String updateUser = sqr.getString(1);
+//						long updateTime = sqr.getLong(2);
+//						try {
+////							QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 8) ? dst.loadDocument(docId) : null);
+//							int docVersion = dst.getVersion(docId);
+////							eventNotifier.notify(new DioDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
+////								public void writeLog(String logEntry) {}
+////							}));
+//							GoldenGateServerEventService.notify(new DioDocumentEvent(updateUser, docId, null, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
+//								public void writeLog(String logEntry) {}
+//							}));
+//							count++;
+//						}
+//						catch (IOException ioe) {
+//							cac.reportError("GoldenGateDIO: error issuing update event for document '" + docId + "': " + ioe.getMessage());
+//							cac.reportError(ioe);
+//						}
+//					}
+//				}
+//				catch (SQLException sqle) {
+//					cac.reportError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+//					cac.reportError("  query was " + query);
+//				}
+//				finally {
+//					if (sqr != null)
+//						sqr.close();
+//					eventIssuer = null;
+//				}
+//				cac.reportResult("Issued update events for " + count + " documents.");
+//			}
+//		};
+//		this.eventIssuer.start();
+//	}
+	private void issueEvent(String docId, ComponentActionConsole cac) {
+		StringBuffer query = new StringBuffer("SELECT " + DOCUMENT_ID_ATTRIBUTE + ", " + UPDATE_USER_ATTRIBUTE + ", " + UPDATE_TIME_ATTRIBUTE);
+		query.append(" FROM " + DOCUMENT_TABLE_NAME);
+		query.append(" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'");
+		query.append(" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "");
 		
-		//	let's not knock out the server
-		if (this.eventIssuer != null) {
-			System.out.println("Already issuing update events, only one document can run at a time.");
-			return;
-		}
-		
-		//	create and start event issuer
-		this.eventIssuer = new Thread() {
-			public void run() {
-				StringBuffer query = new StringBuffer("SELECT " + DOCUMENT_ID_ATTRIBUTE + ", " + UPDATE_USER_ATTRIBUTE + ", " + UPDATE_TIME_ATTRIBUTE);
-				query.append(" FROM " + DOCUMENT_TABLE_NAME);
-				query.append(" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'");
-				query.append(" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "");
-				
-				SqlQueryResult sqr = null;
-				int count = 0;
+		SqlQueryResult sqr = null;
+		int count = 0;
+		try {
+			sqr = io.executeSelectQuery(query.toString(), true);
+			while (sqr.next()) {
+//				String docId = sqr.getString(0);
+				String updateUser = sqr.getString(1);
+				long updateTime = sqr.getLong(2);
 				try {
-					sqr = io.executeSelectQuery(query.toString(), true);
-					while (sqr.next()) {
-						String docId = sqr.getString(0);
-						String updateUser = sqr.getString(1);
-						long updateTime = sqr.getLong(2);
-						try {
-							QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 8) ? dst.loadDocument(docId) : null);
-							int docVersion = dst.getVersion(docId);
-							eventNotifier.notify(new DioDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
-								public void writeLog(String logEntry) {}
-							}));
-							count++;
-						}
-						catch (IOException ioe) {
-							System.out.println("GoldenGateDIO: error issuing update event for document '" + docId + "': " + ioe.getMessage());
-							ioe.printStackTrace(System.out);
-						}
-					}
+//					QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 8) ? dst.loadDocument(docId) : null);
+					int docVersion = dst.getVersion(docId);
+//					eventNotifier.notify(new DioDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
+//						public void writeLog(String logEntry) {}
+//					}));
+					GoldenGateServerEventService.notify(new DioDocumentEvent(updateUser, docId, null, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
+						public void writeLog(String logEntry) {}
+					}));
+					count++;
 				}
-				catch (SQLException sqle) {
-					System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-					System.out.println("  query was " + query);
+				catch (IOException ioe) {
+					cac.reportError("GoldenGateDIO: error issuing update event for document '" + docId + "': " + ioe.getMessage());
+					cac.reportError(ioe);
 				}
-				finally {
-					if (sqr != null)
-						sqr.close();
-					eventIssuer = null;
-				}
-				System.out.println("Issued update events for " + count + " documents.");
 			}
-		};
-		this.eventIssuer.start();
+		}
+		catch (SQLException sqle) {
+			cac.reportError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+			cac.reportError("  query was " + query);
+		}
+		finally {
+			if (sqr != null)
+				sqr.close();
+		}
+		cac.reportResult("Issued update events for " + count + " documents.");
 	}
 	
 	private Map updateProtocolsByDocId = Collections.synchronizedMap(new LinkedHashMap(16, 0.9f, false) {
@@ -1562,7 +1626,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			updateProtocolsByDocId.put(this.docId, this);
 		}
 		void setHead(String docName, int version) {
-			this.set(0, (this.isDeletion ? "Document deleted" : ("Document '" + docName + "' stored as version " + version)));
+			if (this.isDeletion)
+				this.set(0, "Document deleted");
+			else if (version == -1) {
+				this.set(0, ("Document '" + docName + "' unchanged"));
+				this.close();
+			}
+			else this.set(0, ("Document '" + docName + "' stored as version " + version));
 		}
 		public void writeLog(String logEntry) {
 			this.add(logEntry);
@@ -1651,13 +1721,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 								}
 							}
 							catch (IOException ioe) {
-								writeLogEntry("Error creating document from '" + files[f].toString() + "' - " + ioe.getMessage());
+								logError("Error creating document from '" + files[f].toString() + "' - " + ioe.getMessage());
 							}
 						}
 					}
 				}
-			catch (Exception e) {
-					writeLogEntry("Error checking input folder '" + this.folderToWatch.toString() + "' - " + e.getMessage());
+				catch (Exception e) {
+					logError("Error checking input folder '" + this.folderToWatch.toString() + "' - " + e.getMessage());
 				}
 		}
 
@@ -1717,7 +1787,62 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			this.documentIoExtensions = ((DocumentIoExtension[]) this.documentIoExtensionList.toArray(new DocumentIoExtension[this.documentIoExtensionList.size()]));
 		return this.documentIoExtensions;
 	}
-
+	
+	/**
+	 * Add a filter excluding application specific annotation types from document
+	 * checksum computation. The latter serves as an indicator of whether or not
+	 * an update actually changes a document from a content point of view and thus
+	 * represents a new version. This helps prevent unnecessary propagation of
+	 * updates and thus reduces load.
+	 * @param tf the type filter to add
+	 */
+	public void addDocumentChecksumTypeFilter(TypeFilter tf) {
+		this.checksumDigest.addTypeFilter(tf);
+	}
+	
+	/**
+	 * Remove a filter.
+	 * @param tf the filter to remove
+	 */
+	public void removeDocumentChecksumTypeFilter(TypeFilter tf) {
+		this.checksumDigest.removeTypeFilter(tf);
+	}
+	
+	/**
+	 * Add a filter excluding application specific annotation attributes from
+	 * document checksum computation. The latter serves as an indicator of
+	 * whether or not an update actually changes a document from a content point
+	 * of view and thus represents a new version. This helps prevent unnecessary
+	 * propagation of updates and thus reduces load.
+	 * @param af the attribute filter to add
+	 */
+	public void addDocumentChecksumAttributeFilter(AttributeFilter af) {
+		this.checksumDigest.addAttributeFilter(af);
+	}
+	
+	/**
+	 * Remove a filter.
+	 * @param af the filter to remove
+	 */
+	public void removeDocumentChecksumAttributeFilter(AttributeFilter af) {
+		this.checksumDigest.removeAttributeFilter(af);
+	}
+	
+	private String getChecksum(QueriableAnnotation document) {
+		long start = System.currentTimeMillis();
+		String checksum;
+		try {
+			checksum = this.checksumDigest.computeChecksum(document);
+		}
+		catch (IOException ioe) {
+			this.logError(ioe.getClass().getName() + " (" + ioe.getMessage() + ") while computing document checksum.");
+			this.logError(ioe); // should not happen, but Java don't know ...
+			return Gamta.getAnnotationID(); // use random value so a document is regarded as new
+		}
+		this.logInfo("Checksum computed in " + (System.currentTimeMillis() - start) + " ms: " + checksum);
+		return checksum;
+	}
+	
 	/**
 	 * Upload a new document, using its docId attribute as the storage ID (if
 	 * the docId attribute is not set, the document's annotationId will be used
@@ -1732,7 +1857,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @return the new version number of the document just updated
 	 * @throws IOException
 	 */
-	public synchronized int uploadDocument(String userName, QueriableAnnotation doc, EventLogger logger) throws IOException {
+	public int uploadDocument(String userName, QueriableAnnotation doc, EventLogger logger) throws IOException {
 		return this.uploadDocument(userName, doc, logger, EXTERNAL_IDENTIFIER_MODE_IGNORE);
 	}
 	
@@ -1751,9 +1876,23 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @return the new version number of the document just updated
 	 * @throws IOException
 	 */
-	public synchronized int uploadDocument(final String userName, final QueriableAnnotation doc, final EventLogger logger, String externalIdentifierMode) throws IOException {
+	public int uploadDocument(final String userName, final QueriableAnnotation doc, final EventLogger logger, String externalIdentifierMode) throws IOException {
+		String docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID()));
+		long time = System.currentTimeMillis();
 		
-		final String docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE, doc.getAnnotationID()));
+		int version = this.doUploadDocument(userName, doc, docId, logger, externalIdentifierMode, time);
+		
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger) {
+			public void notificationComplete() {
+				if (logger instanceof UpdateProtocol)
+					((UpdateProtocol) logger).close();
+			}
+		});
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
+		
+		return version;
+	}
+	private synchronized int doUploadDocument(final String userName, final QueriableAnnotation doc, String docId, final EventLogger logger, String externalIdentifierMode, long time) throws IOException {
 		
 		// get checkout user (must be null if document is new)
 		String checkoutUser = this.getCheckoutUser(docId);
@@ -1762,7 +1901,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		// get timestamp
-		final long time = System.currentTimeMillis();
 		String timeString = ("" + time);
 
 		// update meta data
@@ -1804,10 +1942,10 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				throw new DuplicateExternalIdentifierException(externalIdentifierName, externalIdentifier, conflictList);
 		}
 		
-
+		
 		// store document in DSS
 		final int version = this.dst.storeDocument(doc);
-
+		
 		// check and (if necessary) truncate name
 		String name = ((String) doc.getAttribute(DOCUMENT_NAME_ATTRIBUTE, docId));
 		if (name.length() > DOCUMENT_NAME_COLUMN_LENGTH)
@@ -1833,6 +1971,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		String user = ((String) doc.getAttribute(UPDATE_USER_ATTRIBUTE, userName));
 		if (user.length() > UserAccessAuthority.USER_NAME_MAX_LENGTH)
 			user = user.substring(0, UserAccessAuthority.USER_NAME_MAX_LENGTH);
+		
+		//	compute checksum
+		String docChecksum = this.getChecksum(doc);
 		
 		// gather complete data for creating master table record
 		StringBuffer fields = new StringBuffer(DOCUMENT_ID_ATTRIBUTE);
@@ -1892,10 +2033,14 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		fields.append(", " + UPDATE_TIME_ATTRIBUTE);
 		fieldValues.append(", " + time);
 
-		// update version number
+		// set version number
 		fields.append(", " + DOCUMENT_VERSION_ATTRIBUTE);
 		fieldValues.append(", " + version);
-
+		
+		//	set checksum
+		fields.append(", " + DOCUMENT_CHECKSUM_COLUMN_NAME);
+		fieldValues.append(", '" + EasyIO.sqlEscape(docChecksum) + "'");
+		
 		// set lock
 		fields.append(", " + CHECKOUT_USER_ATTRIBUTE);
 		fieldValues.append(", ''");
@@ -1914,19 +2059,10 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			this.cacheDocumentAttributeValues(doc);
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while storing new document.");
-			System.out.println("  query was " + insertQuery);
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while storing new document.");
+			this.logError("  query was " + insertQuery);
 			throw new IOException(sqle.getMessage());
 		}
-		
-		//	do event notification asynchronously for quick response
-		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 8) ? doc : null), version, GoldenGateDIO.class.getName(), time, logger) {
-			public void notificationComplete() {
-				if (logger instanceof UpdateProtocol)
-					((UpdateProtocol) logger).close();
-			}
-		});
-		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
 		
 		// report new version
 		return version;
@@ -1942,7 +2078,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * document, the lock is automatically granted to the specified user, and
 	 * remains with him until he yields it via the releaseDocument() method. If
 	 * a lock is not desired for a new document, use the uploadDocument()
-	 * method.
+	 * method. Further, in case of an update, if the document is unchanged,
+	 * no events are issued, and this method returns -1 to indicate so.
 	 * @param userName the name of the user doing the update
 	 * @param docId the ID of the document
 	 * @param doc the document to store
@@ -1965,7 +2102,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * document, the lock is automatically granted to the specified user, and
 	 * remains with him until he yields it via the releaseDocument() method. If
 	 * a lock is not desired for a new document, use the uploadDocument()
-	 * method.
+	 * method. Further, in case of an update, if the document is unchanged,
+	 * no events are issued, and this method returns -1 to indicate so.
 	 * @param userName the name of the user doing the update
 	 * @param docId the ID of the document
 	 * @param doc the document to store
@@ -1975,7 +2113,21 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @return the new version number of the document just updated
 	 * @throws IOException
 	 */
-	public synchronized int updateDocument(final String userName, final String docId, final QueriableAnnotation doc, final EventLogger logger, String externalIdentifierMode) throws IOException {
+	public int updateDocument(final String userName, String docId, QueriableAnnotation doc, final EventLogger logger, String externalIdentifierMode) throws IOException {
+		long time = System.currentTimeMillis();
+		
+		int version = this.doUpdateDocument(userName, docId, doc, externalIdentifierMode, time);
+		
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger) {
+			public void notificationComplete() {
+				if (logger instanceof UpdateProtocol)
+					((UpdateProtocol) logger).close();
+			}
+		});
+		
+		return version;
+	}
+	private synchronized int doUpdateDocument(String userName, String docId, QueriableAnnotation doc, String externalIdentifierMode, long time) throws IOException {
 		
 		// check if document checked out
 		if (!this.mayUpdateDocument(userName, docId))
@@ -1983,9 +2135,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		
 		// get timestamp
-		final long time = System.currentTimeMillis();
 		String timeString = ("" + time);
-
+		
 		// do not store checkout user info
 		doc.removeAttribute(CHECKOUT_USER_ATTRIBUTE);
 		doc.removeAttribute(CHECKOUT_TIME_ATTRIBUTE);
@@ -2004,6 +2155,32 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		DocumentIoExtension[] dies = this.getDocumentIoExtensions();
 		for (int e = 0; e < dies.length; e++)
 			dies[e].extendUpdate(docId, doc, userName);
+		
+		
+		//	compute and test checksum
+		String docChecksum = this.getChecksum(doc);
+		String exDocChecksumQuery = "SELECT " + DOCUMENT_CHECKSUM_COLUMN_NAME + 
+				" FROM " + DOCUMENT_TABLE_NAME +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
+				" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() +
+				";";
+		SqlQueryResult sqr = null;
+		try {
+			sqr = this.io.executeSelectQuery(exDocChecksumQuery);
+			if (sqr.next()) {
+				String exDocChecksum = sqr.getString(0);
+				if (docChecksum.equals(exDocChecksum))
+					return -1;
+			}
+		}
+		catch (SQLException sqle) {
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") fetching existing document checksum.");
+			this.logError("  query was " + exDocChecksumQuery);
+		}
+		finally {
+			if (sqr != null)
+				sqr.close();
+		}
 		
 		
 		//	get external identifier of document
@@ -2026,7 +2203,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			//	get list of conflicting documents
 			DocumentList conflictList = this.getExternalIdentifierConflictList(externalIdentifier);
 			
-			//	we do have conflicts?
+			//	do we have conflicts?
 			if (conflictList.hasNextDocument()) {
 				DuplicateExternalIdentifierException deie = new DuplicateExternalIdentifierException(externalIdentifierName, externalIdentifier, conflictList);
 				DocumentListElement[] conflictDocs = deie.getConflictingDocuments();
@@ -2048,7 +2225,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		this.documentMetaDataCache.remove(docId);
 		
 		
-		// store document in DSS
+		// store document in DST
 		final int version = this.dst.storeDocument(doc);
 		
 		StringVector assignments = new StringVector();
@@ -2107,6 +2284,9 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// update version number
 		assignments.addElement(DOCUMENT_VERSION_ATTRIBUTE + " = " + version);
 
+		// update checksum
+		assignments.addElement(DOCUMENT_CHECKSUM_COLUMN_NAME + " = '" + EasyIO.sqlEscape(docChecksum) + "'");
+
 		// write new values
 		String updateQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
 				" SET " + assignments.concatStrings(", ") + 
@@ -2115,11 +2295,11 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				";");
 
 		try {
-
-			// update did not affect any rows ==> new document
+			
+			//	update did not affect any rows ==> new document
 			if (this.io.executeUpdateQuery(updateQuery) == 0) {
 				
-				// gather complete data for creating master table record
+				//	gather complete data for creating master table record
 				StringBuffer fields = new StringBuffer(DOCUMENT_ID_ATTRIBUTE);
 				StringBuffer fieldValues = new StringBuffer("'" + EasyIO.sqlEscape(docId) + "'");
 				fields.append(", " + DOCUMENT_ID_HASH_NAME);
@@ -2141,45 +2321,49 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 					fieldValues.append(", " + this.extIdAttributeNameList.hashCode() + "");
 				}
 				
-				// set name
+				//	set name
 				fields.append(", " + DOCUMENT_NAME_ATTRIBUTE);
 				fieldValues.append(", '" + EasyIO.sqlEscape(name) + "'");
 				
-				// set author
+				//	set author
 				fields.append(", " + DOCUMENT_AUTHOR_ATTRIBUTE);
 				fieldValues.append(", '" + EasyIO.sqlEscape(author) + "'");
 				
-				// set date
+				//	set date
 				fields.append(", " + DOCUMENT_DATE_ATTRIBUTE);
 				fieldValues.append(", " + date + "");
 				
-				// set title
+				//	set title
 				fields.append(", " + DOCUMENT_TITLE_ATTRIBUTE);
 				fieldValues.append(", '" + EasyIO.sqlEscape(title) + "'");
 				
-				// set keywords
+				//	set keywords
 				fields.append(", " + DOCUMENT_KEYWORDS_ATTRIBUTE);
 				fieldValues.append(", '" + EasyIO.sqlEscape(keywords) + "'");
 				
-				// set checkin user
+				//	set checkin user
 				fields.append(", " + CHECKIN_USER_ATTRIBUTE);
 				fieldValues.append(", '" + EasyIO.sqlEscape(user) + "'");
 
-				// set checkin/update time
+				//	set checkin time
 				fields.append(", " + CHECKIN_TIME_ATTRIBUTE);
 				fieldValues.append(", " + time);
 
-				// set update user
+				//	set update user
 				fields.append(", " + UPDATE_USER_ATTRIBUTE);
 				fieldValues.append(", '" + EasyIO.sqlEscape(user) + "'");
 
-				// set checkin/update time
+				//	set update time
 				fields.append(", " + UPDATE_TIME_ATTRIBUTE);
 				fieldValues.append(", " + time);
 
-				// update version number
+				//	update version number
 				fields.append(", " + DOCUMENT_VERSION_ATTRIBUTE);
 				fieldValues.append(", " + version);
+				
+				//	set checksum
+				fields.append(", " + DOCUMENT_CHECKSUM_COLUMN_NAME);
+				fieldValues.append(", '" + EasyIO.sqlEscape(docChecksum) + "'");
 
 				// set lock
 				fields.append(", " + CHECKOUT_USER_ATTRIBUTE);
@@ -2200,25 +2384,17 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 					this.cacheDocumentAttributeValue(CHECKOUT_USER_ATTRIBUTE, user);
 				}
 				catch (SQLException sqle) {
-					System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while storing new document.");
-					System.out.println("  query was " + insertQuery);
+					this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while storing new document.");
+					this.logError("  query was " + insertQuery);
 					throw new IOException(sqle.getMessage());
 				}
 			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating existing document.");
-			System.out.println("  query was " + updateQuery);
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating existing document.");
+			this.logError("  query was " + updateQuery);
 			throw new IOException(sqle.getMessage());
 		}
-		
-		//	do event notification asynchronously for quick response
-		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 8) ? doc : null), version, GoldenGateDIO.class.getName(), time, logger) {
-			public void notificationComplete() {
-				if (logger instanceof UpdateProtocol)
-					((UpdateProtocol) logger).close();
-			}
-		});
 		
 		// report new version
 		return version;
@@ -2234,7 +2410,16 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 *            process
 	 * @throws IOException
 	 */
-	public synchronized void deleteDocument(String userName, String docId, final EventLogger logger) throws IOException {
+	public void deleteDocument(String userName, String docId, final EventLogger logger) throws IOException {
+		if (this.doDeleteDocument(userName, docId, logger))
+			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, GoldenGateDIO.class.getName(), System.currentTimeMillis(), logger) {
+				public void notificationComplete() {
+					if (logger instanceof UpdateProtocol)
+						((UpdateProtocol) logger).close();
+				}
+			});
+	}
+	private synchronized boolean doDeleteDocument(String userName, String docId, final EventLogger logger) throws IOException {
 		String checkoutUser = this.getCheckoutUser(docId);
 		
 		//	check if document exists
@@ -2267,21 +2452,15 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			this.uncacheDocumentAttributeValues(dle);
 			this.checkoutUserCache.remove(docId);
 			this.docIdSet.remove(docId);
+			return true;
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
-			System.out.println("  query was " + deleteQuery);
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting document.");
+			this.logError("  query was " + deleteQuery);
+			throw new IOException(sqle.getMessage());
 		}
-		
-		// issue event
-		this.eventNotifier.notify(new DioDocumentEvent(userName, docId, GoldenGateDIO.class.getName(), System.currentTimeMillis(), logger) {
-			public void notificationComplete() {
-				if (logger instanceof UpdateProtocol)
-					((UpdateProtocol) logger).close();
-			}
-		});
 	}
-
+	
 	/**
 	 * Check if a document with a given ID exists.
 	 * @param documentId the ID of the document to check
@@ -2417,7 +2596,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @return the document with the specified ID
 	 * @throws IOException
 	 */
-	public synchronized DocumentRoot checkoutDocument(String userName, String docId, int version) throws IOException {
+	public DocumentRoot checkoutDocument(String userName, String docId, int version) throws IOException {
 		DocumentReader dr = this.checkoutDocumentAsStream(userName, docId, version);
 		try {
 			return GenericGamtaXML.readDocument(dr);
@@ -2456,7 +2635,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @return the document with the specified ID
 	 * @throws IOException
 	 */
-	public synchronized DocumentReader checkoutDocumentAsStream(String userName, String docId, int version) throws IOException {
+	public DocumentReader checkoutDocumentAsStream(String userName, String docId, int version) throws IOException {
+		long checkoutTime = System.currentTimeMillis();
+		DocumentReader dr = this.doCheckoutDocumentAsStream(userName, docId, version, checkoutTime);
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime, null));
+		return dr;
+	}
+	private synchronized DocumentReader doCheckoutDocumentAsStream(String userName, String docId, int version, long checkoutTime) throws IOException {
 		String checkoutUser = this.getCheckoutUser(docId);
 		
 		//	check if document exists
@@ -2468,7 +2653,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			throw new DocumentCheckedOutException();
 		
 		//	mark document as checked out
-		long checkoutTime = System.currentTimeMillis();
 		this.setCheckoutUser(docId, userName, checkoutTime);
 		
 		//	return document stream
@@ -2488,17 +2672,15 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			}
 			
 			//	log checkout and notify listeners
-			this.writeLogEntry("document " + docId + " checked out by '" + userName + "'.");
-			this.eventNotifier.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime, null));
+			this.logInfo("document " + docId + " checked out by '" + userName + "'.");
+//			this.eventNotifier.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime, null));
 			
 			return dr;
 		}
 		catch (IOException ioe) {
 			this.setCheckoutUser(docId, "", -1);
-
-			System.out.println("GoldenGateDIO: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while loading document " + docId + ".");
-			ioe.printStackTrace(System.out);
-
+			this.logError("GoldenGateDIO: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while loading document " + docId + ".");
+			this.logError(ioe);
 			throw ioe;
 		}
 	}
@@ -2511,10 +2693,23 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	
 	private boolean mayUpdateDocument(String userName, String docId) {
 		String checkoutUser = this.getCheckoutUser(docId);
-		if (checkoutUser == null) return true; // document not known so far
-		else return checkoutUser.equals(userName); // document checked out by user in question
+		
+		//	document not known so far
+		if (checkoutUser == null)
+			return true;
+		
+		//	document checked out by user in question
+		if (checkoutUser.equals(userName))
+			return true;
+		
+		//	document checked out by other user
+		if (!"".equals(checkoutUser))
+			return false;
+		
+		//	try and check out document for current user
+		return this.setCheckoutUser(docId, userName, System.currentTimeMillis());
 	}
-
+	
 	/**
 	 * Release a document. The lock on the document is released, so other users
 	 * can check it out again.
@@ -2522,12 +2717,16 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 *            release
 	 * @param docId the ID of the document to release
 	 */
-	public synchronized void releaseDocument(String userName, String docId) {
+	public void releaseDocument(String userName, String docId) {
+		if (this.doReleaseDocument(userName, docId))
+			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), System.currentTimeMillis(), null));
+	}
+	private synchronized boolean doReleaseDocument(String userName, String docId) {
 		String checkoutUser = this.getCheckoutUser(docId);
 		
 		//	check if document exists
 		if (checkoutUser == null)
-			return;
+			return false;
 		
 		//	check extensions
 		DocumentIoExtension[] dies = this.getDocumentIoExtensions();
@@ -2535,14 +2734,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			dies[e].extendRelease(docId, userName);
 		}
 		catch (IOException ioe) {
-			return;
+			return false;
 		}
 		
 		//	release document if possible
-		if (this.uaa.isAdmin(userName) || checkoutUser.equals(userName)) { // admin user, or user holding the lock
-			this.setCheckoutUser(docId, "", -1);
-			this.eventNotifier.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), System.currentTimeMillis(), null));
-		}
+		if (this.uaa.isAdmin(userName) || checkoutUser.equals(userName)) // admin user, or user holding the lock
+			return this.setCheckoutUser(docId, "", -1);
+		else return false;
 	}
 
 	private static final int checkoutUserCacheSize = 256;
@@ -2600,9 +2798,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			};
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents for external identifier conflict.");
-			System.out.println("  query was " + query);
-			if (sqr != null) sqr.close();
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents for external identifier conflict.");
+			this.logError("  query was " + query);
 
 			// return dummy list
 			return new DocumentList(fieldNames.toStringArray()) {
@@ -2653,8 +2850,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			else return null;
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading document checkout user.");
-			System.out.println("  query was " + query);
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading document checkout user.");
+			this.logError("  query was " + query);
 			return null;
 		}
 		finally {
@@ -2721,8 +2918,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			else return null;
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while reading meta data for document " + docId + ".");
-			System.out.println("  query was " + query);
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while reading meta data for document " + docId + ".");
+			this.logError("  query was " + query);
 			return null;
 		}
 		finally {
@@ -2739,7 +2936,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		}
 	};
 	
-	private void setCheckoutUser(String docId, String checkoutUser, long checkoutTime) {
+	private boolean setCheckoutUser(String docId, String checkoutUser, long checkoutTime) {
 		StringVector assignments = new StringVector();
 
 		// set checkout user
@@ -2760,10 +2957,12 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		try {
 			this.io.executeUpdateQuery(updateQuery);
 			this.checkoutUserCache.put(docId, checkoutUser);
+			return true;
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while setting checkout user for document " + docId + ".");
-			System.out.println("  query was " + updateQuery);
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while setting checkout user for document " + docId + ".");
+			this.logError("  query was " + updateQuery);
+			return false;
 		}
 	}
 
@@ -2844,9 +3043,8 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			};
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-			System.out.println("  query was " + query);
-			if (sqr != null) sqr.close();
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+			this.logError("  query was " + query);
 
 			// return dummy list
 			return new DocumentList(fieldNames.toStringArray()) {
@@ -3128,9 +3326,8 @@ in the long haul, ask DIO extensions to provide SQL snippets and column names to
 			return dl;
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-			System.out.println("  query was " + query);
-			if (sqr != null) sqr.close();
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
+			this.logError("  query was " + query);
 
 			// return dummy list
 			return new DocumentList(fieldNames.toStringArray()) {
@@ -3157,8 +3354,8 @@ in the long haul, ask DIO extensions to provide SQL snippets and column names to
 			return (sqr.next() ? Integer.parseInt(sqr.getString(0)) : 0);
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document list size.");
-			System.out.println("  query was " + query);
+			this.logError("GoldenGateDIO: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while getting document list size.");
+			this.logError("  query was " + query);
 			return Integer.MAX_VALUE;
 		}
 		finally {
@@ -3397,17 +3594,5 @@ in the long haul, ask DIO extensions to provide SQL snippets and column names to
 				public void remove() {}
 			};
 		}
-	}
-	
-	// timestamp format for log entries
-	private static final String DEFAULT_LOGFILE_DATE_FORMAT = "yyyy.MM.dd HH:mm:ss";
-	private static final DateFormat LOGFILE_DATE_FORMATTER = new SimpleDateFormat(DEFAULT_LOGFILE_DATE_FORMAT);
-	
-	/**
-	 * write an entry to the log file of this markup process server
-	 * @param entry the entry to write
-	 */
-	private void writeLogEntry(String entry) {
-		System.out.println(LOGFILE_DATE_FORMATTER.format(new Date()) + ": " + entry);
 	}
 }

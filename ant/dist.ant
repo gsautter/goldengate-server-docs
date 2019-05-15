@@ -8,7 +8,7 @@
 	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip,dgpackerzip">
 	</target>
 	
-	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,dprjar,dprslavejar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,srsdiojar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar,scpjar">
+	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,dprjar,dprslavejar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,diosrsjar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar,scpjar">
 		<delete file="${pack.serverdocs}"/>
 		<zip destfile="${pack.serverdocs}">
 			<fileset dir="${file.home}/server"/>
@@ -142,10 +142,11 @@
 		<delete file="${jar.exp}" />
 		<jar destfile="${jar.exp}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/exp/*.class" />
+				<include name="**/goldenGateServer/exp/GoldenGateEXP.class" />
+				<include name="**/goldenGateServer/exp/GoldenGateEXP$*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/exp/*.java" />
+				<include name="**/goldenGateServer/exp/GoldenGateEXP.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
@@ -203,7 +204,7 @@
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
 	</target>
-	<target name="srsdiojar">
+	<!--target name="srsdiojar">
 		<delete file="${jar.srsdio}" />
 		<jar destfile="${jar.srsdio}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
@@ -211,6 +212,18 @@
 			</fileset>
 			<fileset dir="${src.home}">
 				<include name="**/goldenGateServer/srs/connectors/GoldenGateSrsDioConnector.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target-->
+	<target name="diosrsjar">
+		<delete file="${jar.diosrs}" />
+		<jar destfile="${jar.diosrs}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/srs/connectors/GoldenGateDioSrsConnector*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/srs/connectors/GoldenGateDioSrsConnector.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>

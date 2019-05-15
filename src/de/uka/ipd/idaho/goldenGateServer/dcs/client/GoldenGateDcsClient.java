@@ -50,8 +50,7 @@ import de.uka.ipd.idaho.goldenGateServer.dcs.GoldenGateDcsConstants;
  * 
  * @author sautter
  */
-public class GoldenGateDcsClient implements GoldenGateDcsConstants {
-	
+public abstract class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	private ServerConnection serverConnection;
 	private String dcsLetterCode;
 	
@@ -62,7 +61,7 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @param dcsLetterCode the letter code of the concrete DCS instance to
 	 *            communicate with
 	 */
-	public GoldenGateDcsClient(ServerConnection serverConnection, String dcsLetterCode) {
+	protected GoldenGateDcsClient(ServerConnection serverConnection, String dcsLetterCode) {
 		this.serverConnection = serverConnection;
 		this.dcsLetterCode = dcsLetterCode;
 		this.cache = getCache(this.dcsLetterCode);
@@ -108,11 +107,12 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates) throws IOException {
-		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, -1, true);
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters) throws IOException {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters, -1, true);
 	}
 	
 	/**
@@ -126,12 +126,13 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @param allowCache allow returning cached results?
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, boolean allowCache) throws IOException {
-		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, -1, allowCache);
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters, boolean allowCache) throws IOException {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters, -1, allowCache);
 	}
 	
 	/**
@@ -145,12 +146,13 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @param limit the maximum number of output rows (-1 returns all rows)
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, int limit) throws IOException {
-		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, limit, true);
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters, int limit) throws IOException {
+		return this.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters, limit, true);
 	}
 	
 	/**
@@ -164,12 +166,13 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 	 * @param fieldPredicates filter predicates against individual fields
 	 * @param fieldAggregates custom aggregation functions for fields not used for grouping
 	 * @param aggregatePredicates filter predicates against aggregate data
+	 * @param customFilters custom filters to apply to the statistics fields
 	 * @param limit the maximum number of output rows (-1 returns all rows)
 	 * @param allowCache allow returning cached results?
 	 * @return the requested statistics, packed in a string relation
 	 * @throws IOException
 	 */
-	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, int limit, boolean allowCache) throws IOException {
+	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters, int limit, boolean allowCache) throws IOException {
 		
 		//	normalize limit
 		if (limit < 1)
@@ -183,6 +186,7 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 				"-" + ((fieldPredicates == null) ? "0" : Integer.toString(fieldPredicates.hashCode(), 16)) +
 				"-" + ((fieldAggregates == null) ? "0" : Integer.toString(fieldAggregates.hashCode(), 16)) +
 				"-" + ((aggregatePredicates == null) ? "0" : Integer.toString(aggregatePredicates.hashCode(), 16)) +
+				"-" + ((customFilters == null) ? "0" : Integer.toString(Arrays.hashCode(customFilters), 16)) +
 				"";
 		
 		//	do cache lookup if allowed to
@@ -192,7 +196,7 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 				return stats;
 		}
 		
-		//	get statistics from backend
+		//	get statistics from back-end
 		Connection con = null;
 		try {
 			con = this.serverConnection.getConnection();
@@ -236,6 +240,11 @@ public class GoldenGateDcsClient implements GoldenGateDcsConstants {
 					String field = ((String) ffit.next());
 					String predicate = aggregatePredicates.getProperty(field);
 					bw.write("AP:" + field + "=" + URLEncoder.encode(predicate, ENCODING));
+					bw.newLine();
+				}
+			if (customFilters != null)
+				for (int f = 0; f < customFilters.length; f++) {
+					bw.write("CF:" + URLEncoder.encode(customFilters[f], ENCODING));
 					bw.newLine();
 				}
 			bw.newLine();

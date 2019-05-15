@@ -49,8 +49,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Properties;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
+import javax.servlet.Servlet;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -188,8 +190,24 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 	
 	/** @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest, javax.servlet.http.HttpServletResponse)
 	 */
-	protected void doPost(final HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-//		System.out.println("Handling request from " + request.getRemoteAddr());
+	protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+		
+		//	test for specific response type requests
+		String accept = request.getHeader("Accept");
+		System.out.println("Request accept content type is " + accept);
+		if ((accept != null) && (this.contentTypeRedirectServletName != null)) {
+			String redirectXslt = ((String) this.contentTypeRedirects.get(accept));
+			System.out.println(" - redirect XSLT is " + redirectXslt);
+			Servlet redirectServlet = this.webAppHost.getServlet(this.contentTypeRedirectServletName);
+			System.out.println(" - redirect servlet is " + redirectServlet);
+			if ((redirectXslt != null) && (redirectServlet instanceof XsltServlet)) {
+				((XsltServlet) redirectServlet).doXsltGet(request, redirectXslt, response);
+				System.out.println(" ==> redirected request handled");
+				return;
+			}
+		}
+		
+		//	get parameters to facilitate cleanup
 		StringVector paramCollector = new StringVector();
 		Enumeration paramEnum = request.getParameterNames();
 		while (paramEnum.hasMoreElements())
@@ -1626,14 +1644,6 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 	 */
 	protected void doInit() throws ServletException {
 		super.doInit();
-//		
-//		//	initially load statistics
-//		try {
-//			this.statistics = new BufferedCollectionStatistics(this.srsClient.getStatistics());
-//		}
-//		catch (IOException ioe) {
-//			throw new RuntimeException("Error loading statistics: " + ioe.getMessage(), ioe);
-//		}
 		
 		//	initialize layout engine
 		this.layout = this.getLayout(new File(this.dataFolder, SearchPortalLayout.LAYOUT_FOLDER_NAME), this.getSetting(LAYOUT_ENGINE_CLASS_NAME_SETTING));
@@ -1784,7 +1794,26 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	clear XSLT cache
 		this.cachedStylesheets.clear();
+		
+		//	load response type specific delegates
+		this.contentTypeRedirects.clear();
+		Settings redirectSet = this.config.getSubset("redirect");
+		this.contentTypeRedirectServletName = redirectSet.getSetting("servletName");
+		System.out.println("Content type request rediredt servlet is " + this.contentTypeRedirectServletName);
+		String[] redirectNames = redirectSet.getSubsetPrefixes();
+		for (int r = 0; r < redirectNames.length; r++) {
+			Settings rSet = redirectSet.getSubset(redirectNames[r]);
+			String contentType = rSet.getSetting("type");
+			String xsltName = rSet.getSetting("xslt");
+			if ((contentType != null) && (xsltName != null)) {
+				this.contentTypeRedirects.put(contentType, xsltName);
+				System.out.println(" mapped request content type " + contentType + " to " + xsltName);
+			}
+		}
 	}
+	
+	private String contentTypeRedirectServletName = null;
+	private TreeMap contentTypeRedirects = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 	
 	/**
 	 * Retrieve the path of a given File relative to the surrounding web-app's

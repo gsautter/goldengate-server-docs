@@ -53,6 +53,7 @@ import de.uka.ipd.idaho.goldenGate.configuration.ConfigurationUtils;
 import de.uka.ipd.idaho.goldenGate.configuration.FileConfiguration;
 import de.uka.ipd.idaho.goldenGate.configuration.UrlConfiguration;
 import de.uka.ipd.idaho.goldenGate.plugins.DocumentProcessor;
+import de.uka.ipd.idaho.goldenGate.plugins.DocumentProcessorManager;
 import de.uka.ipd.idaho.goldenGate.plugins.MonitorableDocumentProcessor;
 
 /**
@@ -67,6 +68,7 @@ public class GoldenGateDprSlave implements GoldenGateConstants {
 	private static final String CONFIG_HOST_PARAMETER = "CONFHOST";
 	private static final String CONFIG_NAME_PARAMETER = "CONFNAME";
 	private static final String DOCUMENT_PROCESSOR_NAME_PARAMETER = "DPNAME";
+	private static final String LIST_DOCUMENT_PROCESSORS_NAME = "LISTDPS";
 	private static final String USE_SINGLE_CORE_PARAMETER = "SINGLECORE";
 	
 	/**	the main method to run GoldenGATE Imagine as a batch application
@@ -158,6 +160,22 @@ public class GoldenGateDprSlave implements GoldenGateConstants {
 		//	instantiate GoldenGATE
 		GoldenGATE goldenGate = GoldenGATE.openGoldenGATE(ggConfig, false, false);
 		sysOut.println("GoldenGATE core created, configuration is " + ggConfigName);
+		
+		//	list document processors
+		if (LIST_DOCUMENT_PROCESSORS_NAME.equals(dpNameString)) {
+			DocumentProcessorManager[] dpms = goldenGate.getDocumentProcessorProviders();
+			for (int m = 0; m < dpms.length; m++) {
+				if (dpms[m].getMainMenuTitle() == null)
+					continue;
+				String[] mDpNames = dpms[m].getResourceNames();
+				if(mDpNames.length == 0)
+					continue;
+				sysOut.println("DPM:" + dpms[m].getMainMenuTitle() + " (" + mDpNames.length + "):");
+				for (int p = 0; p < mDpNames.length; p++)
+					sysOut.println("DP: - " + mDpNames[p]);
+			}
+			System.exit(0);
+		}
 		
 		//	get individual image markup tools
 		DocumentProcessor[] dps = new DocumentProcessor[dpNames.length];

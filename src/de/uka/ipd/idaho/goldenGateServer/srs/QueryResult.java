@@ -182,13 +182,11 @@ public class QueryResult {
 	 * Prune all ResultElements whose relevance is less than the specified threshold.
 	 */
 	public void pruneByRelevance(double threshold) {
-		if ((threshold > 0) && (threshold <= 1)) {
-			int index = 0;
-			while (index < this.elements.size()) {
-				if (((QueryResultElement) this.elements.get(index)).relevance < threshold)
-					this.elements.removeElementAt(index);
-				else index++;
-			}
+		if ((threshold <= 0) || (1 <= threshold))
+			return;
+		for (int e = 0; e < this.elements.size(); e++) {
+			if (((QueryResultElement) this.elements.get(e)).relevance < threshold)
+				this.elements.removeElementAt(e--);
 		}
 	}
 	
@@ -205,12 +203,12 @@ public class QueryResult {
 	 * @param	preserveSize 	if set to true, the number of ResultElements contained in this QueryResult will be restricted to sizeThreshold in the future
 	 */
 	public void pruneToSize(int sizeThreshold, boolean preserveSize) {
-		if (sizeThreshold > 0) {
-			while (this.elements.size() > sizeThreshold)
-				this.removeLeastRelevantElement();
-			if (preserveSize && (this.maxSize > sizeThreshold))
-				this.maxSize = sizeThreshold;
-		}
+		if (sizeThreshold < 1)
+			return;
+		while (this.elements.size() > sizeThreshold)
+			this.removeLeastRelevantElement();
+		if (preserveSize && (this.maxSize > sizeThreshold))
+			this.maxSize = sizeThreshold;
 	}
 	
 	/**	
@@ -350,33 +348,33 @@ public class QueryResult {
 	/**	remove the least relevant QueryResultElement from this QueryResult
 	 */
 	private void removeLeastRelevantElement() {
+		if (this.elements.isEmpty())
+			return;
 		
-		if (this.elements.size() > 0) {
-			int minRelevanceIndex = -1;
+		//	determine least relevant element ...
+		int minRelevanceIndex = -1;
+		
+		//	if the ResultElements are sorted, it's an easy job
+		if (this.isSortedByRelevance)
+			minRelevanceIndex = ((this.isSortedDescending) ? (this.elements.size() - 1) : 0);
 			
-			//	determine least relevant element ...
-			//	if the ResultElements are sorted, it's an easy job
-			if (this.isSortedByRelevance)
-				minRelevanceIndex = ((this.isSortedDescending) ? (this.elements.size() - 1) : 0);
+		//	search otherwise
+		else {
+			double minRelevance = 1;
+			for (int i = 0; i < this.elements.size(); i++) {
+				QueryResultElement qre = ((QueryResultElement) this.elements.get(i));
 				
-			//	search otherwise
-			else {
-				double minRelevance = 1;
-				for (int i = 0; i < this.elements.size(); i++) {
-					QueryResultElement qre = ((QueryResultElement) this.elements.get(i));
-					
-					//	if more than one QueryResultElement have the least relevance value, mark the last one
-					if (qre.relevance <= minRelevance) {
-						minRelevance = qre.relevance;
-						minRelevanceIndex = i;
-					}
+				//	if more than one QueryResultElement have the least relevance value, mark the last one
+				if (qre.relevance <= minRelevance) {
+					minRelevance = qre.relevance;
+					minRelevanceIndex = i;
 				}
 			}
-			
-			//	... and remove it
-			if (minRelevanceIndex != -1)
-				this.elements.removeElementAt(minRelevanceIndex);
 		}
+		
+		//	... and remove it
+		if (minRelevanceIndex != -1)
+			this.elements.removeElementAt(minRelevanceIndex);
 	}
 	
 	/**	@see	java.lang.Object#toString()
