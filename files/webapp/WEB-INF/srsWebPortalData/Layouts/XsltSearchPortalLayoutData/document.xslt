@@ -157,7 +157,7 @@
 		<table class="documentTextTable">
 			<xsl:for-each select=".//tr">
 				<tr class="documentTextTableRow">
-					<xsl:for-each select=".//td">
+					<!--xsl:for-each select=".//td">
 						<td class="documentTextTableCell">
 							<xsl:if test="./@colspan">
 								<xsl:attribute name="colspan"><xsl:value-of select="./@colspan"/></xsl:attribute>
@@ -167,9 +167,37 @@
 							</xsl:if>
 							<xsl:choose>
 								<xsl:when test="./@isEmpty"><xsl:text disable-output-escaping="yes">&amp;nbsp;</xsl:text></xsl:when>
+								<xsl:when test="./emptyCellSpacer"><xsl:text disable-output-escaping="yes">&amp;nbsp;</xsl:text></xsl:when>
 								<xsl:otherwise><xsl:apply-templates/></xsl:otherwise>
 							</xsl:choose>
 						</td>
+					</xsl:for-each-->
+					<xsl:for-each select="./*">
+						<xsl:choose>
+							<xsl:when test="name(.) = 'td'">
+								<xsl:element name="td">
+									<xsl:attribute name="class">documentTextTableCell</xsl:attribute>
+									<xsl:if test="./@colspan"><xsl:attribute name="colspan"><xsl:value-of select="./@colspan"/></xsl:attribute></xsl:if>
+									<xsl:if test="./@rowspan"><xsl:attribute name="rowspan"><xsl:value-of select="./@rowspan"/></xsl:attribute></xsl:if>
+									<xsl:choose>
+										<xsl:when test="./@isEmpty"><xsl:text disable-output-escaping="yes">&amp;nbsp;</xsl:text></xsl:when>
+										<xsl:otherwise><xsl:apply-templates/></xsl:otherwise>
+									</xsl:choose>
+								</xsl:element>
+							</xsl:when>
+							<xsl:when test="name(.) = 'th'">
+								<xsl:element name="th">
+									<xsl:attribute name="class">documentTextTableHead</xsl:attribute>
+									<xsl:if test="./@colspan"><xsl:attribute name="colspan"><xsl:value-of select="./@colspan"/></xsl:attribute></xsl:if>
+									<xsl:if test="./@rowspan"><xsl:attribute name="rowspan"><xsl:value-of select="./@rowspan"/></xsl:attribute></xsl:if>
+									<xsl:choose>
+										<xsl:when test="./@isEmpty"><xsl:text disable-output-escaping="yes">&amp;nbsp;</xsl:text></xsl:when>
+										<xsl:otherwise><xsl:apply-templates/></xsl:otherwise>
+									</xsl:choose>
+								</xsl:element>
+							</xsl:when>
+							<xsl:otherwise><xsl:copy-of select="."/></xsl:otherwise>
+						</xsl:choose>
 					</xsl:for-each>
 				</tr>
 			</xsl:for-each>

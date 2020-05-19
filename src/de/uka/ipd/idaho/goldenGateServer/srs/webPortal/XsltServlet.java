@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -32,7 +32,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Properties;
 
@@ -48,6 +50,7 @@ import javax.xml.transform.stream.StreamSource;
 import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
+import de.uka.ipd.idaho.gamta.AnnotationUtils.XmlOutputOptions;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.util.AnnotationInputStream;
 import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
@@ -69,7 +72,7 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * calling them by an intuitive name instead of the URL. This is achieved by
  * entering a setting 'XSLT.&lt;xsltName&gt;' in the servlets config file, the
  * value of the setting being the URL of the XSLT stylesheet to be invoked
- * throug &lt;xsltName&gt;. If that URL starts with 'http://', it's assumed to
+ * through &lt;xsltName&gt;. If that URL starts with 'http://', it's assumed to
  * be absolute. In contrast, if the URL does not start with 'http://', the URL
  * is interpreted as a local path, relative to the web-apps context path.<br>
  * As a result, there is several ways of getting a document with a given ID (in
@@ -125,9 +128,46 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 		String[] xsltNames = xsltSet.getKeys();
 		for (int x = 0; x < xsltNames.length; x++) {
 			String xsltUrl = xsltSet.getSetting(xsltNames[x]);
-			if (xsltUrl != null)
-				this.xsltNamesToStylesheetUrls.setProperty(xsltNames[x], xsltUrl);
+			if ((xsltUrl != null) && (xsltUrl.trim().length() != 0))
+				this.xsltNamesToStylesheetUrls.setProperty(xsltNames[x], xsltUrl.trim());
+			Settings xsltOptionSet = this.config.getSubset("XSLT.options." + xsltNames[x]);
+			if (xsltOptionSet.isEmpty())
+				continue;
+			XmlOutputOptions xsltOptions = new XmlOutputOptions();
+			NameSetFilter dAnnotationTypes = this.parseNameSetFilter(xsltOptionSet.getSetting("annotationTypes"));
+			if (dAnnotationTypes != null)
+				xsltOptions.setAnnotationTypes(dAnnotationTypes.filterSet, dAnnotationTypes.invert);
+			NameSetFilter dAttributeNames = this.parseNameSetFilter(xsltOptionSet.getSetting("attributeNames"));
+			if (dAttributeNames != null)
+				xsltOptions.setAttributeNames(dAttributeNames.filterSet, dAttributeNames.invert);
+			NameSetFilter dIncludeIdTypes = this.parseNameSetFilter(xsltOptionSet.getSetting("includeIdTypes"));
+			if (dIncludeIdTypes != null)
+				xsltOptions.setIncludeIdTypes(dIncludeIdTypes.filterSet, dIncludeIdTypes.invert);
+			this.xsltNamesToOutputOptions.put(xsltNames[x], xsltOptions);
 		}
+	}
+	
+	private static class NameSetFilter {
+		final HashSet filterSet;
+		final boolean invert;
+		NameSetFilter(HashSet filterSet, boolean invert) {
+			this.filterSet = filterSet;
+			this.invert = invert;
+		}
+	}
+	private NameSetFilter parseNameSetFilter(String nameStr) {
+		if (nameStr == null)
+			return null;
+		nameStr = nameStr.trim();
+		if (nameStr.length() == 0)
+			return null;
+		ArrayList names = new ArrayList(Arrays.asList(nameStr.split("\\s+")));
+		boolean invert = false;
+		if ("-".equals(names.get(0))) {
+			invert = true;
+			names.remove(0);
+		}
+		return (names.isEmpty() ? null : new NameSetFilter(new HashSet(names), invert));
 	}
 	
 	/* (non-Javadoc)
@@ -149,11 +189,15 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 		//	request for specific plain XML document
 		String docId = request.getParameter(ID_QUERY_FIELD_NAME);
 		
+		//	request for specific version of plain XML document
+		String docVersionStr = request.getParameter(VERSION_QUERY_FIELD_NAME);
+		
 		//	get client requested media type (browsers tend to be stubborn about what to do with files ...)
 		String requestContentType = request.getParameter("type");
 		
 		//	parameter missing, check paths
 		//	TODO streamline this sucker
+		XmlOutputOptions xsltOptions = null;
 		if ((docId == null) || (xsltUrls == null)) {
 			StringVector fullPath = new StringVector();
 			
@@ -165,7 +209,7 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 					path = path.substring(1);
 				
 				//	user last part only
-				path = path.substring(path.lastIndexOf('/') + 1);
+				path = path.substring(path.lastIndexOf('/') + "/".length());
 				
 				//	add it
 				fullPath.addElement(path);
@@ -176,7 +220,7 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 				
 				//	cut leading slash
 				if (pathInfo.startsWith("/"))
-					pathInfo = pathInfo.substring(1);
+					pathInfo = pathInfo.substring("/".length());
 				
 				//	add it
 				fullPath.parseAndAddElements(pathInfo, "/");
@@ -187,7 +231,7 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 				
 				//	cut leading question mark
 				if (query.startsWith("?"))
-					query = query.substring(1);
+					query = query.substring("?".length());
 				
 				//	add it
 				fullPath.addElement(query);
@@ -201,26 +245,54 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 			
 			//	only one part in path, has to be document ID
 			else if ((docId == null) && (fullPath.size() == 1))
-				docId = fullPath.get(0);
+				docId = fullPath.remove(0);
 			
 			//	from here on, either document ID is not null, or we have at least two elements in fullPath
 			else {
-				String xsltName = fullPath.get(0);
+				String xsltName = fullPath.remove(0);
 				
-				//	map invocation path to named XSLT URL
+				//	map invocation path to named XSLT URL and output options
 				if (xsltUrls == null) {
 					String xsltUrlString = this.xsltNamesToStylesheetUrls.getProperty(xsltName);
 					xsltUrls = ((xsltUrlString == null) ? null : xsltUrlString.trim().split("\\s++"));
 				}
+				xsltOptions = ((XmlOutputOptions) this.xsltNamesToOutputOptions.get(xsltName));
 				
 				if (docId == null)
-					docId = fullPath.get(1);
+					docId = fullPath.remove(0);
+				if (fullPath.size() > 0)
+					docVersionStr = fullPath.remove(0);
 			}
 		}
 //		System.out.println(" - request parsed after " + (System.currentTimeMillis() - start));
 		
+		//	parse version number off document ID (need to do that before replacing dashes ...)
+		if (docId.indexOf('/') != -1) {
+			docVersionStr = docId.substring(docId.indexOf('/') + "/".length());
+			docId = docId.substring(0, docId.indexOf('/'));
+			while (docVersionStr.startsWith("/"))
+				docVersionStr = docVersionStr.substring("/".length());
+		}
+		
 		//	remove dashes from UUIDs
 		docId = docId.replaceAll("\\-", "").toUpperCase();
+		
+		//	parse version number (wherever it came from)
+		int docVersion = 0;
+		if (docVersionStr != null) try {
+			docVersion = Integer.parseInt(docVersionStr);
+		} catch (NumberFormatException nfe) {}
+		
+		//	load document
+		MutableAnnotation doc;
+		try {
+			doc = this.srsClient.getXmlDocument(docId, docVersion, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+		}
+		catch (IOException ioe) {
+			response.sendError(HttpServletResponse.SC_NOT_FOUND, ioe.getMessage());
+			return;
+		}
+//		System.out.println(" - got plain document after " + (System.currentTimeMillis() - start));
 		
 		//	set response content type (must be done before obtaining writer)
 		String contentType = "text/xml";
@@ -236,83 +308,79 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 		response.setCharacterEncoding(ENCODING);
 		response.setHeader("Cache-Control", "no-cache");
 		
-		//	get output writer
-		final BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
+		//	make sure we have output options set (if to default behavior)
+		if (xsltOptions == null)
+			xsltOptions = new XmlOutputOptions();
 		
-		try {
-			MutableAnnotation doc = this.srsClient.getXmlDocument(docId, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
-//			System.out.println(" - got plain document after " + (System.currentTimeMillis() - start));
-			
-			//	no XSLT transformer, send plain data
-			if ((xsltUrls == null) || (xsltUrls.length == 0)) {
-				AnnotationUtils.writeXML(doc, out);
-//				System.out.println(" - plain document sent after " + (System.currentTimeMillis() - start));
-			}
-			
-			//	do transformation
-			else {
-				
-				//	log slow transformations
-				XslTransformationTimer xtt = new XslTransformationTimer(docId, Arrays.toString(xsltUrls));
-				xtt.start();
-				
-				//	collect XML namespace declarations actually used in document
-				Annotation[] docAnnots = doc.getAnnotations();
-				HashSet docXmlns = new HashSet();
-				for (int a = 0; a < docAnnots.length; a++) {
-					String annotType = docAnnots[a].getType();
-					if (annotType.indexOf(':') != -1)
-						docXmlns.add(annotType.substring(0, annotType.indexOf(':')));
-					String[] annotAns = docAnnots[a].getAttributeNames();
-					for (int n = 0; n < annotAns.length; n++) {
-						if (annotAns[n].startsWith("xmlns:"))
-							continue;
-						if (annotAns[n].indexOf(':') != -1)
-							docXmlns.add(annotAns[n].substring(0, annotAns[n].indexOf(':')));
-					}
-				}
-				
-				//	remove unused XML namespace declarations so XSLT can define its own
-				String[] docAns = doc.getAttributeNames();
-				for (int n = 0; n < docAns.length; n++) {
-					if (!docAns[n].startsWith("xmlns:"))
-						continue;
-					if (!docXmlns.contains(docAns[n].substring("xmlns:".length())))
-						doc.removeAttribute(docAns[n]);
-				}
-				for (int a = 0; a < docAnnots.length; a++) {
-					String[] annotAns = docAnnots[a].getAttributeNames();
-					for (int n = 0; n < annotAns.length; n++) {
-						if (!annotAns[n].startsWith("xmlns:"))
-							continue;
-						if (!docXmlns.contains(annotAns[n].substring("xmlns:".length())))
-							docAnnots[a].removeAttribute(annotAns[n]);
-					}
-				}
-				
-				//	build transformer chain
-				InputStream is = new AnnotationInputStream(doc, "  ", "utf-8"); 
-				for (int x = 0; x < (xsltUrls.length - 1); x++)
-					is = XsltUtils.chain(is, this.getTransformer(xsltUrls[x]));
-//				System.out.println(" - got XSL transformers after " + (System.currentTimeMillis() - start));
-				
-				//	process data through last transformer
-				try {
-					this.getTransformer(xsltUrls[xsltUrls.length-1]).transform(new StreamSource(is), new StreamResult(out));
-//					System.out.println(" - XSL transformation done after " + (System.currentTimeMillis() - start));
-				}
-				catch (TransformerException te) {
-//					System.out.println(" - XSL transformation failed after " + (System.currentTimeMillis() - start));
-					throw new IOException(te.getMessageAndLocation());
-				}
-				finally {
-					xtt.done();
-				}
-			}
+		//	get output writer
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
+		
+		//	no XSLT transformer, send plain data
+		if ((xsltUrls == null) || (xsltUrls.length == 0)) {
+			AnnotationUtils.writeXML(doc, out, xsltOptions);
+//			System.out.println(" - plain document sent after " + (System.currentTimeMillis() - start));
 		}
 		
-		catch (IOException ioe) {
-			out.write("Error loading or transforming document '" + docId + "': " + ioe.getMessage());
+		//	do transformation
+		else {
+			
+			//	log slow transformations
+			XslTransformationTimer xtt = new XslTransformationTimer(docId, Arrays.toString(xsltUrls));
+			xtt.start();
+			
+			//	collect XML namespace declarations actually used in document
+			Annotation[] docAnnots = doc.getAnnotations();
+			HashSet docXmlns = new HashSet();
+			for (int a = 0; a < docAnnots.length; a++) {
+				String annotType = docAnnots[a].getType();
+				if (annotType.indexOf(':') != -1)
+					docXmlns.add(annotType.substring(0, annotType.indexOf(':')));
+				String[] annotAns = docAnnots[a].getAttributeNames();
+				for (int n = 0; n < annotAns.length; n++) {
+					if (annotAns[n].startsWith("xmlns:"))
+						continue;
+					if (annotAns[n].indexOf(':') != -1)
+						docXmlns.add(annotAns[n].substring(0, annotAns[n].indexOf(':')));
+				}
+			}
+			
+			//	remove unused XML namespace declarations so XSLT can define its own
+			String[] docAns = doc.getAttributeNames();
+			for (int n = 0; n < docAns.length; n++) {
+				if (!docAns[n].startsWith("xmlns:"))
+					continue;
+				if (!docXmlns.contains(docAns[n].substring("xmlns:".length())))
+					doc.removeAttribute(docAns[n]);
+			}
+			for (int a = 0; a < docAnnots.length; a++) {
+				String[] annotAns = docAnnots[a].getAttributeNames();
+				for (int n = 0; n < annotAns.length; n++) {
+					if (!annotAns[n].startsWith("xmlns:"))
+						continue;
+					if (!docXmlns.contains(annotAns[n].substring("xmlns:".length())))
+						docAnnots[a].removeAttribute(annotAns[n]);
+				}
+			}
+			
+			//	build transformer chain
+			InputStream is = new AnnotationInputStream(doc, "  ", "utf-8", xsltOptions); 
+			for (int x = 0; x < (xsltUrls.length - 1); x++)
+				is = XsltUtils.chain(is, this.getTransformer(xsltUrls[x]));
+//			System.out.println(" - got XSL transformers after " + (System.currentTimeMillis() - start));
+			
+			//	process data through last transformer
+			try {
+				this.getTransformer(xsltUrls[xsltUrls.length-1]).transform(new StreamSource(is), new StreamResult(out));
+//				System.out.println(" - XSL transformation done after " + (System.currentTimeMillis() - start));
+			}
+			catch (TransformerException te) {
+//				System.out.println(" - XSL transformation failed after " + (System.currentTimeMillis() - start));
+				response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, te.getMessageAndLocation());
+				return;
+			}
+			finally {
+				xtt.done();
+			}
 		}
 		
 		//	finish response
@@ -351,6 +419,7 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 	}
 	
 	private Properties xsltNamesToStylesheetUrls = new Properties();
+	private HashMap xsltNamesToOutputOptions = new HashMap();
 	
 	private HashSet cachedStylesheets = new HashSet();
 	

@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -95,14 +95,7 @@ public class GoldenGateATS extends GoldenGateEXP implements GoldenGateAtsConstan
 	/** Constructor passing 'ATS' as the letter code to super constructor
 	 */
 	public GoldenGateATS() {
-		super("ATS");
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#getExporterName()
-	 */
-	protected String getExporterName() {
-		return "AnnoThesaurus";
+		super("ATS", "AnnoThesaurus");
 	}
 	
 	/* (non-Javadoc)
@@ -398,8 +391,8 @@ public class GoldenGateATS extends GoldenGateEXP implements GoldenGateAtsConstan
 			}
 		}
 		catch (IOException ioe) {
-			System.out.println("GoldenGateATS: error creating file '" + docDataFile.getAbsolutePath() + "': " + ioe.getMessage());
-			ioe.printStackTrace(System.out);
+			this.logError("GoldenGateATS: error creating file '" + docDataFile.getAbsolutePath() + "': " + ioe.getMessage());
+			this.logError(ioe);
 			throw ioe;
 		}
 		

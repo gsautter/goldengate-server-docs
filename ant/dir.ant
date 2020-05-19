@@ -15,6 +15,7 @@
 		<mkdir dir="${dist.home}/DocGateway" />
 		<mkdir dir="${dist.home}/Plugins" />
 		<mkdir dir="${dist.home}/Components" />
+		<mkdir dir="${dist.home}/Components/GgServerELSData" />
 		<mkdir dir="${dist.home}/Components/GgServerSRSData" />
 		<mkdir dir="${dist.home}/Components/GgServerSRSData/Plugins" />
 		<mkdir dir="${dist.home}/WEB-INF" />
@@ -54,15 +55,6 @@
 		<!-- copy required libraries -->
 		<copy todir="${dist.home}/Components/Bin">
 			<fileset dir="${lib.home}" includes="BibRefUtils.jar" />
-		</copy>
-		
-		<!-- copy required libraries -->
-		<copy todir="${dist.home}/Components/GgServerDPRData">
-			<fileset dir="${lib.home}" includes="mail.jar" />
-			<fileset dir="${lib.home}" includes="StringUtils.jar" />
-			<fileset dir="${lib.home}" includes="HtmlXmlUtil.jar" />
-			<fileset dir="${lib.home}" includes="EasyIO.jar" />
-			<fileset dir="${lib.home}" includes="Gamta.jar" />
 			<fileset dir="${lib.home}" includes="GoldenGATE.jar" />
 		</copy>
 	</target>

@@ -8,7 +8,7 @@
 	<target name="zips" depends="backenddocszip,frontendzip,diodociojar,diobatchjar,docgatewayzip,dgpackerzip">
 	</target>
 	
-	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,dprjar,dprslavejar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,diosrsjar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar,scpjar">
+	<target name="backenddocszip" depends="atsjar,dcsjar,dicjar,diojar,dioexpjar,elsdiojar,dprjar,dprslavejar,drsjar,dstjar,expjar,excjar,wcsjar,srsjar,diosrsjar,srsexpjar,srsidxbibjar,srsidxftjar,srsfltschemajar,srsfltxpathjar,scpjar">
 		<delete file="${pack.serverdocs}"/>
 		<zip destfile="${pack.serverdocs}">
 			<fileset dir="${file.home}/server"/>
@@ -82,6 +82,18 @@
 			</fileset>
 			<fileset dir="${src.home}">
 				<include name="**/goldenGateServer/dio/connectors/GoldenGateDioEXP.java" />
+			</fileset>
+			<fileset dir="." includes="LICENSE.txt"/>
+		</jar>
+	</target>
+	<target name="elsdiojar">
+		<delete file="${jar.elsdio}" />
+		<jar destfile="${jar.elsdio}" manifest="${file.home}/MANIFEST.components.MF">
+			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/dio/connectors/GoldenGateElsDioWriter*.class" />
+			</fileset>
+			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/dio/connectors/GoldenGateElsDioWriter.java" />
 			</fileset>
 			<fileset dir="." includes="LICENSE.txt"/>
 		</jar>
@@ -335,14 +347,14 @@
 		<delete file="${jar.diowebclient}" />
 		<jar destfile="${jar.diowebclient}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.class" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.class" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.class" />
 				<include name="**/goldenGateServer/dio/client/DocumentServlet*.class" />
 				<include name="**/goldenGateServer/dio/data/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.java" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.java" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.java" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.java" />
 				<include name="**/goldenGateServer/dio/client/DocumentServlet*.java" />
@@ -371,6 +383,7 @@
 		<delete file="${jar.srswebportal}" />
 		<jar destfile="${jar.srswebportal}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.class" />
 				<include name="**/goldenGateServer/srs/GoldenGateSrsConstants*.class" />
 				<include name="**/goldenGateServer/srs/client/*.class" />
 				<include name="**/goldenGateServer/srs/data/*.class" />
@@ -379,6 +392,7 @@
 				<include name="**/goldenGateServer/srs/webPortal/layouts/DefaultSearchPortalLayout*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.java" />
 				<include name="**/goldenGateServer/srs/GoldenGateSrsConstants.java" />
 				<include name="**/goldenGateServer/srs/client/*.java" />
 				<include name="**/goldenGateServer/srs/data/*.java" />
@@ -446,14 +460,14 @@
 		<delete file="${jar.diodocio}" />
 		<jar destfile="${jar.diodocio}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.class" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.class" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.class" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioDocumentIO*.class" />
 				<include name="**/goldenGateServer/dio/data/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.java" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.java" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient.java" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioDocumentIO.java" />
@@ -466,14 +480,14 @@
 		<delete file="${jar.diobatch}" />
 		<jar destfile="${jar.diobatch}" manifest="${file.home}/MANIFEST.components.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.class" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.class" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient*.class" />
 				<include name="**/goldenGateServer/dio/client/batch/ServerBatchManager*.class" />
 				<include name="**/goldenGateServer/dio/data/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.java" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.java" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
 				<include name="**/goldenGateServer/dio/client/GoldenGateDioClient.java" />
 				<include name="**/goldenGateServer/dio/client/batch/ServerBatchManager.java" />
@@ -512,7 +526,7 @@
 		<delete file="${jar.diodocgateway}"/>
 		<jar destfile="${jar.diodocgateway}" manifest="${file.home}/MANIFEST.docgateway.MF">
 			<fileset dir="${build.home}/classes">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.class" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.class" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants*.class" />
 				<include name="**/goldenGateServer/client/GoldenGateDioClient*.class" />
 				<include name="**/goldenGateServer/client/documentGateway/GgServerDocumentGateway*.class" />
@@ -520,7 +534,7 @@
 				<include name="**/goldenGateServer/dst/*.class" />
 			</fileset>
 			<fileset dir="${src.home}">
-				<include name="**/goldenGateServer/dst/GoldenGateServerDocConstants.java" />
+				<include name="**/goldenGateServer/dst/DocumentStoreConstants.java" />
 				<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
 				<include name="**/goldenGateServer/client/GoldenGateDioClient.java" />
 				<include name="**/goldenGateServer/client/documentGateway/GgServerDocumentGateway.java" />

@@ -5,7 +5,7 @@
 -->
 
 <project name="import">
-	<target name="fetch" depends="fetch-su,fetch-hxu,fetch-gamta,fetch-eio,fetch-iclibs,fetch-bru,fetch-gg,fetch-ggs,fetch-ggswf,fetch-uaa,fetch-aep,fetch-res,fetch-authman" />
+	<target name="fetch" depends="fetch-su,fetch-hxu,fetch-gamta,fetch-eio,fetch-iclibs,fetch-bru,fetch-gg,fetch-ggs,fetch-ggswf,fetch-uaa,fetch-aep,fetch-els,fetch-res,fetch-authman" />
 	
 	<target name="check-fetch-su" unless="su.exists">
 		<available property="su.exists" file="../idaho-core/dist/StringUtils.jar"/>
@@ -75,6 +75,13 @@
 	</target>
 	<target name="fetch-aep" depends="check-fetch-aep" if="${aep.exists}">
     	<copy file="../goldengate-server/dist/Components/GgServerAEP.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+	</target>
+	
+	<target name="check-fetch-els" unless="els.exists">
+		<available property="els.exists" file="../goldengate-server/dist/Components/GgServerELS.jar"/>
+	</target>
+	<target name="fetch-els" depends="check-fetch-els" if="${els.exists}">
+    	<copy file="../goldengate-server/dist/Components/GgServerELS.jar" todir="${lib.home}" overwrite="true" verbose="false" />
 	</target>
 	
 	<target name="check-fetch-res" unless="res.exists">

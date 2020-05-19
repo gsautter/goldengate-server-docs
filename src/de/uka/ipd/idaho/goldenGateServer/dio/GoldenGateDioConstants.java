@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -36,23 +36,20 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
-import java.util.Properties;
 import java.util.Set;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
-import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.gamta.util.ReadOnlyDocument;
-import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
-import de.uka.ipd.idaho.goldenGateServer.dst.GoldenGateServerDocConstants;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentListElement;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
+import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStoreConstants;
 
 /**
  * Interface holding constants for communicating with the GoldenGateDIO
  * 
  * @author sautter
  */
-public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, LiteratureConstants {
+public interface GoldenGateDioConstants extends DocumentStoreConstants {
 	
 	/** the dummy session ID for the document servlet to retrieve documents from a backing DIO */
 	public static final String DOCUMENT_SERVLET_SESSION_ID = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
@@ -85,6 +82,9 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 	/** the command for loading a list of all documents in the DIO */
 	public static final String GET_DOCUMENT_LIST = "DIO_GET_DOCUMENT_LIST";
 	
+	/** the command for loading a list of all documents in the DIO */
+	public static final String GET_DOCUMENT_LIST_SHARED = "DIO_GET_DOCUMENT_LIST_SHARED";
+	
 	/** the command for retrieving the update protocol of document, i.e. messages that describe which other modifications the new version incurred throughout the server (only modifications that happen synchronously on update notification, though) */
 	public static final String GET_UPDATE_PROTOCOL = "DIO_GET_UPDATE_PROTOCOL";
 	
@@ -107,18 +107,15 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 	
 	/** the attribute holding keywords of a document */
 	public static final String DOCUMENT_KEYWORDS_ATTRIBUTE = "docKeywords";
-	
-	/** the attribute holding the name of a document */
-	public static final String DOCUMENT_VERSION_ATTRIBUTE = "docVersion";
-	
-	/** the attribute holding the name of the user who has currently checked out a document for working */
-	public static final String CHECKOUT_USER_ATTRIBUTE = "checkoutUser";
-	
-	/** the attribute holding the time when a document was checked out */
-	public static final String CHECKOUT_TIME_ATTRIBUTE = "checkoutTime";
+//	
+//	/** the attribute holding the name of the user who has currently checked out a document for working */
+//	public static final String CHECKOUT_USER_ATTRIBUTE = "checkoutUser";
+//	
+//	/** the attribute holding the time when a document was checked out */
+//	public static final String CHECKOUT_TIME_ATTRIBUTE = "checkoutTime";
 	
 	
-	/** the attribute holding external document identifiers, eg from some thrid-party meta data */
+	/** the attribute holding external document identifiers, e.g. from some third-party meta data */
 	public static final String EXTERNAL_IDENTIFIER_ATTRIBUTE = "externalIdentifier";
 	
 	/** the handling mode for external identifiers that throws a DuplicateExternalIdentifierException */
@@ -146,7 +143,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * @param conflictingExternalIdentifier
 		 * @param conflictingDocuments
 		 */
-		public DuplicateExternalIdentifierException(String externalIdentifierAttributeName, String conflictingExternalIdentifier, DocumentList conflictingDocuments) {
+		public DuplicateExternalIdentifierException(String externalIdentifierAttributeName, String conflictingExternalIdentifier, DioDocumentList conflictingDocuments) {
 			super("The " + externalIdentifierAttributeName + " '" + conflictingExternalIdentifier + "' is already assigned to another document.");
 			this.externalIdentifierAttributeName = externalIdentifierAttributeName;
 			this.conflictingExternalIdentifier = conflictingExternalIdentifier;
@@ -158,7 +155,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		}
 		
 		/**
-		 * @return an array loding the internal IDs of the documents with
+		 * @return an array loading the internal IDs of the documents with
 		 *         conflicting external identifiers
 		 */
 		public DocumentListElement[] getConflictingDocuments() {
@@ -187,197 +184,197 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 				bw.flush();
 		}
 	}
-	
-	/**
-	 * Extension for IO operations on GoldenGATE DIO. By means of registering
-	 * extensions with GoldenGATE DIO, other components can add additional
-	 * functionality and control to DIO's IO operations. For convenience, all
-	 * methods are implemented to do nothing, so sub classes only have to
-	 * implement the methods required for their specific functionality. Release
-	 * operations cannot be prevented, as it does not make any sense to filter
-	 * release operations after a prior checkout or update operation has been
-	 * permitted.
-	 * 
-	 * @author sautter
-	 */
-	public static abstract class DocumentIoExtension implements Comparable {
-		
-		/**
-		 * The extension's priority influences order of application if multiple
-		 * extensions are present, on a scale from 0 to 100, with higher
-		 * priority extensions being applied earlier. In favor of performance,
-		 * extensions that filter out data should be applied before ones that
-		 * add data, as the reverse order could cause data to be added and later
-		 * filtered out again. This especially applies to filtering document
-		 * lists.
-		 */
-		public final int priority;
-		
-		public static final int MIN_PRIORITY = 0;
-		public static final int MAX_PRIORITY = 100;
-		
-		/**
-		 * Constructor
-		 * @param priority the extensions's priority, on a scale from 0 to 100
-		 */
-		public DocumentIoExtension(int priority) {
-			this.priority = Math.max(MIN_PRIORITY, Math.min(MAX_PRIORITY, priority));
-		}
-		
-		/**
-		 * Compares two extensions based on their priority, enforcing decreasing
-		 * priority order.
-		 * @see java.lang.Comparable#compareTo(java.lang.Object)
-		 */
-		public final int compareTo(Object obj) {
-			return ((obj instanceof DocumentIoExtension) ? (((DocumentIoExtension) obj).priority - this.priority) : -1);
-		}
-		
-		/**
-		 * Get the size of a document list for a set of filter predicates. This
-		 * is to decide whether to return list elements or to require additional
-		 * filtering. This default implementation simply returns the argument
-		 * selectivity. Sub classes that overwrite the extendList() method to
-		 * apply some filter should overwrite this method as well.
-		 * @param selectivity the selectivity estimated so far
-		 * @param filter the filter to estimate the selectivity for
-		 * @param user the user submitting the filter
-		 * @return a selectivity estimate for the specified filter
-		 */
-		public int getSelectivity(int selectivity, Properties filter, String user) {
-			return selectivity;
-		}
-		
-		/**
-		 * Wrap an extension around a document list. An extension can add or
-		 * remove attributes to/from document list elements, or filter out
-		 * document list elements altogether. This default implementations
-		 * simply returns the argument document list, sub classes are welcome to
-		 * overwrite it as needed.<br>
-		 * This method should not return null. If it does, the extension is
-		 * ignored.
-		 * @param dl the document list to wrap
-		 * @param user the user retrieving the document list
-		 * @param headOnly if set to true, this method must return an empty
-		 *            list, only containing the header data (field names and
-		 *            optionally attribute value summaries)
-		 * @param filter a properties object containing filter predicates for
-		 *            the document list
-		 * @return a document list adjusted according to the specific extension
-		 */
-		public DocumentList extendList(DocumentList dl, String user, boolean headOnly, Properties filter) {
-			return dl;
-		}
-		
-		/**
-		 * Pre-check or extend an upload operation. DIO invokes this method with
-		 * all registered extensions before actually storing the argument
-		 * document. This method may modify the document by adding or removing
-		 * attributes, and it may throw an IOException to prevent the upload
-		 * operation altogether. This default implementation does nothing, sub
-		 * classes are welcome to overwrite it as needed.<br>
-		 * Note: an upload differs from an update in that it never modifies an
-		 * existing document, but always creates a new one. This implies that an
-		 * upload is never preceded by a checkout. In addition, the uploading
-		 * user does not get the lock on the document, so no release is
-		 * necessary.
-		 * @param document the document the user is trying to store in DIO
-		 * @param user the user trying to upload the document
-		 * @see de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DocumentIoExtension#extendUpdate(String, QueriableAnnotation, String)
-		 */
-		public void extendUpload(QueriableAnnotation document, String user) throws IOException {}
-		
-		/**
-		 * Pre-check or extend a get operation. DIO invokes this method with all
-		 * registered extensions before actually getting the document. This
-		 * method may modify the document by adding or removing attributes, and
-		 * it may throw an IOException to prevent the checkout operation
-		 * altogether. Before invoking this method, DIO sets all necessary
-		 * attributes with the argument document reader, but does not read from
-		 * it yet. This means that this method can still modify the reader's
-		 * attributes. Implementations returning the argument reader should not
-		 * read from it, as this might cause problems in subsequent extensions.
-		 * However, implementations are allowed to wrap the argument reader in a
-		 * new document reader and return the latter in an unread-from state.
-		 * This default implementation simply returns the argument document
-		 * reader, sub classes are welcome to overwrite it as needed.<br>
-		 * This method should not return null. If it does, the extension is
-		 * ignored.
-		 * @param documentId the ID of the document to be retrieved
-		 * @param dr the document reader the document will be read from
-		 */
-		public DocumentReader extendGet(String documentId, DocumentReader dr) throws IOException {
-			return dr;
-		}
-		
-		/**
-		 * Pre-check or extend a checkout operation. DIO invokes this method
-		 * with all registered extensions before actually checking out the
-		 * document. This method may modify the document by adding or removing
-		 * attributes, and it may throw an IOException to prevent the checkout
-		 * operation altogether. Before invoking this method, DIO sets all
-		 * necessary attributes with the argument document reader, but does not
-		 * read from it yet. This means that this method can still modify the
-		 * reader's attributes. Implementations returning the argument reader
-		 * should not read from it, as this might cause problems in subsequent
-		 * extensions. However, implementations are allowed to wrap the argument
-		 * reader in a new document reader and return the latter in an
-		 * unread-from state. This default implementation simply returns the
-		 * argument document reader, sub classes are welcome to overwrite it as
-		 * needed.<br>
-		 * This method should not return null. If it does, the extension is
-		 * ignored.
-		 * @param documentId the ID of the document to be checked out
-		 * @param dr the document reader the document will be read from
-		 * @param user the user trying to check out the document
-		 */
-		public DocumentReader extendCheckout(String documentId, DocumentReader dr, String user) throws IOException {
-			return dr;
-		}
-		
-		/**
-		 * Pre-check or extend an update operation. DIO invokes this method with
-		 * all registered extensions before actually storing the argument
-		 * document. This method may modify the document by adding or removing
-		 * attributes, and it may throw an IOException to prevent the update
-		 * operation altogether. This default implementation does nothing, sub
-		 * classes are welcome to overwrite it as needed.<br>
-		 * Note: an update differs from an upload in that it can modify an
-		 * existing document. A new document is created only if no document with
-		 * the specified ID exists so far. To update an existing document, the
-		 * updating user has to perform a checkout first. When creating a new
-		 * document, the updating user gets the lock on the document. He has to
-		 * release it before other users can work on it.
-		 * @param documentId the ID of the document to be updated
-		 * @param document the version of the document the user is trying to
-		 *            store in DIO
-		 * @param user the user trying to update the document
-		 * @see de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DocumentIoExtension#extendUpload(QueriableAnnotation, String)
-		 */
-		public void extendUpdate(String documentId, QueriableAnnotation document, String user) throws IOException {}
-		
-		/**
-		 * Pre-check a delete operation. DIO invokes this method with all
-		 * registered extensions before actually deleting the argument document.
-		 * This method may throw an IOException to prevent the delete operation.
-		 * This default implementation does nothing, sub classes are welcome to
-		 * overwrite it as needed.
-		 * @param documentId the ID of the document to be deleted
-		 * @param user the user trying to delete the document
-		 */
-		public void extendDelete(String documentId, String user) throws IOException {}
-		
-		/**
-		 * Pre-check a release operation. DIO invokes this method with all
-		 * registered extensions before actually releasing the argument
-		 * document. This method may throw an IOException to prevent the release
-		 * operation. This default implementation does nothing, sub classes are
-		 * welcome to overwrite it as needed.
-		 * @param documentId the ID of the document to be released
-		 * @param user the user trying to release the document
-		 */
-		public void extendRelease(String documentId, String user) throws IOException {}
-	}
+//	
+//	/**
+//	 * Extension for IO operations on GoldenGATE DIO. By means of registering
+//	 * extensions with GoldenGATE DIO, other components can add additional
+//	 * functionality and control to DIO's IO operations. For convenience, all
+//	 * methods are implemented to do nothing, so sub classes only have to
+//	 * implement the methods required for their specific functionality. Release
+//	 * operations cannot be prevented, as it does not make any sense to filter
+//	 * release operations after a prior checkout or update operation has been
+//	 * permitted.
+//	 * 
+//	 * @author sautter
+//	 */
+//	public static abstract class DocumentIoExtension implements Comparable {
+//		
+//		/**
+//		 * The extension's priority influences order of application if multiple
+//		 * extensions are present, on a scale from 0 to 100, with higher
+//		 * priority extensions being applied earlier. In favor of performance,
+//		 * extensions that filter out data should be applied before ones that
+//		 * add data, as the reverse order could cause data to be added and later
+//		 * filtered out again. This especially applies to filtering document
+//		 * lists.
+//		 */
+//		public final int priority;
+//		
+//		public static final int MIN_PRIORITY = 0;
+//		public static final int MAX_PRIORITY = 100;
+//		
+//		/**
+//		 * Constructor
+//		 * @param priority the extensions's priority, on a scale from 0 to 100
+//		 */
+//		public DocumentIoExtension(int priority) {
+//			this.priority = Math.max(MIN_PRIORITY, Math.min(MAX_PRIORITY, priority));
+//		}
+//		
+//		/**
+//		 * Compares two extensions based on their priority, enforcing decreasing
+//		 * priority order.
+//		 * @see java.lang.Comparable#compareTo(java.lang.Object)
+//		 */
+//		public final int compareTo(Object obj) {
+//			return ((obj instanceof DocumentIoExtension) ? (((DocumentIoExtension) obj).priority - this.priority) : -1);
+//		}
+//		
+//		/**
+//		 * Get the size of a document list for a set of filter predicates. This
+//		 * is to decide whether to return list elements or to require additional
+//		 * filtering. This default implementation simply returns the argument
+//		 * selectivity. Sub classes that overwrite the extendList() method to
+//		 * apply some filter should overwrite this method as well.
+//		 * @param selectivity the selectivity estimated so far
+//		 * @param filter the filter to estimate the selectivity for
+//		 * @param user the user submitting the filter
+//		 * @return a selectivity estimate for the specified filter
+//		 */
+//		public int getSelectivity(int selectivity, Properties filter, String user) {
+//			return selectivity;
+//		}
+//		
+//		/**
+//		 * Wrap an extension around a document list. An extension can add or
+//		 * remove attributes to/from document list elements, or filter out
+//		 * document list elements altogether. This default implementations
+//		 * simply returns the argument document list, sub classes are welcome to
+//		 * overwrite it as needed.<br>
+//		 * This method should not return null. If it does, the extension is
+//		 * ignored.
+//		 * @param dl the document list to wrap
+//		 * @param user the user retrieving the document list
+//		 * @param headOnly if set to true, this method must return an empty
+//		 *            list, only containing the header data (field names and
+//		 *            optionally attribute value summaries)
+//		 * @param filter a properties object containing filter predicates for
+//		 *            the document list
+//		 * @return a document list adjusted according to the specific extension
+//		 */
+//		public DocumentList extendList(DocumentList dl, String user, boolean headOnly, Properties filter) {
+//			return dl;
+//		}
+//		
+//		/**
+//		 * Pre-check or extend an upload operation. DIO invokes this method with
+//		 * all registered extensions before actually storing the argument
+//		 * document. This method may modify the document by adding or removing
+//		 * attributes, and it may throw an IOException to prevent the upload
+//		 * operation altogether. This default implementation does nothing, sub
+//		 * classes are welcome to overwrite it as needed.<br>
+//		 * Note: an upload differs from an update in that it never modifies an
+//		 * existing document, but always creates a new one. This implies that an
+//		 * upload is never preceded by a checkout. In addition, the uploading
+//		 * user does not get the lock on the document, so no release is
+//		 * necessary.
+//		 * @param document the document the user is trying to store in DIO
+//		 * @param user the user trying to upload the document
+//		 * @see de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DocumentIoExtension#extendUpdate(String, QueriableAnnotation, String)
+//		 */
+//		public void extendUpload(QueriableAnnotation document, String user) throws IOException {}
+//		
+//		/**
+//		 * Pre-check or extend a get operation. DIO invokes this method with all
+//		 * registered extensions before actually getting the document. This
+//		 * method may modify the document by adding or removing attributes, and
+//		 * it may throw an IOException to prevent the checkout operation
+//		 * altogether. Before invoking this method, DIO sets all necessary
+//		 * attributes with the argument document reader, but does not read from
+//		 * it yet. This means that this method can still modify the reader's
+//		 * attributes. Implementations returning the argument reader should not
+//		 * read from it, as this might cause problems in subsequent extensions.
+//		 * However, implementations are allowed to wrap the argument reader in a
+//		 * new document reader and return the latter in an unread-from state.
+//		 * This default implementation simply returns the argument document
+//		 * reader, sub classes are welcome to overwrite it as needed.<br>
+//		 * This method should not return null. If it does, the extension is
+//		 * ignored.
+//		 * @param documentId the ID of the document to be retrieved
+//		 * @param dr the document reader the document will be read from
+//		 */
+//		public DocumentReader extendGet(String documentId, DocumentReader dr) throws IOException {
+//			return dr;
+//		}
+//		
+//		/**
+//		 * Pre-check or extend a checkout operation. DIO invokes this method
+//		 * with all registered extensions before actually checking out the
+//		 * document. This method may modify the document by adding or removing
+//		 * attributes, and it may throw an IOException to prevent the checkout
+//		 * operation altogether. Before invoking this method, DIO sets all
+//		 * necessary attributes with the argument document reader, but does not
+//		 * read from it yet. This means that this method can still modify the
+//		 * reader's attributes. Implementations returning the argument reader
+//		 * should not read from it, as this might cause problems in subsequent
+//		 * extensions. However, implementations are allowed to wrap the argument
+//		 * reader in a new document reader and return the latter in an
+//		 * unread-from state. This default implementation simply returns the
+//		 * argument document reader, sub classes are welcome to overwrite it as
+//		 * needed.<br>
+//		 * This method should not return null. If it does, the extension is
+//		 * ignored.
+//		 * @param documentId the ID of the document to be checked out
+//		 * @param dr the document reader the document will be read from
+//		 * @param user the user trying to check out the document
+//		 */
+//		public DocumentReader extendCheckout(String documentId, DocumentReader dr, String user) throws IOException {
+//			return dr;
+//		}
+//		
+//		/**
+//		 * Pre-check or extend an update operation. DIO invokes this method with
+//		 * all registered extensions before actually storing the argument
+//		 * document. This method may modify the document by adding or removing
+//		 * attributes, and it may throw an IOException to prevent the update
+//		 * operation altogether. This default implementation does nothing, sub
+//		 * classes are welcome to overwrite it as needed.<br>
+//		 * Note: an update differs from an upload in that it can modify an
+//		 * existing document. A new document is created only if no document with
+//		 * the specified ID exists so far. To update an existing document, the
+//		 * updating user has to perform a checkout first. When creating a new
+//		 * document, the updating user gets the lock on the document. He has to
+//		 * release it before other users can work on it.
+//		 * @param documentId the ID of the document to be updated
+//		 * @param document the version of the document the user is trying to
+//		 *            store in DIO
+//		 * @param user the user trying to update the document
+//		 * @see de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DocumentIoExtension#extendUpload(QueriableAnnotation, String)
+//		 */
+//		public void extendUpdate(String documentId, QueriableAnnotation document, String user) throws IOException {}
+//		
+//		/**
+//		 * Pre-check a delete operation. DIO invokes this method with all
+//		 * registered extensions before actually deleting the argument document.
+//		 * This method may throw an IOException to prevent the delete operation.
+//		 * This default implementation does nothing, sub classes are welcome to
+//		 * overwrite it as needed.
+//		 * @param documentId the ID of the document to be deleted
+//		 * @param user the user trying to delete the document
+//		 */
+//		public void extendDelete(String documentId, String user) throws IOException {}
+//		
+//		/**
+//		 * Pre-check a release operation. DIO invokes this method with all
+//		 * registered extensions before actually releasing the argument
+//		 * document. This method may throw an IOException to prevent the release
+//		 * operation. This default implementation does nothing, sub classes are
+//		 * welcome to overwrite it as needed.
+//		 * @param documentId the ID of the document to be released
+//		 * @param user the user trying to release the document
+//		 */
+//		public void extendRelease(String documentId, String user) throws IOException {}
+//	}
 	
 	/**
 	 * Constant set containing the names of document attributes for which
@@ -603,12 +600,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 	 * 
 	 * @author sautter
 	 */
-	public static class DioDocumentEvent extends GoldenGateServerEvent {
-		
-		public static final int UPDATE_TYPE = 0;
-		public static final int DELETE_TYPE = 1;
-		public static final int CHECKOUT_TYPE = 2;
-		public static final int RELEASE_TYPE = 4;
+	public static class DioDocumentEvent extends DataObjectEvent {
 		
 		/**
 		 * Specialized storage listener for GoldenGATE DIO, receiving notifications of
@@ -670,29 +662,12 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 			public abstract void documentReleased(DioDocumentEvent dse);
 		}
 		
-		
-		/** The name of the user who caused the event */
-		public final String user;
-		
-		/** The ID of the document affected by the event */
-		public final String documentId;
-		
 		/**
 		 * The document affected by the event, null for deletion events. This
 		 * document is strictly read-only, any attempt of modification will
 		 * result in a RuntimException being thrown.
 		 */
 		public final QueriableAnnotation document;
-		//	TODOnot eliminate this field, as it clogs memory when many events queue up
-		//	TODOnot introduce overwritable getter method instead, returning null, overwritten inside DIO for updates only
-		//	TODOnot back said getter with 32 or so sized cache in DIO
-		//	==> NO NEED, as EXP doesn't enqueue objects of this class proper, only update events that only store the document ID
-		
-		/**
-		 * The current version number of the document affected by this event, -1
-		 * for deletion events
-		 */
-		public final int version;
 		
 		/**
 		 * Constructor for update events
@@ -702,6 +677,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * @param version the current version number of the document (after the
 		 *            update)
 		 * @param sourceClassName the class name of the component issuing the event
+		 * @param eventTime the timstamp of the event
 		 * @param logger a DocumentStorageLogger to collect log messages while the
 		 *            event is being processed in listeners
 		 */
@@ -714,6 +690,7 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * @param user the name of the user who caused the event
 		 * @param documentId the ID of the document that was deleted
 		 * @param sourceClassName the class name of the component issuing the event
+		 * @param eventTime the timstamp of the event
 		 * @param logger a DocumentStorageLogger to collect log messages while the
 		 *            event is being processed in listeners
 		 */
@@ -728,24 +705,15 @@ public interface GoldenGateDioConstants extends GoldenGateServerDocConstants, Li
 		 * @param document the actual document that was updated
 		 * @param version the current version number of the document (after the
 		 *            update)
+		 * @param type the event type (used for dispatching)
 		 * @param sourceClassName the class name of the component issuing the event
+		 * @param eventTime the timstamp of the event
 		 * @param logger a DocumentStorageLogger to collect log messages while the
 		 *            event is being processed in listeners
-		 * @param type the event type (used for dispatching)
 		 */
 		public DioDocumentEvent(String user, String documentId, QueriableAnnotation document, int version, int type, String sourceClassName, long eventTime, EventLogger logger) {
-			super(type, sourceClassName, eventTime, (documentId + "-" + eventTime), logger);
-			this.user = user;
-			this.documentId = documentId;
+			super(user, documentId, version, type, sourceClassName, eventTime, logger);
 			this.document = ((document == null) ? null : new ReadOnlyDocument(document, "The document contained in a DioDocumentEvent cannot be modified."));
-			this.version = version;
-		}
-		
-		/* (non-Javadoc)
-		 * @see de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent#getParameterString()
-		 */
-		public String getParameterString() {
-			return (super.getParameterString() + " " + this.user + " " + this.documentId + " " + this.version);
 		}
 		
 		/**

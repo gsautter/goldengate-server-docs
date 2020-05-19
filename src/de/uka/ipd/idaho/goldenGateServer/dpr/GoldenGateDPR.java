@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) / KIT nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) / KIT nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -27,8 +27,6 @@
  */
 package de.uka.ipd.idaho.goldenGateServer.dpr;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -41,15 +39,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedList;
 
 import de.uka.ipd.idaho.easyIO.sql.TableColumnDefinition;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
-import de.uka.ipd.idaho.easyIO.util.RandomByteSource;
+import de.uka.ipd.idaho.easyIO.util.HashUtils.MD5;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
@@ -57,6 +52,7 @@ import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousDataActionHandler;
+import de.uka.ipd.idaho.goldenGateServer.util.SlaveInstallerUtils;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
@@ -70,6 +66,7 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	private GoldenGateDIO dio;
 	
 	private String updateUserName;
+	private int maxSlaveMemory;
 	
 	private File workingFolder;
 	private File cacheFolder;
@@ -92,6 +89,11 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		//	get default import user name
 		this.updateUserName = this.configuration.getSetting("updateUserName", "GgDPR");
 		
+		//	get maximum memory for slave process
+		try {
+			this.maxSlaveMemory = Integer.parseInt(this.configuration.getSetting("maxSlaveMemory", "1024"));
+		} catch (RuntimeException re) {}
+		
 		//	get working folder
 		String workingFolderName = this.configuration.getSetting("workingFolderName", "Processor");
 		while (workingFolderName.startsWith("./"))
@@ -110,18 +112,8 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		this.ggConfigHost = this.configuration.getSetting("ggConfigHost");
 		this.ggConfigName = this.configuration.getSetting("ggConfigName");
 		
-		//	install base JARs
-		this.installJar("StringUtils.jar");
-		this.installJar("HtmlXmlUtil.jar");
-		this.installJar("Gamta.jar");
-		this.installJar("mail.jar");
-		this.installJar("EasyIO.jar");
-		
-		//	install GG JAR
-		this.installJar("GoldenGATE.jar");
-		
 		//	install GG slave JAR
-		this.installJar("GgServerDprSlave.jar");
+		SlaveInstallerUtils.installSlaveJar("GgServerDprSlave.jar", this.dataPath, this.workingFolder, true);
 		
 		//	create asynchronous worker
 		TableColumnDefinition[] argCols = {new TableColumnDefinition("DpName", TableDefinition.VARCHAR_DATATYPE, 128)};
@@ -134,38 +126,6 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		//	TODO get list of documents from DIO
 		
 		//	TODO release all documents we still hold the lock for
-	}
-	
-	private void installJar(String name) {
-		System.out.println("Installing JAR '" + name + "'");
-		File source = new File(this.dataPath, name);
-		if (!source.exists())
-			throw new RuntimeException("Missing JAR: " + name);
-		
-		File target = new File(this.workingFolder, name);
-		if ((target.lastModified() + 1000) > source.lastModified()) {
-			System.out.println(" ==> up to date");
-			return;
-		}
-		
-		try {
-			InputStream sourceIn = new BufferedInputStream(new FileInputStream(source));
-			OutputStream targetOut = new BufferedOutputStream(new FileOutputStream(target));
-			byte[] buffer = new byte[1024];
-			for (int r; (r = sourceIn.read(buffer, 0, buffer.length)) != -1;)
-				targetOut.write(buffer, 0, r);
-			targetOut.flush();
-			targetOut.close();
-			sourceIn.close();
-			System.out.println(" ==> installed");
-		}
-		catch (IOException ioe) {
-			throw new RuntimeException("Could not install JAR '" + name + "': " + ioe.getMessage());
-		}
-		catch (Exception e) {
-			e.printStackTrace(System.out);
-			throw new RuntimeException("Could not install JAR '" + name + "': " + e.getMessage());
-		}
 	}
 	
 	/* (non-Javadoc)
@@ -186,8 +146,6 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	public void linkInit() {
 		
 		//	start processing handler thread
-//		Thread batchRunner = new DocumentProcessingThread();
-//		batchRunner.start();
 		this.documentProcessor.start();
 	}
 	
@@ -197,16 +155,13 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	protected void exitComponent() {
 		
 		//	shut down processing handler thread
-//		synchronized (this.processingRequestQueue) {
-//			this.processingRequestQueue.clear();
-//			this.processingRequestQueue.notify();
-//		}
 		this.documentProcessor.shutdown();
 	}
 	
 	private static final String PROCESS_DOCUMENT_COMMAND = "process";
 	private static final String LIST_PROCESSORS_COMMAND = "processors";
 	private static final String QUEUE_SIZE_COMMAND = "queueSize";
+	//	TODO add same status indicators as in IMP
 	
 	/*
 	 * (non-Javadoc)
@@ -228,12 +183,13 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 						"- <documentId>: The ID of the document to process",
 						"- <processorName>: The name of the document processor to use"
 					};
+				//	TODO add (to-credit) user name as optional third argument ???
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 2)
 					scheduleProcessing(arguments[0], arguments[1]);
-				else reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID and processor name as the only arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID and processor name as the only arguments.");
 			}
 		};
 		cal.add(ca);
@@ -265,6 +221,7 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 						managerPrefix = arguments[a];
 					else managerPrefix = (managerPrefix + " " + arguments[a]);
 				}
+				//	TODO do this in separate thread to keep console responsive
 				listDocumentProcessors(forceReload, managersOnly, managerPrefix, this);
 			}
 		};
@@ -284,8 +241,8 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0)
-					reportResult(documentProcessor.getDataActionsPending() + " documents waiting to be processed.");
-				else reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					this.reportResult(documentProcessor.getDataActionsPending() + " documents waiting to be processed.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -382,172 +339,17 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	}
 	
 	private void scheduleProcessing(String docId, String prName) {
-//		this.enqueueProcessingRequest(new DocumentProcessingRequest(docId, prName));
 		String[] args = {prName};
 		this.documentProcessor.enqueueDataAction(docId, args);
 	}
-//	
-//	private LinkedList processingRequestQueue = new LinkedList() {
-//		private HashSet deduplicator = new HashSet();
-//		public Object removeFirst() {
-//			Object e = super.removeFirst();
-//			this.deduplicator.remove(e);
-//			return e;
-//		}
-//		public void addLast(Object e) {
-//			if (this.deduplicator.add(e))
-//				super.addLast(e);
-//		}
-//	};
-//	private void enqueueProcessingRequest(DocumentProcessingRequest dpr) {
-//		synchronized (this.processingRequestQueue) {
-//			this.processingRequestQueue.addLast(dpr);
-//			this.processingRequestQueue.notify();
-//		}
-//	}
-//	private DocumentProcessingRequest getProcessingRequest() {
-//		synchronized (this.processingRequestQueue) {
-//			if (this.processingRequestQueue.isEmpty()) try {
-//				this.processingRequestQueue.wait();
-//			} catch (InterruptedException ie) {}
-//			return (this.processingRequestQueue.isEmpty() ? null : ((DocumentProcessingRequest) this.processingRequestQueue.removeFirst()));
-//		}
-//	}
-//	
-//	private static class DocumentProcessingRequest {
-//		final String documentId;
-//		final String processorName;
-//		DocumentProcessingRequest(String documentId, String processorName) {
-//			this.documentId = documentId;
-//			this.processorName = processorName;
-//		}
-//	}
-//	
-//	private class DocumentProcessingThread extends Thread {
-//		public void run() {
-//			
-//			//	don't start right away
-//			try {
-//				sleep(1000 * 15);
-//			} catch (InterruptedException ie) {}
-//			
-//			//	keep going until shutdown
-//			while (true) {
-//				
-//				//	get next document ID to process
-//				DocumentProcessingRequest dpr = getProcessingRequest();
-//				if (dpr == null)
-//					return; // only happens on shutdown
-//				
-//				//	process document
-//				try {
-//					handleProcessingRequest(dpr);
-//				}
-//				catch (Exception e) {
-//					logError(e);
-//				}
-//				
-//				//	give the others a little time
-//				try {
-//					sleep(1000 * 5);
-//				} catch (InterruptedException ie) {}
-//			}
-//		}
-//	}
-//	
-//	private void handleProcessingRequest(DocumentProcessingRequest dpr) throws IOException {
-//		
-//		//	check out document as stream
-//		DocumentReader docIn = this.dio.checkoutDocumentAsStream(this.updateUserName, dpr.documentId);
-//		
-//		//	create document cache file
-//		File cacheFile = new File(this.cacheFolder, ("cache-" + dpr.documentId + ".gamta.xml"));
-//		
-//		//	copy document to cache, computing hash along the way
-//		DataHashOutputStream docHashOut = new DataHashOutputStream(new FileOutputStream(cacheFile));
-//		BufferedWriter docOut = new BufferedWriter(new OutputStreamWriter(docHashOut, "UTF-8"));
-//		char[] buffer = new char[1024];
-//		for (int r; (r = docIn.read(buffer, 0, buffer.length)) != -1;)
-//			docOut.write(buffer, 0, r);
-//		docOut.flush();
-//		docOut.close();
-//		docIn.close();
-//		String docHash = docHashOut.getDataHash();
-//		
-//		//	assemble command
-//		StringVector command = new StringVector();
-//		command.addElement("java");
-//		command.addElement("-jar");
-//		command.addElement("-Xmx1024m");
-//		command.addElement("GgServerDprSlave.jar");
-//		
-//		//	add parameters
-//		command.addElement("DATA=" + cacheFile.getAbsolutePath()); // cache folder
-//		if (this.ggConfigHost != null)
-//			command.addElement("CONFHOST=" + this.ggConfigHost); // config host (if any)
-//		command.addElement("CONFNAME=" + this.ggConfigName); // config name
-//		command.addElement("DPNAME=" + dpr.processorName); // document processor to run
-//		command.addElement("SINGLECORE"); // run on single CPU core only (we don't want to knock out the whole server, do we?)
-//		
-//		//	start batch processor slave process
-//		Process processing = Runtime.getRuntime().exec(command.toStringArray(), new String[0], this.workingFolder);
-//		
-//		//	loop through error messages
-//		final BufferedReader processorError = new BufferedReader(new InputStreamReader(processing.getErrorStream()));
-//		new Thread() {
-//			public void run() {
-//				try {
-//					for (String errorLine; (errorLine = processorError.readLine()) != null;)
-//						logError(errorLine);
-//				}
-//				catch (Exception e) {
-//					logError(e);
-//				}
-//			}
-//		}.start();
-//		
-//		//	loop through step information only
-//		BufferedReader processorIn = new BufferedReader(new InputStreamReader(processing.getInputStream()));
-//		for (String inLine; (inLine = processorIn.readLine()) != null;) {
-//			if (inLine.startsWith("S:"))
-//				logInfo(inLine.substring("S:".length()));
-//			else if (inLine.startsWith("I:")) {}
-//			else if (inLine.startsWith("P:")) {}
-//			else if (inLine.startsWith("BP:")) {}
-//			else if (inLine.startsWith("MP:")) {}
-//			else logInfo(inLine);
-//		}
-//		
-//		//	wait for processing to finish
-//		while (true) try {
-//			processing.waitFor();
-//			break;
-//		} catch (InterruptedException ie) {}
-//		
-//		//	load processed document, computing hash along the way
-//		DataHashInputStream pDocHashIn = new DataHashInputStream(new FileInputStream(cacheFile));
-//		BufferedReader pDocIn = new BufferedReader(new InputStreamReader(pDocHashIn, "UTF-8"));
-//		DocumentRoot pDoc = GenericGamtaXML.readDocument(pDocIn);
-//		pDocIn.close();
-//		String pDocHash = pDocHashIn.getDataHash();
-//		
-//		//	update and release document in DIO (update only if document hash actually changed)
-//		if (pDocHash.equals(docHash))
-//			this.logInfo("Document unchanged");
-//		else this.dio.updateDocument(this.updateUserName, dpr.documentId, pDoc, new EventLogger() {
-//			public void writeLog(String logEntry) {
-//				logInfo(logEntry);
-//			}
-//		});
-//		this.dio.releaseDocument(this.updateUserName, dpr.documentId);
-//		
-//		//	clean up cache and document data
-//		cacheFile.delete();
-//	}
+	
 	private void processDocument(String docId, String processorName) throws IOException {
 		
 		//	check out document as stream
 		DocumentReader docIn = this.dio.checkoutDocumentAsStream(this.updateUserName, docId);
+		
+		//	preserve original update user TODO observe argument to-credit user
+		String docUpdateUser = ((String) docIn.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE, this.updateUserName));
 		
 		//	create document cache file
 		File cacheFile = new File(this.cacheFolder, ("cache-" + docId + ".gamta.xml"));
@@ -567,7 +369,8 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		StringVector command = new StringVector();
 		command.addElement("java");
 		command.addElement("-jar");
-		command.addElement("-Xmx1024m");
+		if (this.maxSlaveMemory > 512)
+			command.addElement("-Xmx" + this.maxSlaveMemory + "m");
 		command.addElement("GgServerDprSlave.jar");
 		
 		//	add parameters
@@ -623,7 +426,7 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		//	update and release document in DIO (update only if document hash actually changed)
 		if (pDocHash.equals(docHash))
 			this.logInfo("Document unchanged");
-		else this.dio.updateDocument(this.updateUserName, docId, pDoc, new EventLogger() {
+		else this.dio.updateDocument(docUpdateUser, this.updateUserName, docId, pDoc, new EventLogger() {
 			public void writeLog(String logEntry) {
 				logInfo(logEntry);
 			}
@@ -635,7 +438,8 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	}
 	
 	private static class DataHashInputStream extends FilterInputStream {
-		private MessageDigest dataHasher = getDataHasher();
+//		private MessageDigest dataHasher = getDataHasher();
+		private MD5 dataHasher = new MD5();
 		private String dataHash = null;
 		
 		DataHashInputStream(InputStream in) {
@@ -668,10 +472,11 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 				return;
 			
 			//	finalize hash and rename file
-			this.dataHash = new String(RandomByteSource.getHexCode(this.dataHasher.digest()));
+//			this.dataHash = new String(RandomByteSource.getHexCode(this.dataHasher.digest()));
+			this.dataHash = this.dataHasher.digestHex();
 			
 			//	return digester to instance pool
-			returnDataHash(this.dataHasher);
+//			returnDataHash(this.dataHasher);
 			this.dataHasher = null;
 		}
 		
@@ -681,7 +486,8 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	}
 	
 	private static class DataHashOutputStream extends FilterOutputStream {
-		private MessageDigest dataHasher = getDataHasher();
+//		private MessageDigest dataHasher = getDataHasher();
+		private MD5 dataHasher = new MD5();
 		private String dataHash = null;
 		
 		DataHashOutputStream(OutputStream out) {
@@ -710,10 +516,11 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 				return;
 			
 			//	finalize hash and rename file
-			this.dataHash = new String(RandomByteSource.getHexCode(this.dataHasher.digest()));
+//			this.dataHash = new String(RandomByteSource.getHexCode(this.dataHasher.digest()));
+			this.dataHash = this.dataHasher.digestHex();
 			
 			//	return digester to instance pool
-			returnDataHash(this.dataHasher);
+//			returnDataHash(this.dataHasher);
 			this.dataHasher = null;
 		}
 		
@@ -721,26 +528,26 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 			return this.dataHash;
 		}
 	}
-	
-	private static LinkedList dataHashPool = new LinkedList();
-	private static synchronized MessageDigest getDataHasher() {
-		if (dataHashPool.size() != 0) {
-			MessageDigest dataHash = ((MessageDigest) dataHashPool.removeFirst());
-			dataHash.reset();
-			return dataHash;
-		}
-		try {
-			MessageDigest dataHash = MessageDigest.getInstance("MD5");
-			dataHash.reset();
-			return dataHash;
-		}
-		catch (NoSuchAlgorithmException nsae) {
-			System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
-			nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
-			return null;
-		}
-	}
-	private static synchronized void returnDataHash(MessageDigest dataHash) {
-		dataHashPool.addLast(dataHash);
-	}
+//	
+//	private static LinkedList dataHashPool = new LinkedList();
+//	private static synchronized MessageDigest getDataHasher() {
+//		if (dataHashPool.size() != 0) {
+//			MessageDigest dataHash = ((MessageDigest) dataHashPool.removeFirst());
+//			dataHash.reset();
+//			return dataHash;
+//		}
+//		try {
+//			MessageDigest dataHash = MessageDigest.getInstance("MD5");
+//			dataHash.reset();
+//			return dataHash;
+//		}
+//		catch (NoSuchAlgorithmException nsae) {
+//			System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
+//			nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
+//			return null;
+//		}
+//	}
+//	private static synchronized void returnDataHash(MessageDigest dataHash) {
+//		dataHashPool.addLast(dataHash);
+//	}
 }

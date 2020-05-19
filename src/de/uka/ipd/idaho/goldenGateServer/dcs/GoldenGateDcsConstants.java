@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) / KIT nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) / KIT nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -627,6 +627,7 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 	 */
 	public static final class DcStatistics extends StringRelation {
 		private final String[] fields;
+		private boolean readOnly = false;
 		
 		/** the timestamp of the last update to the underlying statistics tables */
 		public final long lastUpdated;
@@ -637,6 +638,29 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		public DcStatistics(String[] fields, long lastUpdated) {
 			this.fields = fields;
 			this.lastUpdated = lastUpdated;
+		}
+		
+		/**
+		 * Test whether or not the statistics is read-only. If this method
+		 * returns true, a call to any modification method will result in an
+		 * throw an <code>IllegalStateException</code>. In particular, 
+		 * statistics are read-only if they are cached in some kind of way.
+		 * @return the true if the statistics is read-only
+		 */
+		public boolean isReadOnly() {
+			return this.readOnly;
+		}
+		
+		/**
+		 * Put the statistics in read-only state. Client code that caches
+		 * statistics in any way should call this method to lock instances of
+		 * this class after populating them, to prevent accidental modification
+		 * of cached data by their own client code. There is no way back, so
+		 * once this method has been called, a statistics cannot be modified
+		 * any longer.
+		 */
+		public void setReadOnly() {
+			this.readOnly = true;
 		}
 		
 		/**
@@ -651,15 +675,64 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			return fields;
 		}
 		
-		/* (non-Javadoc)
-		 * @see de.uka.ipd.idaho.stringUtils.csvHandler.StringRelation#renameKey(java.lang.String, java.lang.String)
-		 */
 		public void renameKey(String key, String newKey) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot rename key in read-only mode");
 			super.renameKey(key, newKey);
 			for (int f = 0; f < this.fields.length; f++) {
 				if (key.equals(this.fields[f]))
 					this.fields[f] = newKey;
 			}
+		}
+		public void add(int index, StringTupel s) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot add element in read-only mode");
+			super.add(index, s);
+		}
+		public void addElement(StringTupel s) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot add element in read-only mode");
+			super.addElement(s);
+		}
+		public void insertElementAt(StringTupel s, int index) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot insert element in read-only mode");
+			super.insertElementAt(s, index);
+		}
+		public StringTupel remove(int index) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot remove element in read-only mode");
+			return super.remove(index);
+		}
+		public void remove(StringTupel s) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot remove element in read-only mode");
+			super.remove(s);
+		}
+		public void removeElementAt(int index) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot remove element in read-only mode");
+			super.removeElementAt(index);
+		}
+		public StringTupel set(int index, StringTupel s) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot replace element in read-only mode");
+			return super.set(index, s);
+		}
+		public void setElementAt(StringTupel s, int index) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot replace element in read-only mode");
+			super.setElementAt(s, index);
+		}
+		public void removeValue(String key) {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot remove key in read-only mode");
+			super.removeValue(key);
+		}
+		public void removeDuplicates() {
+			if (this.readOnly)
+				throw new IllegalStateException("Cannot remove duplicates in read-only mode");
+			super.removeDuplicates();
 		}
 		
 		/**
@@ -788,13 +861,20 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		 * @param rootTag the root tag name
 		 * @param rowTag the row tag name
 		 * @param fieldTag the field tag name
+		 * @param fieldsToLabels mapping of field names to field labels (null
+		 *        omits labels altogether)
 		 * @throws IOException
 		 */
-		public void writeAsXML(Writer w, String rootTag, String rowTag, String fieldTag) throws IOException {
+		public void writeAsXML(Writer w, String rootTag, String rowTag, String fieldTag, Properties fieldsToLabels) throws IOException {
 			BufferedWriter bw = ((w instanceof BufferedWriter) ? ((BufferedWriter) w) : new BufferedWriter(w));
 			String[] fields = this.getFields();
 			
-			bw.write("<" + rootTag + ">");
+			bw.write("<" + rootTag);
+			if (fieldsToLabels != null) {
+				for (int f = 0; f < fields.length; f++)
+					bw.write(" " + fields[f] + "=\"" + fieldsToLabels.getProperty(fields[f], fields[f]) + "\"");
+			}
+			bw.write(">");
 			bw.newLine();
 			
 			for (int t = 0; t < this.size(); t++) {

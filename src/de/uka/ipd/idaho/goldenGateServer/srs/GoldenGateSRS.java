@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -70,6 +70,7 @@ import de.uka.ipd.idaho.gamta.util.GamtaClassLoader.ComponentInitializer;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
+import de.uka.ipd.idaho.goldenGateServer.AsynchronousWorkQueue;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore;
@@ -96,21 +97,20 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * @author sautter
  */
 public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements GoldenGateSrsConstants {
-	private static final String ANNOTATION_NESTING_ORDER_SETTING = "annotationNestingOrder";
+	private static final String ANNOTATION_NESTING_ORDER_SETTING = "ANNOTATION_NESTING_ORDER";
 	
 	private static final String MASTER_DOCUMENT_ID_HASH_COLUMN_NAME = "masterDocIdHash";
 	private static final String DOCUMENT_UUID_HASH_COLUMN_NAME = "docUuidHash";
 	
 	private Indexer[] indexers = new Indexer[0];
 	private IndexerServiceThread indexerService = null;
+	private AsynchronousWorkQueue indexerServiceMonitor = null;
 	
 	private StorageFilter[] filters = new StorageFilter[0];
 	private DocumentSplitter[] splitters = new DocumentSplitter[0];
 	private DocumentUuidFetcher[] uuidFetchers = new DocumentUuidFetcher[0];
 	
 	private IoProvider io;
-//	
-//	private GoldenGateServerEventNotifier eventNotifier; 
 	
 	private int activityLogTimeout = 5000;
 	
@@ -135,6 +135,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private AnnotationChecksumDigest checksumDigest;
 	
 	private DocumentStore dst;
+	private long dstLastModified = -1;
 	
 	private HashMap documentListExtensions = new LinkedHashMap();
 	
@@ -205,6 +206,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						|| UPDATE_TIME_ATTRIBUTE.equals(attributeName)
 						|| attributeName.startsWith(UPDATE_USER_ATTRIBUTE + "-")
 						|| attributeName.startsWith(UPDATE_TIME_ATTRIBUTE + "-")
+						|| CHECKOUT_USER_ATTRIBUTE.equals(attributeName)
+						|| CHECKOUT_TIME_ATTRIBUTE.equals(attributeName)
+						|| DOCUMENT_VERSION_ATTRIBUTE.equals(attributeName)
 						);
 			}
 		});
@@ -216,7 +220,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		File docFolder = (((docFolderName.indexOf(":\\") == -1) && (docFolderName.indexOf(":/") == -1) && !docFolderName.startsWith("/")) ? new File(this.dataPath, docFolderName) : new File(docFolderName));
 		
 		//	initialize document store
-		this.dst = new DocumentStore(docFolder, this.configuration.getSetting("documentEncoding"));
+		this.dst = new DocumentStore("SrsDocuments", docFolder, this.configuration.getSetting("documentEncoding"), this);
 		System.out.println("  - got document store");
 		
 		
@@ -255,6 +259,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			try {
 				this.indexerActionQueue.wait();
 			} catch (InterruptedException ie) {}
+			this.indexerServiceMonitor = new AsynchronousWorkQueue("SrsIndexerService") {
+				public String getStatus() {
+					return (this.name + ": " + indexerActionQueue.size() + " indexin actions pending");
+				}
+			};
 		}
 		System.out.println("  - indexer service started");
 		
@@ -436,29 +445,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 			}
 		};
-//		
-//		//	create event notifier
-//		this.eventNotifier = new GoldenGateServerEventNotifier("SrsUpdateNotifier") {
-//			protected GoldenGateServerEvent prepareEventNotification(GoldenGateServerEvent gse) throws Exception {
-//				if (gse instanceof SrsDocumentEvent) {
-//					final SrsDocumentEvent sde = ((SrsDocumentEvent) gse);
-//					if (sde.type != SrsDocumentEvent.UPDATE_TYPE)
-//						return sde;
-//					if (sde.document != null)
-//						return sde;
-//					QueriableAnnotation doc = dst.loadDocument(sde.documentId);
-//					return new SrsDocumentEvent(sde.user, sde.documentId, doc, sde.version, sde.sourceClassName, sde.eventTime, null) {
-//						public void notificationComplete() {
-//							sde.notificationComplete();
-//						}
-//						public void writeLog(String logEntry) {
-//							sde.writeLog(logEntry);
-//						}
-//					};
-//				}
-//				else return super.prepareEventNotification(gse);
-//			}
-//		};
+		
+		//	make sure to load modification time
+		this.getLastModified();
 	}
 	
 	/* (non-Javadoc)
@@ -467,11 +456,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	protected void exitComponent() {
 		System.out.println("GoldenGateSRS: shutting down ...");
 		
+		this.indexerServiceMonitor.dispose();
 		this.indexerService.shutdown();
 		System.out.println("  - indexer service shut down");
-//		
-//		this.eventNotifier.shutdown();
-//		System.out.println("  - event notifier shut down");
 		
 		for (int i = 0; i < this.indexers.length; i++)
 			this.indexers[i].exit();
@@ -497,6 +484,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		this.io.close();
 		System.out.println("  - disconnected from database");
+		
+		this.dst.shutdown();
+		System.out.println("  - document store shut down");
 	}
 	
 	private static final String LIST_INDEXERS_COMMAND = "indexers";
@@ -731,6 +721,46 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		};
 		cal.add(ca);
 		
+		//	request for specific version of individual document in plain XML
+		ca = new ComponentActionNetwork() {
+			public String getActionCommand() {
+				return GET_XML_DOCUMENT_VERSION;
+			}
+			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
+				
+				String docId = input.readLine();
+				int version = Integer.parseInt(input.readLine());
+				try {
+					DocumentReader dr = getDocumentAsStream(docId, version);
+					try {
+						
+						//	indicate document coming
+						output.write(GET_XML_DOCUMENT_VERSION);
+						output.newLine();
+						
+						//	write document
+						char[] cbuf = new char[1024];
+						int read;
+						while ((read = dr.read(cbuf, 0, cbuf.length)) != -1)
+							output.write(cbuf, 0, read);
+						output.newLine();
+					}
+					catch (IOException ioe) {
+						output.write(ioe.getMessage());
+						output.newLine();
+					}
+					finally {
+						dr.close();
+					}
+				}
+				catch (Exception e) {
+					output.write("Could not find or load version " + version + " of document with ID " + docId);
+					output.newLine();
+				}
+			}
+		};
+		cal.add(ca);
+		
 		//	thesaurus search query
 		ca = new ComponentActionNetwork() {
 			public long getActivityLogTimeout() {
@@ -796,6 +826,25 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		};
 		cal.add(ca);
 		
+		//	request for last data modification
+		ca = new ComponentActionNetwork() {
+			public String getActionCommand() {
+				return GET_LAST_MODIFIED;
+			}
+			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
+				
+				//	get statistics
+				long lastMod = getLastModified();
+				
+				//	indicate statistics coming
+				output.write(GET_LAST_MODIFIED);
+				output.newLine();
+				output.write("" + lastMod);
+				output.newLine();
+			}
+		};
+		cal.add(ca);
+		
 		//	list documents
 		ca = new ComponentActionNetwork() {
 			public long getActivityLogTimeout() {
@@ -848,7 +897,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					for (int i = 0; i < indexers.length; i++)
 						this.reportResult(" - " + indexers[i].getIndexName() + " (" + indexers[i].getClass().getName() + ")");
 				}
-				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -871,7 +920,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					for (int f = 0; f < filters.length; f++)
 						this.reportResult(" - " + filters[f].getClass().getName());
 				}
-				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -894,7 +943,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					for (int s = 0; s < splitters.length; s++)
 						this.reportResult(" - " + splitters[s].getClass().getName());
 				}
-				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -917,7 +966,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					for (int u = 0; u < uuidFetchers.length; u++)
 						this.reportResult(" - " + uuidFetchers[u].getClass().getName());
 				}
-				else this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -939,12 +988,12 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				if (arguments.length == 0)
 					this.reportResult(" Activity log timeout currently is " + activityLogTimeout + " ms");
 				else if (arguments.length != 1)
-					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as the only argument.");
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as the only argument.");
 				else try {
 					activityLogTimeout = Integer.parseInt(arguments[0]);
 				}
 				catch (NumberFormatException nfe) {
-					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as an integer only.");
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the timeout as an integer only.");
 				}
 			}
 		};
@@ -966,7 +1015,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if ((arguments.length < 1) || (arguments.length > 2))
-					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID and indexer name as the only arguments.");
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID and indexer name as the only arguments.");
 				else reIndex(arguments[0], ((arguments.length == 1) ? null : arguments[1]));
 			}
 		};
@@ -987,7 +1036,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length != 1)
-					this.reportResult(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID as the only argument.");
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID as the only argument.");
 				else issueEvents(arguments[0]);
 			}
 		};
@@ -1111,21 +1160,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						String docId = sqr.getString(0);
 						String updateUser = sqr.getString(1);
 						long updateTime = sqr.getLong(2);
-						try {
-//							QueriableAnnotation doc = ((eventNotifier.getQueueSize() < 128) ? dst.loadDocument(docId) : null);
-							int docVersion = dst.getVersion(docId);
-//							eventNotifier.notify(new SrsDocumentEvent(updateUser, docId, doc, docVersion, GoldenGateSRS.class.getName(), updateTime, new EventLogger() {
-//								public void writeLog(String logEntry) {}
-//							}));
-							GoldenGateServerEventService.notify(new SrsDocumentEvent(updateUser, docId, null, docVersion, GoldenGateSRS.class.getName(), updateTime, new EventLogger() {
-								public void writeLog(String logEntry) {}
-							}));
-							count++;
-						}
-						catch (IOException ioe) {
-							logError("GoldenGateSRS: error issuing update event for document '" + docId + "': " + ioe.getMessage());
-							logError(ioe);
-						}
+						int docVersion = dst.getVersion(docId);
+						GoldenGateServerEventService.notify(new SrsDocumentEvent(updateUser, docId, null, docVersion, GoldenGateSRS.class.getName(), updateTime, new EventLogger() {
+							public void writeLog(String logEntry) {}
+						}));
+						count++;
 					}
 				}
 				catch (SQLException sqle) {
@@ -1340,6 +1379,37 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	}
 	
 	/**
+	 * Retrieve the timestamp of the last modification to the document
+	 * collection.
+	 * @return the timestamp of the last modification
+	 */
+	public long getLastModified() {
+		if (this.dstLastModified != -1)
+			return this.dstLastModified;
+		String lastModQuery = "SELECT max(" + UPDATE_TIME_ATTRIBUTE + ")" +
+				" FROM " + DOCUMENT_TABLE_NAME +
+				";";
+		SqlQueryResult sqr = null;
+		try {
+			sqr = this.io.executeSelectQuery(lastModQuery);
+			if (sqr.next()) {
+				this.dstLastModified = sqr.getLong(0);
+				return this.dstLastModified;
+			}
+			else return 0;
+		}
+		catch (SQLException sqle) {
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading lat modification timestamp.");
+			this.logError("  Query was " + lastModQuery);
+			return 0;
+		}
+		finally {
+			if (sqr != null)
+				sqr.close();
+		}
+	}
+	
+	/**
 	 * Retrieve the attributes of a document, as stored in the SRS's storage.
 	 * There is no guarantee with regard to the attributes contained in the
 	 * returned properties. If a document with the specified ID does not exist,
@@ -1396,7 +1466,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 
 	/**
 	 * Check if a document with a given ID exists.
-	 * @param documentId the ID of the document to check
+	 * @param docId the ID of the document to check
 	 * @return true if the document with the specified ID exists
 	 * @see de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore#isDocumentAvailable(String)
 	 */
@@ -1417,13 +1487,37 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	}
 	
 	/**
+	 * Retrieve the current version of a document stored in the collection of
+	 * this GoldenGATE SRS.
+	 * @param documentId the ID of the document to get the version for
+	 * @return the current version of the document with the argument ID
+	 */
+	public int getDocumentVersion(String documentId) {
+		return this.dst.getVersion(documentId);
+	}
+	
+	/**
 	 * Retrieve a document from the SRS's storage.
 	 * @param docId the ID of the document to load
 	 * @return the document with the specified ID
 	 * @throws IOException
 	 */
 	public QueriableAnnotation getDocument(String docId) throws IOException {
-		return this.getDocument(docId, false);
+		return this.getDocument(docId, 0, false);
+	}
+	
+	/**
+	 * Retrieve a specific version of a document from the SRS's storage. 0
+	 * always indicates the current version, negative values indicate versions
+	 * relative to the current one (e.g. -1 for the second most current
+	 * version), positive values indicate absolute versions.
+	 * @param docId the ID of the document to load
+	 * @param version the desired document version
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public QueriableAnnotation getDocument(String docId, int version) throws IOException {
+		return this.getDocument(docId, version, false);
 	}
 	
 	/**
@@ -1434,7 +1528,22 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public QueriableAnnotation getDocument(String docId, boolean includeUpdateHistory) throws IOException {
-		DocumentReader dr = this.getDocumentAsStream(docId, includeUpdateHistory);
+		return this.getDocument(docId, 0, includeUpdateHistory);
+	}
+	
+	/**
+	 * Retrieve a specific version of a document from the SRS's storage. 0
+	 * always indicates the current version, negative values indicate versions
+	 * relative to the current one (e.g. -1 for the second most current
+	 * version), positive values indicate absolute versions.
+	 * @param docId the ID of the document to load
+	 * @param version the desired document version
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public QueriableAnnotation getDocument(String docId, int version, boolean includeUpdateHistory) throws IOException {
+		DocumentReader dr = this.getDocumentAsStream(docId, version, includeUpdateHistory);
 		try {
 			return GenericGamtaXML.readDocument(dr);
 		}
@@ -1451,7 +1560,22 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public DocumentReader getDocumentAsStream(String docId) throws IOException {
-		return this.getDocumentAsStream(docId, false);
+		return this.getDocumentAsStream(docId, 0, false);
+	}
+	
+	/**
+	 * Retrieve a specific version of a document from the SRS's storage, as a
+	 * stream for sending out to some writer without instantiating it on this
+	 * end. 0 always indicates the current version, negative values indicate
+	 * versions relative to the current one (e.g. -1 for the second most
+	 * current version), positive values indicate absolute versions.
+	 * @param docId the ID of the document to load
+	 * @param version the desired document version
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public DocumentReader getDocumentAsStream(String docId, int version) throws IOException {
+		return this.getDocumentAsStream(docId, version, false);
 	}
 	
 	/**
@@ -1463,6 +1587,22 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public DocumentReader getDocumentAsStream(String docId, boolean includeUpdateHistory) throws IOException {
+		return this.getDocumentAsStream(docId, 0, includeUpdateHistory);
+	}
+	
+	/**
+	 * Retrieve a specific version of a document from the SRS's storage, as a
+	 * stream for sending out to some writer without instantiating it on this
+	 * end. 0 always indicates the current version, negative values indicate
+	 * versions relative to the current one (e.g. -1 for the second most
+	 * current version), positive values indicate absolute versions.
+	 * @param docId the ID of the document to load
+	 * @param version the desired document version
+	 * @param includeUpdateHistory include former update users and timestamps?
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public DocumentReader getDocumentAsStream(String docId, int version, boolean includeUpdateHistory) throws IOException {
 		
 		//	normalize UUID
 		this.logActivity("GoldenGateSRS getting document '" + docId + "' as stream");
@@ -1471,7 +1611,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	try plain ID lookup first (way faster)
 		try {
-			DocumentReader dr = this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
+			DocumentReader dr = this.dst.loadDocumentAsStream(docId, version, includeUpdateHistory);
 			this.logActivity(" - unresolved document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
 			return dr;
 		}
@@ -1483,7 +1623,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		docId = this.resolveDocumentId(docId);
 		
 		//	return document
-		DocumentReader dr = this.dst.loadDocumentAsStream(docId, includeUpdateHistory);
+		DocumentReader dr = this.dst.loadDocumentAsStream(docId, version, includeUpdateHistory);
 		this.logActivity(" - document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
 		return dr;
 	}
@@ -1801,7 +1941,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					this.logInfo("   - document data compared in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 					
 					//	write new values
-					if (!assignments.isEmpty()) {
+					if (assignments.size() != 0) {
 						storageStepStart = System.currentTimeMillis();
 						String updateQuery = "UPDATE " + DOCUMENT_TABLE_NAME + 
 								" SET " + assignments.concatStrings(", ") + 
@@ -1819,7 +1959,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						this.logInfo("   - document data updated in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 					}
 					
-					//	remove document from this.indexers, will be re-indexed later
+					//	remove document from indexers, will be re-indexed later
 					for (int i = 0; i < this.indexers.length; i++) {
 						final Indexer indexer = this.indexers[i];
 						this.enqueueIndexerAction(new Runnable() {
@@ -1948,6 +2088,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	store document
 		storageStepStart = System.currentTimeMillis();
 		final int version = this.dst.storeDocument(doc, docId);
+		this.dstLastModified = System.currentTimeMillis();
 		this.logInfo("   - document stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
 		//	run document through indexers asynchronously for better upload performance
@@ -1964,7 +2105,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	do event notification asynchronously for quick response
 		storageStepStart = System.currentTimeMillis();
-//		this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, ((this.eventNotifier.getQueueSize() < 128) ? doc : null), version, this.getClass().getName(), updateTime, logger));
 		GoldenGateServerEventService.notify(new SrsDocumentEvent(userName, docId, doc, version, this.getClass().getName(), updateTime, logger));
 		this.logInfo("   - update notification done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
@@ -2002,6 +2142,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				try {
 					this.dst.deleteDocument(docId);
+					this.dstLastModified = System.currentTimeMillis();
 				}
 				catch (IOException ioe) {
 					this.logError("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
@@ -2009,7 +2150,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 				
 				//	issue event
-//				this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
 				GoldenGateServerEventService.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
 				
 				//	delete master table entry
@@ -2087,6 +2227,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				try {
 					this.dst.deleteDocument(docId);
+					this.dstLastModified = System.currentTimeMillis();
 				}
 				catch (IOException ioe) {
 					this.logError("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
@@ -2094,7 +2235,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 				
 				//	issue event
-//				this.eventNotifier.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
 				GoldenGateServerEventService.notify(new SrsDocumentEvent(userName, docId, this.getClass().getName(), System.currentTimeMillis(), logger));
 				
 				//	update statistics
@@ -2663,7 +2803,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @return a document result to iterate over the matching documents
 	 * @throws IOException
 	 */
-	public DocumentResult searchDocuments(Query query, boolean includeUpdateHistory) throws IOException {
+	public DocumentResult searchDocuments(Query query, final boolean includeUpdateHistory) throws IOException {
 		this.logActivity("GgSRS: doing document search ...");
 		
 		//	get document numbers
@@ -2672,6 +2812,20 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		//	test if we have an ID query, and waive relevance elimination if so
 		boolean isIdQuery = (query.getValue(ID_QUERY_FIELD_NAME) != null);
+		final int docVersion;
+		if (isIdQuery) {
+			String queryVersion = query.getValue(VERSION_QUERY_FIELD_NAME);
+			if (queryVersion == null)
+				docVersion = 0;
+			else {
+				int dv = 0;
+				try {
+					dv = Integer.parseInt(queryVersion);
+				} catch (NumberFormatException nfe) {}
+				docVersion = dv;
+			}
+		}
+		else docVersion = 0;
 		
 		//	read additional parameters
 		int queryResultPivotIndex = (isIdQuery ? 0 : this.resultPivotIndex);
@@ -2782,7 +2936,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				//	load actual document
 				DocumentRoot doc;
 				try {
-					doc = dst.loadDocument(dre.documentId);
+					doc = dst.loadDocument(dre.documentId, docVersion, includeUpdateHistory);
 				}
 				catch (IOException ioe) {
 					logError("GoldenGateSRS: Error loading document '" + dre.documentId + "' (" + ioe.getMessage() + ")");
@@ -4297,41 +4451,17 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		return id;
 	}
 	
-//	private static MessageDigest checksumDigester = null;
 	private String getChecksum(QueriableAnnotation document) {
-//		if (checksumDigester == null) {
-//			try {
-//				checksumDigester = MessageDigest.getInstance("MD5");
-//			}
-//			catch (NoSuchAlgorithmException nsae) {
-//				this.logError(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
-//				this.logError(nsae); // should not happen, but Java don't know ...
-//				return Gamta.getAnnotationID(); // use random value so a document is regarded as new
-//			}
-//		}
 		long start = System.currentTimeMillis();
-//		checksumDigester.reset();
-//		//	omit updateUser & updateTimestamp in checksum computation
-//		AnnotationInputStream ais = new AnnotationInputStream(document, ENCODING, null, new HashSet() {
-//			public boolean contains(Object obj) {
-//				return (!UPDATE_USER_ATTRIBUTE.equals(obj) && !UPDATE_TIME_ATTRIBUTE.equals(obj) && !obj.toString().startsWith(UPDATE_USER_ATTRIBUTE + "-") && !obj.toString().startsWith(UPDATE_TIME_ATTRIBUTE + "-"));
-//			}
-//		});
 		String checksum;
 		try {
 			checksum = this.checksumDigest.computeChecksum(document);
-//			byte[] buffer = new byte[1024];
-//			for (int read; (read = ais.read(buffer)) != -1;)
-//				checksumDigester.update(buffer, 0, read);
-//			ais.close();
 		}
 		catch (IOException ioe) {
 			this.logError(ioe.getClass().getName() + " (" + ioe.getMessage() + ") while computing document checksum.");
 			this.logError(ioe); // should not happen, but Java don't know ...
-			return Gamta.getAnnotationID(); // use random value so a document is regarded as new
+			return Gamta.getAnnotationID(); // use random value so a document is regarded as new or changed
 		}
-//		byte[] checksumBytes = checksumDigester.digest();
-//		String checksum = new String(RandomByteSource.getHexCode(checksumBytes));
 		this.logInfo("Checksum computed in " + (System.currentTimeMillis() - start) + " ms: " + checksum);
 		return checksum;
 	}

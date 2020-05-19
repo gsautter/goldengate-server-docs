@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -90,12 +90,12 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 			
 			//	build document base name
 			String documentBaseName = this.buildDocumentBaseName(rawDocumentName);
-			if (DEBUG_EXPORT) System.out.println("      - document base name is '" + documentBaseName + "'");
+			logDebug("      - document base name is '" + documentBaseName + "'");
 			
 			//	go through different storage formats
 			for (Iterator fit = storageFormats.values().iterator(); fit.hasNext();) {
 				ExportFormat sf = ((ExportFormat) fit.next());
-				if (DEBUG_EXPORT) System.out.println("      - exporting storage format '" + sf.name + "'");
+				logDebug("      - exporting storage format '" + sf.name + "'");
 				
 				try {
 					
@@ -104,7 +104,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					if (sf.fileNameSuffix.length() != 0)
 						documentName += ("_" + sf.fileNameSuffix);
 					documentName += ".xml";
-					if (DEBUG_EXPORT) System.out.println("        - document name is '" + documentName + "'");
+					logDebug("        - document name is '" + documentName + "'");
 					
 					//	prepare upload URL
 					HttpURLConnection putCon = this.getConnection(documentName, "PUT");
@@ -125,11 +125,11 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 						for (int x = 0; x < (sf.xsltUrls.length - 1); x++) {
 							Transformer xslt = this.getTransformer(sf.xsltUrls[x]);
 							if (xslt == null) {
-								if (DEBUG_EXPORT) System.out.println("        - could not instantiate transformer from XSLT at '" + sf.xsltUrls[x] + "'");
+								logError("        - could not instantiate transformer from XSLT at '" + sf.xsltUrls[x] + "'");
 								throw new IOException("XSLT transformer chain broken at '" + sf.xsltUrls[x] + "'");
 							}
 							else {
-								if (DEBUG_EXPORT) System.out.println("        - chained in transformer from XSLT at '" + sf.xsltUrls[x] + "'");
+								logDebug("        - chained in transformer from XSLT at '" + sf.xsltUrls[x] + "'");
 								is = XsltUtils.chain(is, xslt);
 							}
 						}
@@ -137,7 +137,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 						//	build last transformer
 						Transformer xslt = this.getTransformer(sf.xsltUrls[sf.xsltUrls.length-1]);
 						if (xslt == null) {
-							if (DEBUG_EXPORT) System.out.println("        - could not instantiate transformer from XSLT at '" + sf.xsltUrls[sf.xsltUrls.length-1] + "'");
+							logError("        - could not instantiate transformer from XSLT at '" + sf.xsltUrls[sf.xsltUrls.length-1] + "'");
 							throw new IOException("XSLT transformer chain broken at '" + sf.xsltUrls[sf.xsltUrls.length-1] + "'");
 						}
 						
@@ -150,17 +150,17 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 						}						
 					}
 					
-					if (DEBUG_EXPORT) System.out.println("      - document uploaded");
+					logInfo("      - document uploaded");
 					
 					//	print server's response
 					bw.flush();
-					if (DEBUG_EXPORT) System.out.println(putCon.getResponseCode() + ": " + putCon.getResponseMessage());
+					logInfo(putCon.getResponseCode() + ": " + putCon.getResponseMessage());
 					bw.close();
 				}
 				
 				catch (IOException ioe) {
-					System.out.println("GoldenGateEXC: Error forwarding update for document '" + rawDocumentName + "' - " + ioe.getMessage());
-					ioe.printStackTrace(System.out);
+					logError("GoldenGateEXC: Error forwarding update for document '" + rawDocumentName + "' - " + ioe.getMessage());
+					logError(ioe);
 				}
 			}
 		}
@@ -169,12 +169,12 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 			
 			//	build document base name
 			String documentBaseName = this.buildDocumentBaseName(rawDocumentName);
-			if (DEBUG_EXPORT) System.out.println("      - document base name is '" + documentBaseName + "'");
+			logDebug("      - document base name is '" + documentBaseName + "'");
 			
 			//	go through different storage formats
 			for (Iterator fit = storageFormats.values().iterator(); fit.hasNext();) {
 				ExportFormat sf = ((ExportFormat) fit.next());
-				if (DEBUG_EXPORT) System.out.println("      - deleting for storage format '" + sf.name + "'");
+				logDebug("      - deleting for storage format '" + sf.name + "'");
 				
 				try {
 					
@@ -183,7 +183,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					if (sf.fileNameSuffix.length() != 0)
 						documentName += ("_" + sf.fileNameSuffix);
 					documentName += ".xml";
-					if (DEBUG_EXPORT) System.out.println("      - document name is '" + documentName + "'");
+					logDebug("      - document name is '" + documentName + "'");
 					
 					//	prepare delete URL
 					HttpURLConnection deleteCon = this.getConnection(documentName, "DELETE");
@@ -193,13 +193,13 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					BufferedReader br = new BufferedReader(new InputStreamReader(deleteCon.getInputStream(), "UTF-8"));
 					String responseLine;
 					while ((responseLine = br.readLine()) != null)
-						System.out.println(responseLine);
+						logInfo(responseLine);
 					br.close();
 				}
 				
 				catch (IOException ioe) {
-					System.out.println("GoldenGateEXC: Error forwarding deletion of document '" + documentBaseName + "' to '" + this.name + "' - " + ioe.getMessage());
-					ioe.printStackTrace(System.out);
+					logError("GoldenGateEXC: Error forwarding deletion of document '" + documentBaseName + "' to '" + this.name + "' - " + ioe.getMessage());
+					logError(ioe);
 				}
 			}
 		}
@@ -212,7 +212,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 		
 		private HttpURLConnection getConnection(String documentName, String httpMethod) throws IOException {
 			URL url = new URL(this.outputUrl + documentName);
-			if (DEBUG_EXPORT) System.out.println("      - URL is '" + url.toString() + "'");
+			logDebug("      - URL is '" + url.toString() + "'");
 			HttpURLConnection connection = ((HttpURLConnection) url.openConnection());
 			connection.setRequestMethod(httpMethod);
 			if (authentication != null)
@@ -252,9 +252,10 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 	/**
 	 * Constructor
 	 * @param letterCode the letter code identifying the connector
+	 * @param existName the eXist exporter name to use
 	 */
-	protected GoldenGateEXC(String letterCode) {
-		super(letterCode);
+	protected GoldenGateEXC(String letterCode, String existName) {
+		super(letterCode, existName);
 	}
 	
 	/**
@@ -422,13 +423,13 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if (arguments.length >= 3) {
 					EXistConnection ec = getEXistConnection(arguments[0]);
 					if (ec == null) {
-						System.out.println(" Invalid connection name '" + arguments[0] + "'");
+						this.reportError(" Invalid connection name '" + arguments[0] + "'");
 						return;
 					}
 					
 					String name = arguments[1];
 					if (ec.storageFormats.containsKey(name)) {
-						System.out.println(" A format named '" + arguments[0] + "' already exists, use " + CHANGE_FORMAT_COMMAND);
+						this.reportError(" A format named '" + arguments[0] + "' already exists, use " + CHANGE_FORMAT_COMMAND);
 						return;
 					}
 					
@@ -439,14 +440,14 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					
 					try {
 						storeEXistConnection(ec);
-						System.out.println(" Format '" + name + "' added successfully");
+						this.reportResult(" Format '" + name + "' added successfully");
 					}
-					catch (IOException e) {
-						System.out.println(" Error storing connection: " + e.getMessage());
-						e.printStackTrace(System.out);
+					catch (IOException ioe) {
+						this.reportError(" Error storing connection: " + ioe.getMessage());
+						this.reportError(ioe);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
 			}
 		};
 		cal.add(ca);
@@ -469,14 +470,14 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if (arguments.length == 2) {
 					EXistConnection ec = getEXistConnection(arguments[0]);
 					if (ec == null) {
-						System.out.println(" Invalid connection name '" + arguments[0] + "'");
+						this.reportError(" Invalid connection name '" + arguments[0] + "'");
 						return;
 					}
 					
 					String name = arguments[1];
 					ExportFormat sf = ((ExportFormat) ec.storageFormats.get(name));
 					if (sf == null) {
-						System.out.println(" A format named '" + arguments[0] + "' does not exist, use " + ADD_FORMAT_COMMAND);
+						this.reportError(" A format named '" + arguments[0] + "' does not exist, use " + ADD_FORMAT_COMMAND);
 						return;
 					}
 					
@@ -485,12 +486,12 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 							XsltUtils.getTransformer(sf.xsltUrls[x], false);
 						else XsltUtils.getTransformer(new File(dataPath, sf.xsltUrls[x]), false);
 					}
-					catch (IOException e) {
-						System.out.println(" Error loading XSLT staylesheet from " + sf.xsltUrls[x] + ": " + e.getMessage());
-						e.printStackTrace(System.out);
+					catch (IOException ioe) {
+						this.reportError(" Error loading XSLT staylesheet from " + sf.xsltUrls[x] + ": " + ioe.getMessage());
+						this.reportError(ioe);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
 			}
 		};
 		cal.add(ca);
@@ -515,13 +516,13 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if (arguments.length >= 3) {
 					EXistConnection ec = getEXistConnection(arguments[0]);
 					if (ec == null) {
-						System.out.println(" Invalid connection name '" + arguments[0] + "'");
+						this.reportError(" Invalid connection name '" + arguments[0] + "'");
 						return;
 					}
 					
 					String name = arguments[1];
 					if (!ec.storageFormats.containsKey(name)) {
-						System.out.println(" A format named '" + arguments[0] + "' does not exist, use " + ADD_FORMAT_COMMAND);
+						this.reportError(" A format named '" + arguments[0] + "' does not exist, use " + ADD_FORMAT_COMMAND);
 						return;
 					}
 					
@@ -532,14 +533,14 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					
 					try {
 						storeEXistConnection(ec);
-						System.out.println(" Format '" + name + "' changed successfully");
+						this.reportResult(" Format '" + name + "' changed successfully");
 					}
-					catch (IOException e) {
-						System.out.println(" Error storing connection: " + e.getMessage());
-						e.printStackTrace(System.out);
+					catch (IOException ioe) {
+						this.reportError(" Error storing connection: " + ioe.getMessage());
+						this.reportError(ioe);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
 			}
 		};
 		cal.add(ca);
@@ -562,22 +563,20 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if (arguments.length == 2) {
 					EXistConnection ec = getEXistConnection(arguments[0]);
 					if (ec == null)
-						System.out.println(" Invalid connection name '" + arguments[0] + "'");
-					
+						this.reportError(" Invalid connection name '" + arguments[0] + "'");
 					else if (ec.storageFormats.remove(arguments[1]) != null) {
 						try {
 							storeEXistConnection(ec);
-							System.out.println(" Format '" + arguments[1] + "' dropped successfully");
+							this.reportResult(" Format '" + arguments[1] + "' dropped successfully");
 						}
-						catch (IOException e) {
-							System.out.println(" Error storing connection: " + e.getMessage());
-							e.printStackTrace(System.out);
+						catch (IOException ioe) {
+							this.reportError(" Error storing connection: " + ioe.getMessage());
+							this.reportError(ioe);
 						}
 					}
-						
-					else System.out.println(" Invalid format name '" + arguments[1] + "'");
+					else this.reportError(" Invalid format name '" + arguments[1] + "'");
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only  the name of the connection and the name of the format to drop.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only  the name of the connection and the name of the format to drop.");
 			}
 		};
 		cal.add(ca);
@@ -598,17 +597,17 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if (arguments.length == 1) {
 					EXistConnection ec = getEXistConnection(arguments[0]);
 					if (ec == null) {
-						System.out.println(" Invalid connection name '" + arguments[0] + "'");
+						this.reportError(" Invalid connection name '" + arguments[0] + "'");
 						return;
 					}
 					for (Iterator fit = ec.storageFormats.values().iterator(); fit.hasNext();) {
 						ExportFormat sf = ((ExportFormat) fit.next());
-						System.out.println(sf.name + ", " + sf.fileNameSuffix);
+						this.reportResult(sf.name + ", " + sf.fileNameSuffix);
 						for (int x = 0; x < sf.xsltUrls.length; x++)
-							System.out.println("- " + sf.xsltUrls[x]);
+							this.reportResult("- " + sf.xsltUrls[x]);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only the name of the connection.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only the name of the connection.");
 			}
 		};
 		cal.add(ca);
@@ -635,7 +634,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if ((arguments.length == 2) || (arguments.length == 4)) {
 					String name = arguments[0];
 					if (eXistConnections.containsKey(name)) {
-						System.out.println(" A connection named '" + arguments[0] + "' already exists, use " + CHANGE_CONNECTION_COMMAND);
+						this.reportError(" A connection named '" + arguments[0] + "' already exists, use " + CHANGE_CONNECTION_COMMAND);
 						return;
 					}
 					
@@ -655,14 +654,14 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					try {
 						storeEXistConnection(ec);
 						eXistConnections.put(ec.name, ec);
-						System.out.println(" Connection '" + name + "' added successfully");
+						this.reportResult(" Connection '" + name + "' added successfully");
 					}
-					catch (IOException e) {
-						System.out.println(" Error storing connection: " + e.getMessage());
-						e.printStackTrace(System.out);
+					catch (IOException ioe) {
+						this.reportError(" Error storing connection: " + ioe.getMessage());
+						this.reportError(ioe);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
 			}
 		};
 		cal.add(ca);
@@ -687,7 +686,7 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if ((arguments.length >= 2) && (arguments.length <= 4)) {
 					EXistConnection ec = getEXistConnection(arguments[0]);
 					if (ec == null) {
-						System.out.println(" Invalid connection name '" + arguments[0] + "'");
+						this.reportError(" Invalid connection name '" + arguments[0] + "'");
 						return;
 					}
 					
@@ -722,14 +721,14 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 					
 					try {
 						storeEXistConnection(ec);
-						System.out.println(" " + changed + " '" + arguments[0] + "' changed successfully");
+						this.reportResult(" " + changed + " '" + arguments[0] + "' changed successfully");
 					}
-					catch (IOException e) {
-						System.out.println(" Error storing connection: " + e.getMessage());
-						e.printStackTrace(System.out);
+					catch (IOException ioe) {
+						this.reportError(" Error storing connection: " + ioe.getMessage());
+						this.reportError(ioe);
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only the listed arguments.");
 			}
 		};
 		cal.add(ca);
@@ -751,14 +750,13 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if (arguments.length == 1) {
 					EXistConnection ec = getEXistConnection(arguments[0]);
 					if (ec == null)
-						System.out.println(" Invalid connection name '" + arguments[0] + "'");
-					
+						this.reportError(" Invalid connection name '" + arguments[0] + "'");
 					else {
 						eXistConnections.remove(arguments[0]);
-						System.out.println(" Connection '" + arguments[0] + "' dropped successfully");
+						this.reportResult(" Connection '" + arguments[0] + "' dropped successfully");
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify only  the name of the connection to drop.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify only  the name of the connection to drop.");
 			}
 		};
 		cal.add(ca);
@@ -779,16 +777,16 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 				if (arguments.length == 0) {
 					for (Iterator cit = eXistConnections.values().iterator(); cit.hasNext();) {
 						EXistConnection ec = ((EXistConnection) cit.next());
-						System.out.println(ec.name + ", " + ec.outputUrl + ((ec.authentication == null) ? "" : (", " + ec.user + ":" + ec.pswd)));
+						this.reportResult(ec.name + ", " + ec.outputUrl + ((ec.authentication == null) ? "" : (", " + ec.user + ":" + ec.pswd)));
 						for (Iterator fit = ec.storageFormats.values().iterator(); fit.hasNext();) {
 							ExportFormat sf = ((ExportFormat) fit.next());
-							System.out.println("- " + sf.name + ", " + sf.fileNameSuffix);
+							this.reportResult("- " + sf.name + ", " + sf.fileNameSuffix);
 							for (int x = 0; x < sf.xsltUrls.length; x++)
-								System.out.println("  - " + sf.xsltUrls[x]);
+								this.reportResult("  - " + sf.xsltUrls[x]);
 						}
 					}
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -802,46 +800,42 @@ public abstract class GoldenGateEXC extends GoldenGateEXP {
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#doUpdate(de.uka.ipd.idaho.gamta.QueriableAnnotation, java.util.Properties)
 	 */
 	protected void doUpdate(QueriableAnnotation doc, Properties docAttributes) throws IOException {
-		if (DEBUG_EXPORT) System.out.println("  - document was updated");
 		
 		//	no export destination, save effort for document preparation
 		if (this.eXistConnections.isEmpty()) {
-			if (DEBUG_EXPORT)
-				System.out.println("  - no eXist server yet to export to");
+			this.logDebug("  - no eXist server yet to export to");
 			return;
 		}
 		
 		//	document updated, and well formed
 		if (AnnotationUtils.isWellFormedNesting(doc)) {
-			if (DEBUG_EXPORT) System.out.println("  - document well-formed, exporting");
+			this.logInfo("  - document well-formed, exporting");
 			
 			//	forward to connected eXist servers
 			for (Iterator cit = this.eXistConnections.values().iterator(); cit.hasNext();) {
 				EXistConnection ec = ((EXistConnection) cit.next());
-				if (DEBUG_EXPORT) System.out.println("      - forwarding update to '" + ec.name + "'");
+				this.logInfo("      - forwarding update to '" + ec.name + "'");
 				ec.handleUpdate(docAttributes.getProperty(DOCUMENT_NAME_COLUMN_NAME), doc);
 			}
-			
-			if (DEBUG_EXPORT) System.out.println("  - update forwarded");
+			this.logInfo("  - update forwarded");
 		}
 		
-		else if (DEBUG_EXPORT) System.out.println("  - document not yet well-formed");
+		//	explain refusal
+		else this.logInfo("  - document not yet well-formed");
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#doDelete(java.lang.String, java.util.Properties)
 	 */
 	protected void doDelete(String docId, Properties docAttributes) throws IOException {
-		if (DEBUG_EXPORT) System.out.println("  - document was deleted");
 		
 		//	forward to connected eXist servers
 		for (Iterator cit = this.eXistConnections.values().iterator(); cit.hasNext();) {
 			EXistConnection ec = ((EXistConnection) cit.next());
-			if (DEBUG_EXPORT) System.out.println("      - forwarding deletion to '" + ec.name + "'");
+			this.logInfo("      - forwarding deletion to '" + ec.name + "'");
 			ec.handleDeletion(docAttributes.getProperty(DOCUMENT_NAME_COLUMN_NAME));
 		}
-		
-		if (DEBUG_EXPORT) System.out.println("  - deletion forwarded");
+		this.logInfo("  - deletion forwarded");
 	}
 	
 	private static final boolean DEBUG_EXPORT = true;

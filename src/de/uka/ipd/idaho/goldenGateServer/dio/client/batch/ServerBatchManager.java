@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -46,8 +46,6 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -73,12 +71,13 @@ import javax.swing.WindowConstants;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
-import de.uka.ipd.idaho.easyIO.util.RandomByteSource;
+import de.uka.ipd.idaho.easyIO.util.HashUtils.MD5;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.AnnotationInputStream;
 import de.uka.ipd.idaho.gamta.util.swing.ProgressMonitorDialog;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentListBuffer;
 import de.uka.ipd.idaho.goldenGate.DocumentEditorDialog;
 import de.uka.ipd.idaho.goldenGate.GoldenGATE;
 import de.uka.ipd.idaho.goldenGate.plugins.AbstractGoldenGatePlugin;
@@ -89,8 +88,7 @@ import de.uka.ipd.idaho.goldenGate.util.DialogPanel;
 import de.uka.ipd.idaho.goldenGate.util.ResourceDialog;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants;
 import de.uka.ipd.idaho.goldenGateServer.dio.client.GoldenGateDioClient;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListBuffer;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
 import de.uka.ipd.idaho.goldenGateServer.uaa.client.AuthenticatedClient;
 import de.uka.ipd.idaho.goldenGateServer.uaa.client.AuthenticationManager;
 import de.uka.ipd.idaho.goldenGateServer.uaa.client.AuthenticationManagerPlugin;
@@ -394,7 +392,7 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 						pmd.setLocationRelativeTo(this);
 						pmd.popUp(false);
 						pmd.setInfo("Getting document list from GoldenGATE DIO ...");
-						DocumentList dl = this.dioClient.getDocumentList();
+						DioDocumentList dl = this.dioClient.getDocumentList(pmd);
 						this.docList = new DocumentListBuffer(dl, pmd);
 						this.docListKey = docListKey;
 						pmd.close();
@@ -899,36 +897,41 @@ public class ServerBatchManager extends AbstractGoldenGatePlugin {
 			return ok;
 		}
 		
-		private static MessageDigest checksumDigester = null;
+//		private static MessageDigest checksumDigester = null;
 		private static final String getChecksum(QueriableAnnotation document) {
-			if (checksumDigester == null) {
-				try {
-					checksumDigester = MessageDigest.getInstance("MD5");
-				}
-				catch (NoSuchAlgorithmException nsae) {
-					System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
-					nsae.printStackTrace(System.out); // should not happe, but Java don't know ...
-					return Gamta.getAnnotationID(); // use random value so a document is regarded as changed
-				}
-			}
+//			if (checksumDigester == null) {
+//				try {
+//					checksumDigester = MessageDigest.getInstance("MD5");
+//				}
+//				catch (NoSuchAlgorithmException nsae) {
+//					System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
+//					nsae.printStackTrace(System.out); // should not happe, but Java don't know ...
+//					return Gamta.getAnnotationID(); // use random value so a document is regarded as changed
+//				}
+//			}
 			long start = System.currentTimeMillis();
-			checksumDigester.reset();
-			AnnotationInputStream ais = new AnnotationInputStream(document, "UTF-8", null, new HashSet());
+//			checksumDigester.reset();
 			try {
+				MD5 checksumDigester = new MD5();
+				AnnotationInputStream ais = new AnnotationInputStream(document, "UTF-8", null, new HashSet());
 				byte[] buffer = new byte[1024];
 				int read;
 				while ((read = ais.read(buffer)) != -1)
 					checksumDigester.update(buffer, 0, read);
+				ais.close();
+				String checksum = checksumDigester.digestHex();
+				System.out.println("Checksum computed in " + (System.currentTimeMillis() - start) + " ms: " + checksum);
+				return checksum;
 			}
 			catch (IOException ioe) {
 				System.out.println(ioe.getClass().getName() + " (" + ioe.getMessage() + ") while computing document checksum.");
 				ioe.printStackTrace(System.out); // should not happen, but Java don't know ...
 				return Gamta.getAnnotationID(); // use random value so a document is regarded as new
 			}
-			byte[] checksumBytes = checksumDigester.digest();
-			String checksum = new String(RandomByteSource.getHexCode(checksumBytes));
-			System.out.println("Checksum computed in " + (System.currentTimeMillis() - start) + " ms: " + checksum);
-			return checksum;
+//			byte[] checksumBytes = checksumDigester.digest();
+//			String checksum = new String(RandomByteSource.getHexCode(checksumBytes));
+//			System.out.println("Checksum computed in " + (System.currentTimeMillis() - start) + " ms: " + checksum);
+//			return checksum;
 		}
 		
 		boolean isActive() {

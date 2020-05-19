@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -30,11 +30,9 @@ package de.uka.ipd.idaho.goldenGateServer.dic;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 import de.uka.ipd.idaho.easyIO.settings.Settings;
-import de.uka.ipd.idaho.easyIO.util.RandomByteSource;
+import de.uka.ipd.idaho.easyIO.util.HashUtils;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
@@ -57,15 +55,16 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	 */
 	public static class ImportDocument {
 		
+		/**
+		 * the ID of the import or document import source (to be specified by
+		 * the importer, must be constant and unique for any given document;
+		 * can be, for instance, an MD5 hash of the URL a document was imported
+		 * from)
+		 */
+		public final String importId;
+		
 		/** the file the document is stored / cached in */
 		public final File docFile;
-		
-		/**
-		 * the ID of the document (to be specified by the importer, must be
-		 * constant and unique for any given document; can be, for instance, an
-		 * MD5 hash of the URL a document was imported from)
-		 */
-		public final String docId;
 		
 		/**
 		 * the name of the document (defaults to ID if null)
@@ -73,14 +72,14 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 		public final String docName;
 		
 		/**
+		 * @param importId the ID of the import / document source
 		 * @param docFile the file the document is stored in
-		 * @param docId the ID of the document
 		 * @param docName the name of the document
 		 */
-		public ImportDocument(File docFile, String docId, String docName) {
+		public ImportDocument(String importId, File docFile, String docName) {
+			this.importId = importId;
 			this.docFile = docFile;
-			this.docId = docId;
-			this.docName = ((docName == null) ? docId : docName);
+			this.docName = ((docName == null) ? importId : docName);
 		}
 	}
 	
@@ -181,6 +180,7 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	long getLastImportStart() {
 		return this.lastImportStart;
 	}
+	
 	private long lastImportAttempt = this.lastImportStart;
 	void setLastImportAttempt() {
 		this.lastImportAttempt = System.currentTimeMillis();
@@ -188,6 +188,7 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	long getLastImportAttempt() {
 		return this.lastImportAttempt;
 	}
+	
 	private long lastImportComplete = this.lastImportStart;
 	void setLastImportComplete() {
 		this.lastImportComplete = System.currentTimeMillis();
@@ -196,10 +197,31 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	long getLastImportComplete() {
 		return this.lastImportComplete;
 	}
-	void resetLastImport() {
+	
+	private String[] importParams = null;
+	String[] getImportParameters() {
+		return this.importParams;
+	}
+	void setImportParameters(String[] importParams) {
+		this.importParams = importParams;
+	}
+	
+	void resetLastImport(String[] importParams) {
 		this.lastImportAttempt = 0;
 		this.lastImportStart = 0;
 		this.lastImportComplete = 0;
+		this.importParams = importParams;
+	}
+	
+	/**
+	 * Provide explanations for the custom import parameters an importer can
+	 * use. If parameters are disregarded altogether, this method may return
+	 * null. This default implementation does return null, sub classes that do
+	 * use import parameters are welcome to overwrite it as needed.
+	 * @return an array with explanations of import parameters
+	 */
+	protected String[] getParameterExplanations() {
+		return null;
 	}
 	
 	/**
@@ -211,10 +233,11 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	 * <code>importDocument()</code> method. The runtime type of the document
 	 * descriptors handed to the latter method is the same as the one returned
 	 * by the respective implementation of this method.
+	 * @param parameters any parameters specified via the console (may be null)
 	 * @return an array of descriptors for the to-import documents
 	 * @throws IOException
 	 */
-	protected abstract ImportDocument[] getImportDocuments() throws IOException;
+	protected abstract ImportDocument[] getImportDocuments(String[] parameters) throws IOException;
 	
 	/**
 	 * Import the document associated with a given descriptor. Implementations
@@ -227,84 +250,79 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	 * this method is the same as the one of the descriptors returned by the
 	 * <code>getImportDocuments()</code> method.
 	 * @param id the descriptor of the document to import
+	 * @param parameters any parameters specified via the console (may be null)
 	 * @return the argument descriptor
 	 * @throws IOException
 	 */
-	protected abstract ImportDocument importDocument(ImportDocument id) throws IOException;
+	protected abstract ImportDocument importDocument(ImportDocument id, String[] parameters) throws IOException;
 	
 	/**
 	 * Store an imported document in the importer's cache folder to be later
 	 * handed over to the parent DIC. In particular, the file is stored as
-	 * '&lt;docId&gt;.cached' in the importer's cache folder. If the specified
-	 * document ID is null, the 'docId' attribute of the argument document will
-	 * be used. If the latter is null as well, an exception will be thrown.
+	 * '&lt;importId&gt;.cached' in the importer's cache folder. If the latter
+	 * is null as well, an exception will be thrown.
+	 * @param importId the ID of the import / document source
 	 * @param doc the document to store
-	 * @param docId the ID to store the document with
 	 * @return a descriptor for the document
 	 * @throws IOException
 	 */
-	protected ImportDocument cacheDocument(DocumentRoot doc, String docId) throws IOException {
-		return this.cacheDocument(doc, docId, null);
+	protected ImportDocument cacheDocument(String importId, DocumentRoot doc) throws IOException {
+		return this.cacheDocument(importId, doc, null);
 	}
 	
 	/**
 	 * Store an imported document in the importer's cache folder to be later
 	 * handed over to the parent DIC. In particular, the file is stored as
-	 * '&lt;docId&gt;.cached' in the importer's cache folder. If the specified
-	 * document ID is null, the 'docId' attribute of the argument document will
-	 * be used. If the latter is null as well, an exception will be thrown. If
-	 * the specified document name is null, the document's 'docName' attribute
-	 * will be used. If the latter is null as well, the document ID will be
-	 * used.
+	 * '&lt;importId&gt;.cached' in the importer's cache folder. If the
+	 * specified document name is null, the document's 'docName' attribute
+	 * will be used. If the latter is null as well, the import ID will be used.
+	 * @param importId the ID of the import / document source
 	 * @param doc the document to store
-	 * @param docId the ID to store the document with
-	 * @param docId the name of the document (defaults to ID if null)
+	 * @param docName the name of the document (defaults to ID if null)
 	 * @return a descriptor for the document
 	 * @throws IOException
 	 */
-	protected ImportDocument cacheDocument(DocumentRoot doc, String docId, String docName) throws IOException {
-		if (docId == null)
-			docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE));
-		if (docId == null)
-			throw new IOException("Invalid document ID.");
+	protected ImportDocument cacheDocument(String importId, DocumentRoot doc, String docName) throws IOException {
+		if (importId == null)
+			throw new IOException("Invalid document import ID.");
 		
 		if (docName == null)
 			docName = ((String) doc.getAttribute(GoldenGateDioConstants.DOCUMENT_NAME_ATTRIBUTE));
 		
-		File cacheFile = this.getDocumentCacheFile(docId);
+		File cacheFile = this.getImportDocumentCacheFile(importId);
 		
 		FileOutputStream cacheOut = new FileOutputStream(cacheFile);
 		GenericGamtaXML.storeDocument(doc, cacheOut);
 		cacheOut.flush();
 		cacheOut.close();
 		
-		return new ImportDocument(cacheFile, docId, docName);
+		return new ImportDocument(importId, cacheFile, docName);
 	}
 	
 	/**
 	 * Check whether a document is already cached. In particular, this method
-	 * checks whether a file named '&lt;docId&gt;.cached' exists in the
+	 * checks whether a file named '&lt;importId&gt;.cached' exists in the
 	 * importer's cache folder. Therefore, sub classes not using the
 	 * cacheDocument() method, and not caching documents the same way as the
 	 * cacheDocument() method have to overwrite this method as well if they want
 	 * it to remain meaningful.
-	 * @param docId the ID of the document to look up
+	 * @param importId the ID of the import / document source
 	 * @return true if the document is cached, false otherwise
 	 * @throws IOException
 	 */
-	protected boolean isDocumentCached(String docId) throws IOException {
-		return this.getDocumentCacheFile(docId).exists();
+	protected boolean isImportDocumentCached(String importId) throws IOException {
+		return this.getImportDocumentCacheFile(importId).exists();
 	}
 	
 	/**
-	 * Retrieve a file object pointing to the cache file of a document with a
-	 * given ID.
-	 * @param docId the document ID to get the file for
-	 * @return a file object pointing to the cache file of a document with the
-	 *         specified ID
+	 * Retrieve a file object pointing to the cache file of the document from an
+	 * import with a given ID.
+	 * @param importId the import ID to get the document cache file for
+	 * @return a file object pointing to the cache file of the document from an
+	 *         import with the specified ID
 	 */
-	protected File getDocumentCacheFile(String docId) {
-		return new File(this.cacheFolder, (docId + ".cached"));
+	protected File getImportDocumentCacheFile(String importId) {
+		return new File(this.cacheFolder, (importId + ".cached"));
 	}
 	
 	/**
@@ -313,28 +331,7 @@ public abstract class DicDocumentImporter implements LiteratureConstants {
 	 * @return the MD5 hash of the argument string
 	 */
 	public static String hash(String str) {
-		if (md5Digester == null) {
-			try {
-				md5Digester = MessageDigest.getInstance("MD5");
-			}
-			catch (NoSuchAlgorithmException nsae) {
-				System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating MD5 digester.");
-				nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
-				return Gamta.getAnnotationID(); // use random value so a document is regarded as new
-			}
-		}
-		md5Digester.reset();
-		try {
-			byte[] bytes = str.getBytes("UTF-8");
-			md5Digester.update(bytes);
-		}
-		catch (IOException ioe) {
-			System.out.println(ioe.getClass().getName() + " (" + ioe.getMessage() + ") while hashing '" + str + "'.");
-			ioe.printStackTrace(System.out); // should not happen, but Java don't know ...
-			return Gamta.getAnnotationID(); // use random value so a document is regarded as new
-		}
-		byte[] checksumBytes = md5Digester.digest();
-		return new String(RandomByteSource.getHexCode(checksumBytes));
+		String hash = HashUtils.getMd5(str);
+		return ((hash == null) ? Gamta.getAnnotationID() : hash); // use random value so a document is regarded as new
 	}
-	private static MessageDigest md5Digester = null;
 }

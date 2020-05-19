@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -50,6 +50,7 @@ import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
+import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerActivityLogger;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
 import de.uka.ipd.idaho.goldenGateServer.srs.connectors.GoldenGateSrsEXP;
 import de.uka.ipd.idaho.stringUtils.StringVector;
@@ -85,14 +86,7 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 	/** Constructor passing 'SCS' as the letter code to super constructor
 	 */
 	public GoldenGateSCS() {
-		super("SCS");
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#getExporterName()
-	 */
-	protected String getExporterName() {
-		return "SrsCollectionStatistics";
+		super("SCS", "SrsCollectionStatistics");
 	}
 	
 	/* (non-Javadoc)
@@ -107,22 +101,22 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 			throw new RuntimeException("GoldenGATE SCS cannot work without database access.");
 		
 		//	load field definitions
-		this.loadFields();
+		this.loadFields(this);
 	}
 	
-	private synchronized void loadFields() {
-		System.out.println("GoldenGateSCS: Loading field definitions ...");
+	private synchronized void loadFields(GoldenGateServerActivityLogger log) {
+		log.logResult("GoldenGateSCS: Loading field definitions ...");
 		FieldSet[] fieldSets;
 		
 		try {
 			Reader fin = new InputStreamReader(new FileInputStream(new File(this.dataPath, "Fields.xml")));
 			fieldSets = FieldSet.readFieldSets(fin);
 			fin.close();
-			System.out.println(" - field definitions read");
+			log.logResult(" - field definitions read");
 		}
 		catch (IOException ioe) {
-			System.out.println(" - could not read field definitions: " + ioe.getMessage());
-			ioe.printStackTrace(System.out);
+			log.logError(" - could not read field definitions: " + ioe.getMessage());
+			log.logError(ioe);
 			return;
 		}
 		
@@ -141,7 +135,7 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 			}
 		}
 		if (this.io.ensureTable(td, true)) {
-			System.out.println(" - database table adjusted");
+			log.logResult(" - database table adjusted");
 			this.fieldSets = fieldSets;
 			this.fieldsByName.clear();
 			for (int fs = 0; fs < this.fieldSets.length; fs++) {
@@ -149,17 +143,17 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 				for (int f = 0; f < fields.length; f++)
 					this.fieldsByName.put(fields[f].fullName, fields[f]);
 			}
-			System.out.println(" - registers updated");
+			log.logResult(" - registers updated");
 			
 			//	index data table
 			this.io.indexColumn(DATA_TABLE_NAME, DOCUMENT_ID_ATTRIBUTE);
 			for (Iterator fit = this.fieldsByName.keySet().iterator(); fit.hasNext();)
 				this.io.indexColumn(DATA_TABLE_NAME, ((String) fit.next()));
-			System.out.println(" - data indexed");
+			log.logResult(" - data indexed");
 		}
 		else {
-			System.out.println(" - database table could not be adjusted");
-			System.out.println("   ==> keeping old field definitions");
+			log.logError(" - database table could not be adjusted");
+			log.logError("   ==> keeping old field definitions");
 		}
 	}
 	
@@ -201,8 +195,8 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0)
-					loadFields();
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
+					loadFields(this);
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
 			}
 		};
 		cal.add(ca);
@@ -341,8 +335,8 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 						this.io.executeUpdateQuery(updateQuery);
 					}
 					catch (SQLException sqle) {
-						System.out.println("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating table entry.");
-						System.out.println("  query was " + updateQuery);
+						this.logError("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while updating table entry.");
+						this.logError("  query was " + updateQuery);
 					}
 				}
 			}
@@ -408,14 +402,14 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 					this.io.executeUpdateQuery(insertQuery);
 				}
 				catch (SQLException sqle) {
-					System.out.println("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while creating table entry.");
-					System.out.println("  query was " + insertQuery);
+					this.logError("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while creating table entry.");
+					this.logError("  query was " + insertQuery);
 				}
 			}
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while checking table entry.");
-			System.out.println("  query was " + checkQuery);
+			this.logError("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while checking table entry.");
+			this.logError("  query was " + checkQuery);
 		}
 		finally {
 			if (sqr != null)
@@ -434,8 +428,8 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 			io.executeUpdateQuery(deleteQuery);
 		}
 		catch (SQLException sqle) {
-			System.out.println("PlaziWCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting table entry.");
-			System.out.println("  query was " + deleteQuery);
+			this.logError("PlaziWCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting table entry.");
+			this.logError("  query was " + deleteQuery);
 		}
 	}
 	
@@ -533,8 +527,8 @@ public class GoldenGateSCS extends GoldenGateEXP implements GoldenGateScsConstan
 			return stat;
 		}
 		catch (SQLException sqle) {
-			System.out.println("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while creating statistics.");
-			System.out.println("  query was " + query);
+			this.logError("GoldenGateSCS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while creating statistics.");
+			this.logError("  query was " + query);
 			throw new IOException("Could not create statistics: " + sqle.getMessage());
 		}
 		finally {

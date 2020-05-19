@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -42,20 +42,17 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.net.URLEncoder;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.WeakHashMap;
 
-import de.uka.ipd.idaho.easyIO.util.RandomByteSource;
+import de.uka.ipd.idaho.easyIO.util.HashUtils;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.util.CountingSet;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
@@ -64,7 +61,6 @@ import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection.Connection;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSrsConstants;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.CollectionStatistics;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentList;
-import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.DocumentResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.SrsSearchResultElement;
@@ -112,13 +108,7 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 					//	compute last collection update from master document list
 					long lastUpdate = 0;
 					try {
-						DocumentList mdl = srsc.getDocumentList(null);
-						while (mdl.hasNextElement()) {
-							DocumentListElement dle = mdl.getNextDocumentListElement();
-							try {
-								lastUpdate = Math.max(lastUpdate, Long.parseLong((String) dle.getAttribute(UPDATE_TIME_ATTRIBUTE)));
-							} catch (NumberFormatException nfe) {}
-						}
+						lastUpdate = srsc.getLastModified();
 					}
 					catch (Throwable t) {
 						t.printStackTrace(System.out);
@@ -382,38 +372,44 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 	}
 	
 	private static String getHash(String str) throws IOException {
-		String strHash;
-		MessageDigest dataHasher = getDataHasher();
-		if (dataHasher == null)
-			strHash = ("_" + str.hashCode() + "_" + (new StringBuilder(str)).reverse().toString().hashCode());
-		else {
-			strHash = new String(RandomByteSource.getHexCode(dataHasher.digest(str.getBytes(ENCODING))));
-			returnDataHash(dataHasher);
-		}
-		return strHash;
-	}
-	
-	private static LinkedList dataHashPool = new LinkedList();
-	private static synchronized MessageDigest getDataHasher() {
-		if (dataHashPool.size() != 0) {
-			MessageDigest dataHash = ((MessageDigest) dataHashPool.removeFirst());
-			dataHash.reset();
-			return dataHash;
-		}
 		try {
-			MessageDigest dataHash = MessageDigest.getInstance("MD5");
-			dataHash.reset();
-			return dataHash;
+			return HashUtils.getMd5(str.getBytes(ENCODING));
 		}
-		catch (NoSuchAlgorithmException nsae) {
-			System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
-			nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
-			return null;
+		catch (Exception e) {
+			return ("_" + str.hashCode() + "_" + (new StringBuilder(str)).reverse().toString().hashCode());
 		}
+//		String strHash;
+//		MessageDigest dataHasher = getDataHasher();
+//		if (dataHasher == null)
+//			strHash = ("_" + str.hashCode() + "_" + (new StringBuilder(str)).reverse().toString().hashCode());
+//		else {
+//			strHash = new String(RandomByteSource.getHexCode(dataHasher.digest(str.getBytes(ENCODING))));
+//			returnDataHash(dataHasher);
+//		}
+//		return strHash;
 	}
-	private static synchronized void returnDataHash(MessageDigest dataHash) {
-		dataHashPool.addLast(dataHash);
-	}
+//	
+//	private static LinkedList dataHashPool = new LinkedList();
+//	private static synchronized MessageDigest getDataHasher() {
+//		if (dataHashPool.size() != 0) {
+//			MessageDigest dataHash = ((MessageDigest) dataHashPool.removeFirst());
+//			dataHash.reset();
+//			return dataHash;
+//		}
+//		try {
+//			MessageDigest dataHash = MessageDigest.getInstance("MD5");
+//			dataHash.reset();
+//			return dataHash;
+//		}
+//		catch (NoSuchAlgorithmException nsae) {
+//			System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
+//			nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
+//			return null;
+//		}
+//	}
+//	private static synchronized void returnDataHash(MessageDigest dataHash) {
+//		dataHashPool.addLast(dataHash);
+//	}
 	
 	static class ConnectionGuardReader extends Reader {
 		private Reader data;
@@ -636,7 +632,82 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 			throw new IOException(error);
 		}
 	}
-
+	
+	/**
+	 * Obtain a specific version of a document by its ID. 0 always indicates
+	 * the current version, negative values indicate versions relative to the
+	 * current one (e.g. -1 for the second most current version), positive
+	 * values indicate absolute versions.
+	 * @param docId the ID of the document to retrieve
+	 * @param version the desired document version
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public MutableAnnotation getXmlDocument(String docId, int version) throws IOException {
+		return this.getXmlDocument(docId, version, true);
+	}
+	
+	/**
+	 * Obtain a specific version of a document by its ID. 0 always indicates
+	 * the current version, negative values indicate versions relative to the
+	 * current one (e.g. -1 for the second most current version), positive
+	 * values indicate absolute versions.
+	 * @param docId the ID of the document to retrieve
+	 * @param version the desired document version
+	 * @param allowCache allow returning cached result if available?
+	 * @return the document with the specified ID
+	 * @throws IOException
+	 */
+	public MutableAnnotation getXmlDocument(String docId, int version, boolean allowCache) throws IOException {
+		if (version == 0)
+			return this.getXmlDocument(docId, allowCache);
+		
+		if (allowCache && (version > 0) /* cannot cache for negative versions, they are relative */) {
+			Reader cacheReader = this.getCacheReader(GET_XML_DOCUMENT_VERSION, (docId + "/" + version));
+			if (cacheReader != null)
+				return GenericGamtaXML.readDocument(cacheReader);
+		}
+		
+		Connection con = this.serverConnection.getConnection();
+		BufferedWriter bw = con.getWriter();
+		
+		bw.write(GET_XML_DOCUMENT_VERSION);
+		bw.newLine();
+		bw.write(docId);
+		bw.newLine();
+		bw.write("" + version);
+		bw.newLine();
+		bw.flush();
+		
+		BufferedReader br = con.getReader();
+		String error = br.readLine();
+		if (GET_XML_DOCUMENT_VERSION.equals(error)) {
+			final Reader dataReader;
+			if (version > 0)
+				dataReader = this.wrapDataReader(new ConnectionGuardReader(br, con), GET_XML_DOCUMENT_VERSION, (docId + "/" + version));
+			else dataReader = new ConnectionGuardReader(br, con);
+			return GenericGamtaXML.readDocument(new Reader() {
+				private boolean closed = false;
+				public void close() throws IOException {
+					dataReader.close();
+					this.closed = true;
+				}
+				public int read(char[] cbuf, int off, int len) throws IOException {
+					if (this.closed)
+						return -1;
+					int read = dataReader.read(cbuf, off, len);
+					if (read == -1)
+						this.close();
+					return read;
+				}
+			});
+		}
+		else {
+			con.close();
+			throw new IOException(error);
+		}
+	}
+	
 	private String getParameterString(Properties parameters) throws IOException {
 		StringBuffer parameterString = new StringBuffer();
 		for (Iterator pit = parameters.keySet().iterator(); pit.hasNext();) {
@@ -899,6 +970,33 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		else {
 			con.close();
 			throw new IOException(error);
+		}
+	}
+	
+	/**
+	 * Obtain the timestamp of the last modification to the SRS document
+	 * collection.
+	 * @return the timestamp of the last modification
+	 */
+	public long getLastModified() throws IOException {
+		Connection con = null;
+		try {
+			con = this.serverConnection.getConnection();
+			BufferedWriter bw = con.getWriter();
+			
+			bw.write(GET_LAST_MODIFIED);
+			bw.newLine();
+			bw.flush();
+			
+			BufferedReader br = con.getReader();
+			String error = br.readLine();
+			if (GET_LAST_MODIFIED.equals(error))
+				return Long.parseLong(br.readLine());
+			else throw new IOException(error);
+		}
+		finally {
+			if (con != null)
+				con.close();
 		}
 	}
 	

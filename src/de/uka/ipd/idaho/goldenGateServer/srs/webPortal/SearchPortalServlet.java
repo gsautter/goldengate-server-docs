@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -379,15 +379,6 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		boolean markSearchables = paramCollector.contains(MARK_SEARCHABLES_PARAMETER);
 		paramCollector.removeAll(MARK_SEARCHABLES_PARAMETER);
 		
-		//	set response content type (must be done before obtaining writer)
-		if (XML_DOCUMENT_SEARCH_MODE.equals(searchMode) || XML_RESULT_FORMAT.equals(resultFormat))
-			response.setContentType("text/xml; charset=" + ENCODING);
-		
-		else if ((THESAURUS_SEARCH_MODE.equals(searchMode) || STATISTICS_MODE.equals(searchMode)) && CSV_RESULT_FORMAT.equals(resultFormat))
-			response.setContentType("text/plain; charset=" + ENCODING);
-		
-		else response.setContentType("text/html; charset=" + ENCODING);
-		
 		//	read search parameters
 		Properties searchParameters = new Properties();
 		for (int p = 0; p < paramCollector.size(); p++) {
@@ -425,29 +416,24 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		
 		//	request for specific plain XML document
 		if (XML_DOCUMENT_SEARCH_MODE.equals(searchMode)) {
-			BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
-			this.doGetDocument(request, xslTransformer, out);
-			out.flush();
-			out.close();
+			this.doGetDocument(request, xslTransformer, response);
 			return;
 		}
 		
 		//	request for page (document, index, or thesaurus search, or statistics or document detail request)
 		if (HTML_RESULT_FORMAT.equals(resultFormat)) {
+			response.setContentType("text/html; charset=" + ENCODING);
 			this.doHtmlRequest(request, response, searchMode, fieldValues, searchParameters, indexName, subIndexName, subResultMinSize);
 			return;
 		}
 		
-		//	get writer for text or XLM result 
-		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
-		
 		//	thesaurus search with non-html result
 		if (THESAURUS_SEARCH_MODE.equals(searchMode))
-			this.doSearchThesaurus(searchParameters, CSV_RESULT_FORMAT.equals(resultFormat), xslTransformer, out, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+			this.doSearchThesaurus(searchParameters, CSV_RESULT_FORMAT.equals(resultFormat), xslTransformer, response, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 		
 		//	thesaurus search with non-html result
 		else if (STATISTICS_MODE.equals(searchMode))
-			this.doStatistics(CSV_RESULT_FORMAT.equals(resultFormat), xslTransformer, out, searchParameters.getProperty(GET_STATISTICS_SINCE_PARAMETER, this.getSetting("statisticsDefaultSince", GET_STATISTICS_LAST_YEAR)), !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+			this.doStatistics(CSV_RESULT_FORMAT.equals(resultFormat), xslTransformer, response, searchParameters.getProperty(GET_STATISTICS_SINCE_PARAMETER, this.getSetting("statisticsDefaultSince", GET_STATISTICS_LAST_YEAR)), !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 		
 		//	document summary with non-HTML result
 		else if (DOCUMENT_SUMMARY_MODE.equals(searchMode)) {
@@ -484,7 +470,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			searchParameters.setProperty(RESULT_PIVOT_INDEX_PARAMETER, "0");
 			
 			//	get summary
-			this.doDocumentSummary(searchParameters, markSearchables, xslTransformer, out, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+			this.doDocumentSummary(searchParameters, markSearchables, xslTransformer, response, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 		}
 		
 		//	index search with non-html result
@@ -494,7 +480,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 				searchParameters.setProperty(SUB_INDEX_NAME, subIndexName);
 			if (subResultMinSize != null)
 				searchParameters.setProperty(SUB_RESULT_MIN_SIZE, subResultMinSize);
-			this.doIndexSearch(searchParameters, markSearchables, xslTransformer, out, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+			this.doIndexSearch(searchParameters, markSearchables, xslTransformer, response, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 		}
 		
 		//	document data search with non-HTML result
@@ -502,36 +488,39 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			searchParameters.setProperty(SUB_INDEX_NAME, subIndexName);
 			if (subResultMinSize != null)
 				searchParameters.setProperty(SUB_RESULT_MIN_SIZE, subResultMinSize);
-			this.doDocumentIndexSearch(searchParameters, markSearchables, xslTransformer, out, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+			this.doDocumentIndexSearch(searchParameters, markSearchables, xslTransformer, response, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 		}
 		
 		//	document search with non-html result
-		else this.doDocumentSearch(searchParameters, markSearchables, xslTransformer, out, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
-		
-		//	finish response
-		out.flush();
-		out.close();
+		else this.doDocumentSearch(searchParameters, markSearchables, xslTransformer, response, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
 	}
 	
-	private void doGetDocument(HttpServletRequest request, Transformer xslTransformer, BufferedWriter out) throws IOException {
+	private void doGetDocument(HttpServletRequest request, Transformer xslTransformer, HttpServletResponse response) throws IOException {
 		String docId = null;
+		int docVersion = 0;
 		
 		//	read document ID from parameter
 		String[] docIdParams = request.getParameterValues(ID_QUERY_FIELD_NAME);
 		if ((docIdParams != null) && (docIdParams.length == 1))
 			docId = docIdParams[0];
 		
-		//	read document ID from parameter
+		//	read document UUID from parameter
 		String[] docUuidParams = request.getParameterValues(UUID_QUERY_FIELD_NAME);
 		if ((docUuidParams != null) && (docUuidParams.length == 1))
 			docId = docUuidParams[0];
+		
+		//	read document version from parameter
+		String[] docVersionParams = request.getParameterValues(VERSION_QUERY_FIELD_NAME);
+		if ((docVersionParams != null) && (docVersionParams.length == 1)) try {
+			docVersion = Integer.parseInt(docVersionParams[0]);
+		} catch (NumberFormatException nfe) {}
 		
 		//	read invocation path info (alternative to idQuery parameter in this mode)
 		if (docId == null) {
 			String pathInfo = request.getPathInfo();
 			if (pathInfo != null) {
 				while (pathInfo.startsWith("/"))
-					pathInfo = pathInfo.substring(1);
+					pathInfo = pathInfo.substring("/".length());
 				docId = pathInfo;
 			}
 		}
@@ -545,8 +534,7 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 
 		//	no document ID found, report error
 		if (docId == null) {
-			out.write("Invalid request format, submit one document ID at a time in this mode.");
-			out.newLine();
+			response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid request format, submit one document ID at a time in this mode.");
 			return;
 		}
 		
@@ -554,22 +542,48 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 		if (docId.lastIndexOf('.') > docId.lastIndexOf(':'))
 			docId = docId.substring(0, docId.indexOf('.', docId.lastIndexOf(':')));
 		
-		//	get and output document (plain or transformed)
-		try {
-			MutableAnnotation doc = this.srsClient.getXmlDocument(docId, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
-			Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
-			AnnotationUtils.writeXML(doc, w);
-			w.flush();
-			w.close();
-		}
-		catch (IOException e) {
-			out.write("Error loading document '" + docId + "': " + e.getMessage());
+		//	parse version number off document ID
+		if (docId.indexOf('/') != -1) {
+			String docVersionStr = docId.substring(docId.indexOf('/') + "/".length());
+			docId = docId.substring(0, docId.indexOf('/'));
+			while (docVersionStr.startsWith("/"))
+				docVersionStr = docVersionStr.substring("/".length());
+			try {
+				docVersion = Integer.parseInt(docVersionStr);
+			} catch (NumberFormatException nfe) {}
 		}
 		
+		//	load document
+		MutableAnnotation doc;
+		try {
+			doc = this.srsClient.getXmlDocument(docId, docVersion, !FORCE_CACHE.equals(request.getParameter(CACHE_CONTROL_PARAMETER)));
+		}
+		catch (IOException ioe) {
+			response.sendError(HttpServletResponse.SC_NOT_FOUND, ioe.getMessage());
+			return;
+		}
+		
+		//	get writer for text or XLM result 
+		response.setContentType("text/xml; charset=" + ENCODING);
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
+		
+		//	send document
+		Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
+		AnnotationUtils.writeXML(doc, w);
+		w.flush();
+		w.close();
+		
+		//	finish sending response
+		out.flush();
+		out.close();
 	}
 	
-	private void doSearchThesaurus(Properties searchParameters, boolean csv, Transformer xslTransformer, BufferedWriter out, boolean allowCache) throws IOException {
+	private void doSearchThesaurus(Properties searchParameters, boolean csv, Transformer xslTransformer, HttpServletResponse response, boolean allowCache) throws IOException {
 		ThesaurusResult thesaurusResult = this.srsClient.searchThesaurus(searchParameters, allowCache);
+		
+		//	get writer for text or XLM result 
+		response.setContentType("text/" + (csv ? "plain" : "xml") + "; charset=" + ENCODING);
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
 		
 		//	write thesaurus result in CSV format
 		if (csv) {
@@ -593,10 +607,18 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			w.flush();
 			w.close();
 		}
+		
+		//	finish sending response
+		out.flush();
+		out.close();
 	}
 	
-	private void doStatistics(boolean csv, Transformer xslTransformer, BufferedWriter out, String since, boolean allowCache) throws IOException {
+	private void doStatistics(boolean csv, Transformer xslTransformer, HttpServletResponse response, String since, boolean allowCache) throws IOException {
 		CollectionStatistics statistics = this.srsClient.getStatistics(since, allowCache);
+		
+		//	get writer for text or XLM result 
+		response.setContentType("text/" + (csv ? "plain" : "xml") + "; charset=" + ENCODING);
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
 		
 		//	write statistics in CSV format
 		if (csv) {
@@ -620,40 +642,72 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			w.flush();
 			w.close();
 		}
+		
+		//	finish sending response
+		out.flush();
+		out.close();
 	}
 	
-	private void doDocumentSummary(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, BufferedWriter out, boolean allowCache) throws IOException {
+	private void doDocumentSummary(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, HttpServletResponse response, boolean allowCache) throws IOException {
 		DocumentResult documentResult = this.srsClient.searchDocumentData(searchParameters, markSearchables, allowCache);
+		
+		//	get writer for text or XLM result 
+		response.setContentType("text/xml; charset=" + ENCODING);
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
 		
 		//	write result (plain or transformed)
 		Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
 		documentResult.writeXml(w);
 		w.flush();
 		w.close();
+		
+		//	finish sending response
+		out.flush();
+		out.close();
 	}
 	
-	private void doIndexSearch(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, BufferedWriter out, boolean allowCache) throws IOException {
+	private void doIndexSearch(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, HttpServletResponse response, boolean allowCache) throws IOException {
 		IndexResult indexResult = this.srsClient.searchIndex(searchParameters, markSearchables, allowCache);
+		
+		//	get writer for text or XLM result 
+		response.setContentType("text/xml; charset=" + ENCODING);
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
 		
 		//	write result (plain or transformed)
 		Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
 		indexResult.writeXml(w);
 		w.flush();
 		w.close();
+		
+		//	finish sending response
+		out.flush();
+		out.close();
 	}
 	
-	private void doDocumentIndexSearch(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, BufferedWriter out, boolean allowCache) throws IOException {
+	private void doDocumentIndexSearch(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, HttpServletResponse response, boolean allowCache) throws IOException {
 		DocumentResult documentResult = this.srsClient.searchDocumentData(searchParameters, markSearchables, allowCache);
+		
+		//	get writer for text or XLM result 
+		response.setContentType("text/xml; charset=" + ENCODING);
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
 		
 		//	write result (plain or transformed)
 		Writer w = XsltUtils.wrap(new IsolatorWriter(out), xslTransformer);
 		documentResult.writeXml(w);
 		w.flush();
 		w.close();
+		
+		//	finish sending response
+		out.flush();
+		out.close();
 	}
 	
-	private void doDocumentSearch(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, BufferedWriter out, boolean allowCache) throws IOException {
+	private void doDocumentSearch(Properties searchParameters, boolean markSearchables, Transformer xslTransformer, HttpServletResponse response, boolean allowCache) throws IOException {
 		DocumentResult result = this.srsClient.searchDocuments(searchParameters, markSearchables, allowCache);
+		
+		//	get writer for text or XLM result 
+		response.setContentType("text/xml; charset=" + ENCODING);
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(response.getOutputStream(), ENCODING));
 		
 		//	search returned no results
 		if (!result.hasNextElement()) {
@@ -713,6 +767,10 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 			out.write("</" + RESULTS_NODE_NAME + ">");
 			out.newLine();
 		}
+		
+		//	finish sending response
+		out.flush();
+		out.close();
 	}
 	
 	private void doHtmlRequest(HttpServletRequest request, HttpServletResponse response, String searchMode, Properties fieldValues, Properties searchParameters, String indexName, String subIndexName, String subResultMinSize) throws IOException {
@@ -761,7 +819,12 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 						pathIdQuery = pathIdQuery.substring(1);
 					if (pathIdQuery.lastIndexOf('.') > pathIdQuery.lastIndexOf(':'))
 						pathIdQuery = pathIdQuery.substring(0, pathIdQuery.indexOf('.', pathIdQuery.lastIndexOf(':')));
-					searchParameters.setProperty(ID_QUERY_FIELD_NAME, pathIdQuery);
+					if (pathIdQuery.indexOf('/') == -1)
+						searchParameters.setProperty(ID_QUERY_FIELD_NAME, pathIdQuery);
+					else {
+						searchParameters.setProperty(ID_QUERY_FIELD_NAME, pathIdQuery.substring(0, pathIdQuery.indexOf('/')));
+						searchParameters.setProperty(VERSION_QUERY_FIELD_NAME, pathIdQuery.substring(pathIdQuery.indexOf('/') + "/".length()));
+					}
 				}
 				
 				//	finally, check query string
@@ -770,7 +833,12 @@ public class SearchPortalServlet extends AbstractSrsWebPortalServlet implements 
 					if ((requestQueryString != null) && (requestQueryString.length() != 0) && (requestQueryString.indexOf('=') == -1)) {
 						if (requestQueryString.lastIndexOf('.') > requestQueryString.lastIndexOf(':'))
 							requestQueryString = requestQueryString.substring(0, requestQueryString.indexOf('.', requestQueryString.lastIndexOf(':')));
-						searchParameters.setProperty(ID_QUERY_FIELD_NAME, requestQueryString);
+						if (requestQueryString.indexOf('/') == -1)
+							searchParameters.setProperty(ID_QUERY_FIELD_NAME, requestQueryString);
+						else {
+							searchParameters.setProperty(ID_QUERY_FIELD_NAME, requestQueryString.substring(0, requestQueryString.indexOf('/')));
+							searchParameters.setProperty(VERSION_QUERY_FIELD_NAME, requestQueryString.substring(requestQueryString.indexOf('/') + "/".length()));
+						}
 					}
 				}
 			}

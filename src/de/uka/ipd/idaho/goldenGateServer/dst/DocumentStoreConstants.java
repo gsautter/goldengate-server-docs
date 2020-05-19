@@ -27,24 +27,16 @@
  */
 package de.uka.ipd.idaho.goldenGateServer.dst;
 
-import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants;
+import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
+import de.uka.ipd.idaho.goldenGateServer.util.DataObjectUpdateConstants;
 
 /**
  * Bearer of document meta data constants.
  * 
  * @author sautter
  */
-public interface GoldenGateServerDocConstants extends GoldenGateServerConstants {
+public interface DocumentStoreConstants extends DataObjectUpdateConstants, LiteratureConstants {
 	
-	/** the attribute holding the name of the user who uploaded a document */
-	public static final String CHECKIN_USER_ATTRIBUTE = "checkinUser";
-
-	/** the attribute holding the time when a document was uploaded */
-	public static final String CHECKIN_TIME_ATTRIBUTE = "checkinTime";
-
-	/** the attribute holding the name of the user who last updated a document */
-	public static final String UPDATE_USER_ATTRIBUTE = "updateUser";
-
-	/** the attribute holding the time when a document was last updated */
-	public static final String UPDATE_TIME_ATTRIBUTE = "updateTime";
+	/** the attribute holding the version of a document */
+	public static final String DOCUMENT_VERSION_ATTRIBUTE = "docVersion";
 }

@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -35,11 +35,12 @@ import java.util.Properties;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.dio.connectors.GoldenGateDioEXP;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
 import de.uka.ipd.idaho.goldenGateServer.dio.util.AsynchronousDioAction;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSRS;
@@ -56,32 +57,25 @@ import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
  * @author sautter
  */
 public class GoldenGateDioSrsConnector extends GoldenGateEXP implements LiteratureConstants {
-	
 	private GoldenGateDIO dio;
+	private GoldenGateSRS srs;
+	
 	private AsynchronousDioAction updateAction;
 	private AsynchronousDioAction diffAction;
-	private GoldenGateSRS srs;
 	
 	/** Constructor passing 'DIO-SRS' as the letter code to super constructor
 	 */
 	public GoldenGateDioSrsConnector() {
-		super("DIO-SRS");
+		super("DIO-SRS", "DioSrsSync");
 	}
 	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#getExporterName()
-	 */
-	protected String getExporterName() {
-		return "DioSrsSync";
-	}
-
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#getBinding()
 	 */
 	protected GoldenGateExpBinding getBinding() {
 		return new GoldenGateDioEXP(this);
 	}
-
+	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent#link()
 	 */
@@ -215,7 +209,7 @@ public class GoldenGateDioSrsConnector extends GoldenGateEXP implements Literatu
 			String[] filterValues = arguments[0].toLowerCase().split("\\s+");
 			
 			//	run through document list and schedule matches
-			de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList dl = dio.getDocumentListFull();
+			DioDocumentList dl = dio.getDocumentListFull();
 			int updateDocCount = 0;
 			while (dl.hasNextDocument()) {
 				DocumentListElement dle = dl.getNextDocument();

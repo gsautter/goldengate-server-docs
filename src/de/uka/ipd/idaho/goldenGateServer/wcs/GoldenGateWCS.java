@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -167,15 +167,15 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				else this.xslt = XsltUtils.getTransformer(new File(dataPath, this.xsltUrl), allowCache);
 			}
 			catch (IOException ioe) {
-				System.out.println("GoldenGateWCS: error loading XSL Transformer - " + ioe.getMessage());
-				ioe.printStackTrace(System.out);
+				logError("GoldenGateWCS: error loading XSL Transformer - " + ioe.getMessage());
+				logError(ioe);
 			}
 		}
 		
 		void shutdown() {
 			if (this.wikiCon != null) {
 				this.wikiCon.logout();
-				System.out.println("  - logged out from Wiki " + this.wikiUrl);
+				logInfo("  - logged out from Wiki " + this.wikiUrl);
 				this.wikiCon = null;
 			}
 		}
@@ -188,9 +188,10 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 	 * code. Note that any sub class needs to provide a no-argument constructor
 	 * in order to allow for class loading.
 	 * @param letterCode the letter code for this component
+	 * @param wikiName the Wiki exporter name to use
 	 */
-	public GoldenGateWCS(String letterCode) {
-		super(letterCode);
+	public GoldenGateWCS(String letterCode, String wikiName) {
+		super(letterCode, wikiName);
 	}
 	
 	/**
@@ -346,9 +347,9 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
 	}
 	
-	private static class WikiConnection {
-		private static Grammar grammar = new StandardGrammar();
-		private static Parser parser = new Parser(grammar);
+	private static Grammar grammar = new StandardGrammar();
+	private static Parser parser = new Parser(grammar);
+	private class WikiConnection {
 		
 		private URL url;
 		
@@ -368,7 +369,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 			HttpURLConnection con;
 			
 			con = this.getConnection();
-			sendQuery(con, "action=login" +
+			this.sendQuery(con, "action=login" +
 					"&lgname=" + URLEncoder.encode(userName, "UTF-8") + 
 					"&lgpassword=" + URLEncoder.encode(password, "UTF-8")
 				);
@@ -376,7 +377,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				public void close() throws IOException {}
 				public void storeToken(String token, int treeDepth) throws IOException {
 					if (grammar.isTag(token) && "login".equals(grammar.getType(token))) {
-						System.out.println(token);
+						logDebug(token);
 						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						String result = tnas.getAttribute("result");
 						if ("Success".equals(result)) {
@@ -385,23 +386,23 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 							lgtoken = tnas.getAttribute("lgtoken");
 							sessionid = tnas.getAttribute("sessionid");
 							cookieprefix = tnas.getAttribute("cookieprefix");
-							System.out.println("Login Successful");
+							logInfo("Login Successful");
 						}
 						else if ("NeedToken".equals(result)) {
 							lgusername = userName;
 							sessionid = tnas.getAttribute("sessionid");
 							cookieprefix = tnas.getAttribute("cookieprefix");
 							lgtoken = tnas.getAttribute("token");
-							System.out.println("Login Successful");
+							logInfo("Login Successful");
 						}
-						else System.out.println("Login Error: " + result);
+						else logWarning("Login Error: " + result);
 					}
 				}
 			});
 			
 			if ((this.lguserid == null) && (this.lgtoken != null)) {
 				con = this.getConnection();
-				sendQuery(con, "action=login" +
+				this.sendQuery(con, "action=login" +
 						"&lgname=" + URLEncoder.encode(userName, "UTF-8") + 
 						"&lgpassword=" + URLEncoder.encode(password, "UTF-8") +
 						"&lgtoken=" + URLEncoder.encode(this.lgtoken, "UTF-8")
@@ -410,7 +411,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 					public void close() throws IOException {}
 					public void storeToken(String token, int treeDepth) throws IOException {
 						if (grammar.isTag(token) && "login".equals(grammar.getType(token))) {
-							System.out.println(token);
+							logDebug(token);
 							TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 							String result = tnas.getAttribute("result");
 							if ("Success".equals(result)) {
@@ -419,9 +420,9 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 								lgtoken = tnas.getAttribute("lgtoken");
 								sessionid = tnas.getAttribute("sessionid");
 								cookieprefix = tnas.getAttribute("cookieprefix");
-								System.out.println("Login Successful");
+								logInfo("Login Successful");
 							}
-							else System.out.println("Login Error: " + result);
+							else logWarning("Login Error: " + result);
 						}
 					}
 				});
@@ -431,7 +432,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				return false;
 			
 			con = this.getConnection();
-			sendQuery(con, "action=query" +
+			this.sendQuery(con, "action=query" +
 					"&prop=info" +
 					"&intoken=edit" +
 					"&indexpageids=" +
@@ -442,7 +443,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				public void close() throws IOException {}
 				public void storeToken(String token, int treeDepth) throws IOException {
 					if (grammar.isTag(token) && "page".equals(grammar.getType(token)) && !grammar.isEndTag(token)) {
-						System.out.println(token);
+						logDebug(token);
 						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						editToken = tnas.getAttribute("edittoken");
 					}
@@ -450,11 +451,11 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 			});
 			
 			if (this.editToken == null) {
-				System.out.println("Could not obtain Edit Token");
+				logWarning("Could not obtain Edit Token");
 				return false;
 			}
 			else {
-				System.out.println("Got Edit Token: " + this.editToken);
+				logInfo("Got Edit Token: " + this.editToken);
 				return true;
 			}
 		}
@@ -499,21 +500,21 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 					
 					this.out.flush();
 					this.out.close();
-					System.out.println("Update writer closed");
+					logInfo("Update writer closed");
 					
 					final boolean[] wikiSessionOK = {true};
 					parser.stream(new InputStreamReader(con.getInputStream(), "UTF-8"), new TokenReceiver() {
 						public void close() throws IOException {}
 						public void storeToken(String token, int treeDepth) throws IOException {
-							System.out.println(" -> " + token.trim());
+							logDebug(" -> " + token.trim());
 							if (grammar.isTag(token)) {
 								String type = grammar.getType(token);
 								if ("edit".equals(type)) {
 									TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 									String result = tnas.getAttribute("result");
 									if ("Success".equals(result))
-										System.out.println("Update Successful");
-									else System.out.println("Update Error: " + result);
+										logDebug("Update Successful");
+									else logWarning("Update Error: " + result);
 								}
 								else if ("error".equals(type)) {
 									TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
@@ -558,7 +559,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		boolean checkExists(String title) throws IOException {
 			HttpURLConnection con = this.getConnection();
 			con.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-			sendQuery(con, "action=query" +
+			this.sendQuery(con, "action=query" +
 					"&prop=info" +
 					"&titles=" + URLEncoder.encode(title, "UTF-8") + 
 				"");
@@ -567,7 +568,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				public void close() throws IOException {}
 				public void storeToken(String token, int treeDepth) throws IOException {
 					if (grammar.isTag(token) && "page".equals(grammar.getType(token)) && !grammar.isEndTag(token)) {
-						System.out.println(token);
+						logDebug(token);
 						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						exists[0] = (!"0".equals(tnas.getAttribute("lastrevid", "0")));
 					}
@@ -579,7 +580,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		String getUpdateUser(String title) throws IOException {
 			HttpURLConnection con = this.getConnection();
 			con.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-			sendQuery(con, "action=query" +
+			this.sendQuery(con, "action=query" +
 					"&prop=revisions" +
 					"&titles=" + URLEncoder.encode(title, "UTF-8") + 
 				"");
@@ -590,7 +591,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				public void storeToken(String token, int treeDepth) throws IOException {
 //					System.out.println(token);
 					if (grammar.isTag(token) && "rev".equals(grammar.getType(token)) && !grammar.isEndTag(token)) {
-						System.out.println(token);
+						logDebug(token);
 						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						String timestamp = tnas.getAttribute("timestamp");
 						if (timestamp.compareTo(this.timestamp) > 0) {
@@ -606,16 +607,16 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		void logout() {
 			try {
 				HttpURLConnection con = this.getConnection();
-				sendQuery(con, "action=logout");
+				this.sendQuery(con, "action=logout");
 				parser.stream(new InputStreamReader(con.getInputStream(), "UTF-8"), new TokenReceiver() {
 					public void close() throws IOException {}
 					public void storeToken(String token, int treeDepth) throws IOException {
-						System.out.println(token);
+						logDebug(token);
 					}
 				});
 			}
 			catch (IOException ioe) {
-				ioe.printStackTrace(System.out);
+				logError(ioe);
 			}
 			
 			this.lguserid = null;
@@ -627,7 +628,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		}
 		
 		private HttpURLConnection getConnection() throws IOException {
-			System.out.println("Connecting to " + this.url.toString());
+			logDebug("Connecting to " + this.url.toString());
 			HttpURLConnection con = ((HttpURLConnection) this.url.openConnection());
 			con.setRequestMethod("POST");
 			con.setDoOutput(true);
@@ -639,7 +640,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 						"; " + (this.cookieprefix + "Token=") + URLEncoder.encode(this.lgtoken, "UTF-8") +
 						"; " + (this.cookieprefix + "_session=") + URLEncoder.encode(this.sessionid, "UTF-8")
 					));
-				System.out.println("Cookie set: " + 
+				logDebug("Cookie set: " + 
 						(this.cookieprefix + "UserName=") + URLEncoder.encode(this.lgusername, "UTF-8") + 
 						((this.lguserid == null) ? "" : ("; " + (this.cookieprefix + "UserID=") + URLEncoder.encode(this.lguserid, "UTF-8"))) +
 						"; " + (this.cookieprefix + "Token=") + URLEncoder.encode(this.lgtoken, "UTF-8") +
@@ -649,8 +650,8 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 			return con;
 		}
 		
-		private static void sendQuery(HttpURLConnection con, String query) throws IOException {
-			System.out.println("Sending query: " + query + "&format=xml");
+		private void sendQuery(HttpURLConnection con, String query) throws IOException {
+			logDebug("Sending query: " + query + "&format=xml");
 			DataOutputStream out = new DataOutputStream(con.getOutputStream());
 			out.writeBytes(query);
 			out.writeBytes("&format=xml");
@@ -663,42 +664,32 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#doUpdate(de.uka.ipd.idaho.gamta.QueriableAnnotation, java.util.Properties)
 	 */
 	protected void doUpdate(QueriableAnnotation doc, Properties docAttributes) throws IOException {
-		if (DEBUG_EXPORT) System.out.println("  - document was updated");
 		
 		//	no export destination, save effort for document preparation
-		if (this.wikis.isEmpty()) {
-			if (DEBUG_EXPORT)
-				System.out.println("  - no Wiki yet to export to");
+		if (this.wikis.isEmpty())
 			return;
-		}
 		
 		//	we cannot export this one yet
 		if (!AnnotationUtils.isWellFormedNesting(doc)) {
-			if (DEBUG_EXPORT)
-				System.out.println("  - document not yet well-formed");
+			this.logInfo("  - document not yet well-formed");
 			return;
 		}
-		
-		//	document updated, and well formed
-		if (DEBUG_EXPORT) System.out.println("  - document well-formed, exporting");
 		
 		//	get title
 		String title = getTitle(doc);
 		if (title == null) {
-			if (DEBUG_EXPORT)
-				System.out.println("  - document filtered out on title");
+			this.logInfo("  - document filtered out on title");
 			return;
 		}
-		if (DEBUG_EXPORT) System.out.println("  - got document title: " + title);
+		this.logDebug("  - got document title: " + title);
 		
 		//	take specific pre-upload measures
 		doc = prepareDocument(doc);
 		if (doc == null) {
-			if (DEBUG_EXPORT)
-				System.out.println("  - document filtered out on preparation");
+			this.logInfo("  - document filtered out on preparation");
 			return;
 		}
-		if (DEBUG_EXPORT) System.out.println("  - document prepared");
+		this.logDebug("  - document prepared");
 		
 		//	generate document XML only once
 		String docXmlLine = null;
@@ -707,13 +698,11 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 		for (Iterator wit = this.wikis.keySet().iterator(); wit.hasNext();) {
 			final String wikiName = ((String) wit.next());
 			Wiki wiki = ((Wiki) this.wikis.get(wikiName));
-			if (DEBUG_EXPORT)
-				System.out.println("  - forwarding update to " + wikiName);
+			this.logDebug("  - forwarding update to " + wikiName);
 			
 			//	check transformer
 			if (wiki.xslt == null) {
-				if (DEBUG_EXPORT)
-					System.out.println("  - XSLT not available for " + wikiName);
+				this.logInfo("  - XSLT not available for " + wikiName);
 				continue;
 			}
 			
@@ -722,8 +711,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				//	get connection
 				WikiConnection wikiCon = wiki.getWikiConnection();
 				if (wikiCon == null) {
-					if (DEBUG_EXPORT)
-						System.out.println("  - no connection to " + wikiName);
+					this.logInfo("  - no connection to " + wikiName);
 					continue;
 				}
 				
@@ -731,16 +719,14 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				if (!wiki.overwriteUserUpdates) {
 					String updateUser = wikiCon.getUpdateUser(title);
 					if ((updateUser != null) && !wikiCon.lgusername.equals(updateUser)) {
-						if (DEBUG_EXPORT)
-							System.out.println("  - cannot update document due to user edits");
+						this.logInfo("  - cannot update document due to user edits");
 						continue;
 					}
 				}
 				
 				//	check if Wiki article exists
 				if (wiki.createOnly && wikiCon.checkExists(title)) {
-					if (DEBUG_EXPORT)
-						System.out.println("  - already exists");
+					this.logInfo("  - already exists");
 					continue;
 				}
 				
@@ -752,8 +738,8 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				this.doUpdate(wikiName, wiki, wikiCon, title, docXmlLine, false);
 			}
 			catch (IOException ioe) {
-				System.out.println("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
-				ioe.printStackTrace(System.out);
+				this.logError("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
+				this.logError(ioe);
 			}
 		}
 	}
@@ -783,12 +769,9 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 						String line;
 						try {
 							while ((line = br.readLine()) != null) {
-								if (DEBUG_LINK_FILTER)
-									System.out.println(line);
-								
+								logDebug(line);
 								line = this.removeDuplicateLinks(line);
-								if (DEBUG_LINK_FILTER)
-									System.out.println("  ==> " + line);
+								logDebug("  ==> " + line);
 								
 								wikiWriter.write(line);
 								wikiWriter.newLine();
@@ -798,7 +781,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 							wikiWriter.close();
 						}
 						catch (IOException ioe) {
-							System.out.println("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
+							logError("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
 							synchronized (exception) {
 								exception[0] = ioe;
 							}
@@ -835,8 +818,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 							
 							//	found start of escaped part
 							else {
-								if (DEBUG_LINK_FILTER)
-									System.out.println("  --> found escaper " + escaper + ", waiting for " + this.unescaper);
+								logDebug("  --> found escaper " + escaper + ", waiting for " + this.unescaper);
 								
 								//	check links in non-escaped part
 								clean.append(this.checkLinks(raw.substring(0, escapedStart)));
@@ -856,8 +838,7 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 							if (unescapedStart < this.unescaper.length())
 								return raw;
 							
-							if (DEBUG_LINK_FILTER)
-								System.out.println("  --> found unescaper " + this.unescaper);
+							logDebug("  --> found unescaper " + this.unescaper);
 							
 							//	clear escaper
 							this.unescaper = null;
@@ -902,15 +883,13 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 						
 						//	new link, keep line up to end of link
 						if (this.linked.add(linkTarget)) {
-							if (DEBUG_LINK_FILTER)
-								System.out.println("  --> found new link to " + linkTarget);
+							logDebug("  --> found new link to " + linkTarget);
 							clean.append(raw.substring(0, (linkEnd + "]]".length())));
 						}
 						
 						//	duplicate link
 						else {
-							if (DEBUG_LINK_FILTER)
-								System.out.println("  --> removed duplicate link to " + linkTarget);
+							logDebug("  --> removed duplicate link to " + linkTarget);
 							
 							//	keep start of line
 							clean.append(raw.substring(0, linkStart));
@@ -970,32 +949,31 @@ public abstract class GoldenGateWCS extends GoldenGateEXP {
 				wiki.xslt.transform(new StreamSource(new StringReader(docXmlLine)), new StreamResult(updateWriter));
 			}
 			catch (TransformerException te) {
-				System.out.println("  - XSLT error for " + wikiName + ": " + te.getMessageAndLocation());
+				this.logWarning("  - XSLT error for " + wikiName + ": " + te.getMessageAndLocation());
 			}
 			finally {
 				updateWriter.flush();
 				updateWriter.close();
 			}
-			if (DEBUG_EXPORT)
-				System.out.println("  - update forwarded to " + wikiName);
+			this.logInfo("  - update forwarded to " + wikiName);
 		}
 		
 		//	error message generated by XSLT to indicate document unsuited for export
 		catch (DocumentUnfitForExportException dufee) {
-			System.out.println("  - the update cannot be forwarded to " + wikiName + ": " + dufee.getMessage());
+			this.logInfo("  - the update cannot be forwarded to " + wikiName + ": " + dufee.getMessage());
 		}
 		
 		//	error message thrown by Wiki API, indicating timed-out session or invalid credentials
 		catch (InvalidWikiSessionException iwse) {
 			if (isSessionTimeoutRecursion)
-				System.out.println("  - the update cannot be forwarded to " + wikiName + " due to invalid credentials");
+				this.logInfo("  - the update cannot be forwarded to " + wikiName + " due to invalid credentials");
 			else this.doUpdate(wikiName, wiki, wikiCon, title, docXmlLine, true);
 		}
 		
 		//	other IO error
 		catch (IOException ioe) {
-			System.out.println("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
-			ioe.printStackTrace(System.out);
+			this.logError("  - error forwarding update to " + wikiName + ": " + ioe.getMessage());
+			this.logError(ioe);
 		}
 	}
 	

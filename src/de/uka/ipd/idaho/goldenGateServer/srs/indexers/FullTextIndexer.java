@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -53,6 +53,7 @@ import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.TokenSequence;
 import de.uka.ipd.idaho.gamta.util.CountingSet;
+import de.uka.ipd.idaho.goldenGateServer.AsynchronousWorkQueue;
 import de.uka.ipd.idaho.goldenGateServer.srs.AbstractIndexer;
 import de.uka.ipd.idaho.goldenGateServer.srs.Query;
 import de.uka.ipd.idaho.goldenGateServer.srs.QueryResult;
@@ -105,6 +106,7 @@ public class FullTextIndexer extends AbstractIndexer {
 	
 	private File indexRootPath;
 	private IndexUpdater indexUpdater;
+	private AsynchronousWorkQueue indexUpdaterMonitor;
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexName()
@@ -178,6 +180,11 @@ public class FullTextIndexer extends AbstractIndexer {
 		System.out.println("  - starting index updater ...");
 		this.indexUpdater = new IndexUpdater();
 		this.indexUpdater.start();
+		this.indexUpdaterMonitor = new AsynchronousWorkQueue("FullTextIndexUpdater") {
+			public String getStatus() {
+				return (this.name + ": " + dirtyTermIndexQueue.size() + " index files to sort, " + pendingTermIndexEntryCache.size() + " ones to update");
+			}
+		};
 		System.out.println("  - index updater started");
 		
 		System.out.println("  - FullTextIndexer initialized");
@@ -189,6 +196,7 @@ public class FullTextIndexer extends AbstractIndexer {
 	public void exit() {
 		
 		//	shut down index updater
+		this.indexUpdaterMonitor.dispose();
 		this.indexUpdater.shutdown();
 		try {
 			this.indexUpdater.join();
@@ -215,8 +223,8 @@ public class FullTextIndexer extends AbstractIndexer {
 			dos.close();
 		}
 		catch (IOException ioe) {
-			this.host.logError("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing invalid docNr file.");
-			this.host.logError(ioe);
+			System.out.println("FullTextIndexer: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while storing invalid docNr file.");
+			ioe.printStackTrace(System.out);
 		}
 	}
 	
@@ -365,7 +373,7 @@ public class FullTextIndexer extends AbstractIndexer {
 			//	do cache lookup
 			if (this.termIndexCache.containsKey(term)) {
 				
-				//	have to remove and re-add index to maintain LRU ordering in linked map
+				//	have to remove and re-add index to maintain LRU ordering in linked hash map
 				termIndex = ((TermIndex) this.termIndexCache.remove(term));
 				this.termIndexCache.put(term, termIndex);
 				return termIndex;
@@ -377,7 +385,8 @@ public class FullTextIndexer extends AbstractIndexer {
 		try {
 			//	get file
 			File indexFile = this.getIndexFile(term, false);
-			if (indexFile == null) return termIndex;
+			if (indexFile == null)
+				return termIndex;
 			
 			//	read file
 			DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(indexFile)));
@@ -706,7 +715,6 @@ public class FullTextIndexer extends AbstractIndexer {
 			//	initialize wildcard matching helper
 			host.logInfo("  - indexing index terms by trigrams ...");
 			int indexTermCount = 0;
-//			File[] idxFolders1 = dataPath.listFiles(new FileFilter() {
 			File[] idxFolders1 = indexRootPath.listFiles(new FileFilter() {
 				public boolean accept(File file) {
 					return file.isDirectory();
@@ -727,11 +735,11 @@ public class FullTextIndexer extends AbstractIndexer {
 					for (int f3 = 0; f3 < idxFolders3.length; f3++) {
 						File[] idxFiles = idxFolders3[f3].listFiles(new FileFilter() {
 							public boolean accept(File file) {
-								return (file.isFile() && file.getName().startsWith("idx-"));
+								return (file.isFile() && file.getName().startsWith("idx-") && !file.getName().endsWith(".old"));
 							}
 						});
 						for (int f = 0; f < idxFiles.length; f++) {
-							String term = idxFiles[f].getName().substring(4);
+							String term = idxFiles[f].getName().substring("idx-".length());
 							indexTermCount ++;
 							for (int t = 0; t <= (term.length() - 3); t++) {
 								String trigram = term.substring(t, (t+3));
@@ -783,7 +791,8 @@ public class FullTextIndexer extends AbstractIndexer {
 							File termIndexFile = getIndexFile(termIndex.term, true);
 							if (termIndexFile.length() > 0) { // replace existing file
 								File oldTif = new File(termIndexFile.getAbsolutePath() + ".old");
-								if (oldTif.exists()) oldTif.delete();
+								if (oldTif.exists())
+									oldTif.delete();
 								termIndexFile.renameTo(new File(termIndexFile.getAbsolutePath() + ".old"));
 								termIndexFile = getIndexFile(termIndex.term, true);
 							}

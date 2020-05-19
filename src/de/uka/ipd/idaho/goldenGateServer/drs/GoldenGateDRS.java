@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -43,6 +43,8 @@ import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest.AttributeFilter;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentList;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerEventService;
 import de.uka.ipd.idaho.goldenGateServer.aep.GoldenGateAEP;
@@ -50,8 +52,7 @@ import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection.Connection;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
 import de.uka.ipd.idaho.goldenGateServer.res.GoldenGateRES;
 import de.uka.ipd.idaho.goldenGateServer.res.GoldenGateRES.RemoteEventList;
 import de.uka.ipd.idaho.goldenGateServer.res.GoldenGateRES.ResEventFilter;
@@ -74,6 +75,7 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 	
 	private static final String GET_DOCUMENT = "DRS_GET_DOCUMENT";
 	private static final String GET_DOCUMENT_LIST = "DRS_GET_DOCUMENT_LIST";
+	private static final String GET_DOCUMENT_LIST_SHARED = "DRS_GET_DOCUMENT_LIST_SHARED";
 	
 	private static final String defaultPassPhrase = "DRS provides remote access!";
 	
@@ -87,14 +89,7 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 	/** Constructor passing 'DRS' as the letter code to super constructor
 	 */
 	public GoldenGateDRS() {
-		super("DRS");
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.aep.GoldenGateAEP#getEventProcessorName()
-	 */
-	protected String getEventProcessorName() {
-		return "DioReplicator";
+		super("DRS", "DioReplicator");
 	}
 	
 	/* (non-Javadoc)
@@ -236,7 +231,7 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 					DioDocumentEvent dde = DioDocumentEvent.parseEvent(rre.paramString);
 					
 					//	check against local update time
-					Properties docAttributes = dio.getDocumentAttributes(dde.documentId);
+					Properties docAttributes = dio.getDocumentAttributes(dde.dataId);
 					if (docAttributes != null) {
 						long updateTime = Long.parseLong(docAttributes.getProperty(ORIGINAL_UPDATE_TIME_ATTRIBUTE, docAttributes.getProperty(UPDATE_TIME_ATTRIBUTE, "0")));
 						if (rre.eventTime < updateTime) {
@@ -246,7 +241,7 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 					}
 					
 					//	handle document event
-					dataUpdated(dde.documentId, false, remoteDomain, PRIORITY_LOW);
+					dataUpdated(dde.dataId, false, remoteDomain, PRIORITY_LOW);
 					handleCount++;
 					
 					//	update status
@@ -296,7 +291,8 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 				int remotePort = res.getRemoteDomainPort(remoteDomain);
 				
 				//	get document list from remote domain, and index document records by ID
-				DocumentList remoteDl = getDocumentList(remoteAddress, remotePort);
+//				DocumentList remoteDl = getDocumentList(remoteAddress, remotePort);
+				DioDocumentList remoteDl = getDocumentListShared(remoteAddress, remotePort);
 				HashMap remoteDlesById = new HashMap();
 				while (remoteDl.hasNextDocument()) {
 					DocumentListElement dle = remoteDl.getNextDocument();
@@ -306,7 +302,7 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 				//	iterate over local document list, collecting IDs of documents to update or delete
 				HashSet updateDocIDs = new HashSet();
 				HashSet deleteDocIDs = new HashSet();
-				DocumentList localDl = dio.getDocumentListFull();
+				DioDocumentList localDl = dio.getDocumentListFull();
 				while (localDl.hasNextDocument()) {
 					DocumentListElement localDle = localDl.getNextDocument();
 					String docId = ((String) localDle.getAttribute(DOCUMENT_ID_ATTRIBUTE));
@@ -394,17 +390,17 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 		//	handle update event
 		if (dde.type == DioDocumentEvent.UPDATE_TYPE) {
 			this.logInfo("GoldenGateDRS: scheduling update from " + rre.sourceDomainAlias + " (" + rre.sourceDomainAddress + ":" + rre.sourceDomainPort + ") ...");
-			this.dataUpdated(dde.documentId, (dde.version == 1), rre.sourceDomainAlias, PRIORITY_LOW);
+			this.dataUpdated(dde.dataId, (dde.version == 1), rre.sourceDomainAlias, PRIORITY_LOW);
 		}
 		
 		//	handle delete event
 		else if (dde.type == DioDocumentEvent.DELETE_TYPE) {
 			try {
-				this.dio.deleteDocument(("DRS." + rre.originDomainName), dde.documentId, null);
+				this.dio.deleteDocument(("DRS." + rre.originDomainName), dde.dataId, null);
 			}
 			catch (IOException ioe) {
-				System.out.println("GoldenGateDRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
-				ioe.printStackTrace(System.out);
+				this.logError("GoldenGateDRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
+				this.logError(ioe);
 			}
 		}
 		
@@ -414,23 +410,28 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.aep.GoldenGateAEP#doUpdate(java.lang.String, java.lang.String, java.util.Properties, long)
 	 */
-	protected void doUpdate(String dataId, String user, Properties dataAttributes, long params) throws IOException {
+	protected void doUpdate(String dataId, String remoteDomainAlias, Properties dataAttributes, long params) throws IOException {
 		
 		//	get remote domain access data
-		String remoteAddress = this.res.getRemoteDomainAddress(user);
-		int remotePort = this.res.getRemoteDomainPort(user);
+		String remoteAddress = this.res.getRemoteDomainAddress(remoteDomainAlias);
+		int remotePort = this.res.getRemoteDomainPort(remoteDomainAlias);
 		
 		//	get document
-		this.logInfo("GoldenGateDRS: updating from " + user + " (" + remoteAddress + ":" + remotePort + ") ...");
-		QueriableAnnotation doc = this.getDocument(dataId, remoteAddress, remotePort, user);
+		this.logInfo("GoldenGateDRS: updating from " + remoteDomainAlias + " (" + remoteAddress + ":" + remotePort + ") ...");
+		QueriableAnnotation doc = this.getDocument(dataId, remoteAddress, remotePort, remoteDomainAlias);
+		
+		//	get original update user
+		String updateUser = ((String) doc.getAttribute(ORIGINAL_UPDATE_USER_ATTRIBUTE));
+		if (updateUser == null)
+			updateUser = ("DRS." + remoteDomainAlias);
 		
 		//	get original update domain
 		String updateDomain = ((String) doc.getAttribute(ORIGINAL_UPDATE_DOMAIN_ATTRIBUTE));
 		if (updateDomain == null)
-			updateDomain = user;
+			updateDomain = remoteDomainAlias;
 		
 		//	store document
-		this.dio.updateDocument(("DRS." + updateDomain), dataId, doc, null);
+		this.dio.updateDocument(updateUser, ("DRS." + updateDomain), dataId, doc, null);
 	}
 	
 	/* (non-Javadoc)
@@ -463,7 +464,7 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 				return ((arguments.length == 0) ? null : " Specify no arguments.");
 			}
 			protected void performAction(String[] arguments) throws Exception {
-				DocumentList dl = dio.getDocumentListFull();
+				DioDocumentList dl = dio.getDocumentListFull();
 				if (dl.hasNextDocument()) {
 					DocumentListElement de = dl.getNextDocument();
 					RemoteEventList rel = ((GoldenGateRES) res).getEventList(0, GoldenGateDIO.class.getName());
@@ -552,6 +553,22 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 		};
 		cal.add(ca);
 		
+		//	request for document list
+		ca = new ComponentActionNetwork() {
+			public String getActionCommand() {
+				return GET_DOCUMENT_LIST_SHARED;
+			}
+			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
+				DioDocumentList dl = dio.getDocumentListFull();
+				
+				output.write(GET_DOCUMENT_LIST_SHARED);
+				output.newLine();
+				
+				dl.writeData(output);
+			}
+		};
+		cal.add(ca);
+		
 		//	re-read pass phrases
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
@@ -567,9 +584,9 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0) {
 					readPassPhrases();
-					System.out.println(" Pass phrases re-read.");
+					this.reportResult(" Pass phrases re-read.");
 				}
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -641,7 +658,7 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 		return doc;
 	}
 	
-	private DocumentList getDocumentList(String remoteAddress, int remotePort) throws IOException {
+	private DioDocumentList getDocumentList(String remoteAddress, int remotePort) throws IOException {
 		ServerConnection sc = ((remotePort == -1) ? ServerConnection.getServerConnection(remoteAddress) : ServerConnection.getServerConnection(remoteAddress, remotePort));
 		Connection con = sc.getConnection();
 		BufferedWriter bw = con.getWriter();
@@ -653,7 +670,26 @@ public class GoldenGateDRS extends GoldenGateAEP implements GoldenGateDioConstan
 		BufferedReader br = con.getReader();
 		String error = br.readLine();
 		if (GET_DOCUMENT_LIST.equals(error))
-			return DocumentList.readDocumentList(br);
+			return DioDocumentList.readDocumentList(br);
+		else {
+			con.close();
+			throw new IOException(error);
+		}
+	}
+	
+	private DioDocumentList getDocumentListShared(String remoteAddress, int remotePort) throws IOException {
+		ServerConnection sc = ((remotePort == -1) ? ServerConnection.getServerConnection(remoteAddress) : ServerConnection.getServerConnection(remoteAddress, remotePort));
+		Connection con = sc.getConnection();
+		BufferedWriter bw = con.getWriter();
+		
+		bw.write(GET_DOCUMENT_LIST_SHARED);
+		bw.newLine();
+		bw.flush();
+		
+		BufferedReader br = con.getReader();
+		String error = br.readLine();
+		if (GET_DOCUMENT_LIST_SHARED.equals(error))
+			return DioDocumentList.readDocumentList(br);
 		else {
 			con.close();
 			throw new IOException(error);

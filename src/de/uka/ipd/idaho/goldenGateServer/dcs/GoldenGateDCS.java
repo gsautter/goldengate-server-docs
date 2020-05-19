@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) / KIT nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) / KIT nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -50,6 +50,7 @@ import de.uka.ipd.idaho.easyIO.sql.TableColumnDefinition;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
+import de.uka.ipd.idaho.goldenGateServer.AsynchronousWorkQueue;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
 import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
@@ -79,9 +80,10 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	
 	/**
 	 * @param letterCode the letter code to use
+	 * @param statsName the statistics exporter name to use
 	 */
-	protected GoldenGateDCS(String letterCode) {
-		super(letterCode);
+	protected GoldenGateDCS(String letterCode, String statsName) {
+		super(letterCode, statsName);
 	}
 	
 	/**
@@ -229,13 +231,13 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length != 0)
-					System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 				else try {
 					staticStatExports = loadStaticStatExports();
 				}
 				catch (IOException ioe) {
-					System.out.println("Exception reloading static exports: " + ioe.getMessage());
-					ioe.printStackTrace(System.out);
+					this.reportError("Exception reloading static exports: " + ioe.getMessage());
+					this.reportError(ioe);
 				}
 			}
 		};
@@ -253,7 +255,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 0)
 					updateStaticStatExports(true);
-				else System.out.println(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
 			}
 		};
 		cal.add(ca);
@@ -381,6 +383,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		private String xmlRootTag = null;
 		private String xmlRowTag = null;
 		private String xmlFieldTag = null;
+		private boolean xmlIncludeLabels = false;
 		private ArrayList xmlDerivatives;
 		private String jsonVariableName = null;
 		private boolean jsonIncludeFields = false;
@@ -414,7 +417,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			if ("CSV".equals(this.format))
 				stats.writeAsCSV(bw, true, this.csvSeparator);
 			else if ("XML".equals(this.format))
-				stats.writeAsXML(bw, this.xmlRootTag, this.xmlRowTag, this.xmlFieldTag);
+				stats.writeAsXML(bw, this.xmlRootTag, this.xmlRowTag, this.xmlFieldTag, (this.xmlIncludeLabels ? fieldLabels : null));
 			else if ("JSON".equals(this.format))
 				stats.writeAsJSON(bw, this.jsonVariableName, this.jsonIncludeFields, (this.jsonIncludeLabels ? fieldLabels : null), false);
 			
@@ -434,8 +437,8 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					((StaticStatExport) this.xmlDerivatives.get(d)).exportStaticStat();
 				}
 				catch (IOException ioe) {
-					System.out.println("Exception running derivative static export to '" + ((StaticStatExport) this.xmlDerivatives.get(d)).destination + "': " + ioe.getMessage());
-					ioe.printStackTrace();
+					logError("Exception running derivative static export to '" + ((StaticStatExport) this.xmlDerivatives.get(d)).destination + "': " + ioe.getMessage());
+					logError(ioe);
 				}
 			}
 		}
@@ -464,8 +467,8 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				this.transformer.transform(new StreamSource(br), new StreamResult(bw));
 			}
 			catch (TransformerException te) {
-				System.out.println("Export to '" + this.destination + "' failed: " + te.getMessage());
-				te.printStackTrace(System.out);
+				logError("Export to '" + this.destination + "' failed: " + te.getMessage());
+				logError(te);
 			}
 			
 			//	finish export
@@ -535,6 +538,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 							this.fsse.xmlRootTag = tnas.getAttribute("rootTag", "statistics");
 							this.fsse.xmlRowTag = tnas.getAttribute("rowTag", "statData");
 							this.fsse.xmlFieldTag = tnas.getAttribute("fieldTag", null /* statField */); // have field tag default to null to switch it off by default
+							this.fsse.xmlIncludeLabels = "true".equals(tnas.getAttribute("includeLabels", "true"));
 							this.fsse.xmlDerivatives = new ArrayList(2);
 						}
 						else if ("JSON".equals(this.fsse.format)) {
@@ -599,8 +603,8 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 						this.fsse.xmlDerivatives.add(new DerivativeStaticStatExport(destination, this.fsse, transformer));
 					}
 					catch (IOException ioe) {
-						System.out.println("Exception creating export to '" + destination + "': " + ioe.getMessage());
-						ioe.printStackTrace(System.out);
+						logError("Exception creating export to '" + destination + "': " + ioe.getMessage());
+						logError(ioe);
 					}
 				}
 			}
@@ -611,9 +615,15 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	}
 	
 	private class StaticStatExportThread extends Thread {
+		AsynchronousWorkQueue monitor = null;
 		StaticStatExportThread() {
 			super("DcsStaticStatisticsExportThread");
 			staticStatExportThread = this;
+			this.monitor = new AsynchronousWorkQueue("DcsStaticStatisticsExport") {
+				public String getStatus() {
+					return (this.name + ": exports due in " + (staticStatExportsDue - System.currentTimeMillis()) + " ms");
+				}
+			};
 			this.start();
 		}
 		public void run() {
@@ -636,11 +646,12 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 					staticStatExports[x].exportStaticStat();
 				}
 				catch (Exception e) {
-					System.out.println("Exception running static export to '" + staticStatExports[x].destination + "': " + e.getMessage());
-					e.printStackTrace(System.out);
+					logError("Exception running static export to '" + staticStatExports[x].destination + "': " + e.getMessage());
+					logError(e);
 				}
 			}
 			finally {
+				this.monitor.dispose();
 				staticStatExportThread = null;
 			}
 		}

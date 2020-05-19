@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) / KIT nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) / KIT nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -138,14 +138,17 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 			return;
 		}
 		
-		//	XML output
-		if ("XML".equals(format)) {
-			stats.writeAsXML(bw, "statistics", "statData", null);
-			return;
-		}
-		
 		//	get fields
 		String[] statFields = stats.getFields();
+		
+		//	XML output
+		if ("XML".equals(format)) {
+			Properties statFieldsToLabels = new Properties();
+			for (int f = 0; f < statFields.length; f++)
+				statFieldsToLabels.setProperty(statFields[f], this.getFieldLabel(statFields[f]));
+			stats.writeAsXML(bw, "statistics", "statData", null, statFieldsToLabels);
+			return;
+		}
 		
 		//	JSON output
 		if ("JSON".equals(format)) {
@@ -288,6 +291,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 					response.setContentType("text/javascript");
 				}
 				else if ("HTML".equalsIgnoreCase(format)) {
+					final StatFieldSet fieldSet = getFieldSet();
 					response.setContentType("text/html");
 					this.sendHtmlPage(new HtmlPageBuilder(this, request, response) {
 						protected void include(String type, String tag) throws IOException {
@@ -301,7 +305,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 							this.writeLine("<table id=\"statTable\"></table>");
 						}
 						protected String getPageTitle(String title) {
-							return "Document Collection Statistics";
+							return ((fieldSet.label == null) ? "Document Collection Statistics" : html.escape(fieldSet.label));
 						}
 						protected String[] getOnloadCalls() {
 							String[] olcs = {"displayStats()"};
@@ -548,7 +552,7 @@ public abstract class GoldenGateDcsDataServlet extends GoldenGateDcsClientServle
 				this.writeLine("<script id=\"statJs\" type=\"text/javascript\" src=\"toCome\"></script>");
 			}
 			protected String getPageTitle(String title) {
-				return "Document Collection Statistics Explorer";
+				return ((fieldSet.label == null) ? "Document Collection Statistics Explorer" : html.escape(fieldSet.label + " Explorer"));
 			}
 			protected String[] getOnloadCalls() {
 				String[] olcs = {"storeFieldOptions()"};

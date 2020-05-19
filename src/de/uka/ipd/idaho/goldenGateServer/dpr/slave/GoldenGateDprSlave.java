@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) / KIT nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) / KIT nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -37,7 +37,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
-import java.util.ArrayList;
 import java.util.Properties;
 
 import de.uka.ipd.idaho.gamta.DocumentRoot;
@@ -47,11 +46,8 @@ import de.uka.ipd.idaho.gamta.util.ParallelJobRunner;
 import de.uka.ipd.idaho.gamta.util.ProgressMonitor;
 import de.uka.ipd.idaho.goldenGate.GoldenGATE;
 import de.uka.ipd.idaho.goldenGate.GoldenGateConfiguration;
-import de.uka.ipd.idaho.goldenGate.GoldenGateConfiguration.ConfigurationDescriptor;
 import de.uka.ipd.idaho.goldenGate.GoldenGateConstants;
 import de.uka.ipd.idaho.goldenGate.configuration.ConfigurationUtils;
-import de.uka.ipd.idaho.goldenGate.configuration.FileConfiguration;
-import de.uka.ipd.idaho.goldenGate.configuration.UrlConfiguration;
 import de.uka.ipd.idaho.goldenGate.plugins.DocumentProcessor;
 import de.uka.ipd.idaho.goldenGate.plugins.DocumentProcessorManager;
 import de.uka.ipd.idaho.goldenGate.plugins.MonitorableDocumentProcessor;
@@ -137,25 +133,15 @@ public class GoldenGateDprSlave implements GoldenGateConstants {
 		}
 		String[] dpNames = dpNameString.split("\\+");
 		
-		//	select new configuration
-		ConfigurationDescriptor configuration = getConfiguration(basePath, ggConfigHost, ggConfigName);
+		//	get GoldenGATE Editor configuration
+		GoldenGateConfiguration ggConfig = ConfigurationUtils.getConfiguration(ggConfigName, null, ggConfigHost, basePath);
 		
-		//	check if cancelled
-		if (configuration == null) {
+		//	check if configuration found
+		if (ggConfig == null) {
 			sysOut.println("Configuration '" + ggConfigName + "' not found, check parameter " + CONFIG_NAME_PARAMETER);
 			System.exit(0);
 			return;
 		}
-		
-		//	open GoldenGATE Imagine window
-		GoldenGateConfiguration ggConfig = null;
-		
-		//	local configuration selected
-		if (configuration.host == null)
-			ggConfig = new FileConfiguration(configuration.name, new File(new File(basePath, CONFIG_FOLDER_NAME), configuration.name), false, true, null);
-		
-		//	remote configuration selected
-		else ggConfig = new UrlConfiguration((configuration.host + (configuration.host.endsWith("/") ? "" : "/") + configuration.name), configuration.name);
 		
 		//	instantiate GoldenGATE
 		GoldenGATE goldenGate = GoldenGATE.openGoldenGATE(ggConfig, false, false);
@@ -225,40 +211,5 @@ public class GoldenGateDprSlave implements GoldenGateConstants {
 		
 		//	shut down whatever threads are left
 		System.exit(0);
-	}
-	
-	private static ConfigurationDescriptor getConfiguration(File dataBasePath, String configHost, String configName) {
-		
-		//	get available configurations
-		ConfigurationDescriptor[] configurations = getConfigurations(dataBasePath, configHost);
-		
-		//	get selected configuration, doing update if required
-		return ConfigurationUtils.getConfiguration(configurations, configName, dataBasePath, false, false);
-	}
-	
-	private static ConfigurationDescriptor[] getConfigurations(File dataBasePath, String configHost) {
-		
-		//	collect configurations
-		final ArrayList configList = new ArrayList();
-		
-		//	load local non-default configurations
-		ConfigurationDescriptor[] configs = ConfigurationUtils.getLocalConfigurations(dataBasePath);
-		for (int c = 0; c < configs.length; c++)
-			configList.add(configs[c]);
-		
-		//	get downloaded zip files
-		configs = ConfigurationUtils.getZipConfigurations(dataBasePath);
-		for (int c = 0; c < configs.length; c++)
-			configList.add(configs[c]);
-		
-		//	get remote configurations
-		if (configHost != null) {
-			configs = ConfigurationUtils.getRemoteConfigurations(configHost);
-			for (int c = 0; c < configs.length; c++)
-				configList.add(configs[c]);
-		}
-		
-		//	finally ...
-		return ((ConfigurationDescriptor[]) configList.toArray(new ConfigurationDescriptor[configList.size()]));
 	}
 }

@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) / KIT nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) / KIT nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -58,7 +58,7 @@ import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.GenericQueriableAnnotationWrapper;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathVariableResolver;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
-import de.uka.ipd.idaho.goldenGateServer.dst.GoldenGateServerDocConstants;
+import de.uka.ipd.idaho.goldenGateServer.util.DataObjectUpdateConstants;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
@@ -66,7 +66,7 @@ import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
  * @author sautter
  *
  */
-public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGateServerDocConstants {
+public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObjectUpdateConstants {
 	
 	private static final String DOCUMENT_ID_HASH_ATTRIBUTE = "docIdHash";
 	
@@ -190,6 +190,8 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			throw new RuntimeException("DocumentCollectionStatistics: cannot work without database access");
 		this.io.indexColumn(docTableDef.getTableName(), DOCUMENT_ID_ATTRIBUTE);
 		this.io.indexColumn(docTableDef.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
+		if (useForeignKeyConstraints)
+			this.io.setPrimaryKey(docTableDef.getTableName(), DOCUMENT_ID_ATTRIBUTE);
 		
 		//	add configured column indices
 		StatField[] docFgFields = this.docFieldGroup.getFields();
@@ -210,10 +212,8 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 			this.io.indexColumn(statsTableDefs[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
 			
 			//	add referential constraints
-			if (useForeignKeyConstraints) {
+			if (useForeignKeyConstraints)
 				this.io.setForeignKey(statsTableDefs[t].getTableName(), DOCUMENT_ID_ATTRIBUTE, docTableDef.getTableName(), DOCUMENT_ID_ATTRIBUTE);
-				this.io.setForeignKey(statsTableDefs[t].getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE, docTableDef.getTableName(), DOCUMENT_ID_HASH_ATTRIBUTE);
-			}
 			
 			//	add configured column indices
 			StatField[] fgFields = this.fieldGroups[t].getFields();
@@ -787,7 +787,8 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, GoldenGa
 					break;
 			}
 			
-			//	cache statistics
+			//	lock and cache statistics
+			stats.setReadOnly();
 			this.cache.put(statsCacheKey, stats);
 			
 			//	finally ...

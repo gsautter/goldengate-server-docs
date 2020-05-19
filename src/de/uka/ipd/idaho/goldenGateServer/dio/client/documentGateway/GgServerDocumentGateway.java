@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -87,6 +87,7 @@ import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.Token;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericQueriableAnnotationWrapper;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentListElement;
 import de.uka.ipd.idaho.goldenGate.CustomFunction;
 import de.uka.ipd.idaho.goldenGate.CustomShortcut;
 import de.uka.ipd.idaho.goldenGate.DocumentEditor;
@@ -96,18 +97,19 @@ import de.uka.ipd.idaho.goldenGate.GoldenGateConstants;
 import de.uka.ipd.idaho.goldenGate.configuration.FileConfiguration;
 import de.uka.ipd.idaho.goldenGate.plugins.DocumentFormat;
 import de.uka.ipd.idaho.goldenGate.plugins.DocumentLoader;
-import de.uka.ipd.idaho.goldenGate.plugins.GoldenGatePlugin;
 import de.uka.ipd.idaho.goldenGate.plugins.DocumentLoader.DocumentData;
+import de.uka.ipd.idaho.goldenGate.plugins.GoldenGatePlugin;
 import de.uka.ipd.idaho.goldenGate.util.DialogPanel;
+import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerActivityLogger;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DuplicateExternalIdentifierException;
 import de.uka.ipd.idaho.goldenGateServer.dio.client.GoldenGateDioClient;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStore;
 import de.uka.ipd.idaho.goldenGateServer.uaa.client.AuthenticatedClient;
 import de.uka.ipd.idaho.goldenGateServer.uaa.client.AuthenticationManager;
 import de.uka.ipd.idaho.goldenGateServer.uaa.client.AuthenticationManagerPlugin;
 import de.uka.ipd.idaho.stringUtils.StringVector;
+//import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
 
 /**
  * Utility for uploading batches of documents to GoldenGATE Server, namely to
@@ -346,7 +348,8 @@ public class GgServerDocumentGateway implements GoldenGateConstants {
 							return;
 						}
 						
-						DocumentStore dst = new DocumentStore(dstRoot);
+//						DocumentStore dst = new DocumentStore(dstRoot);
+						DocumentStore dst = new DocumentStore("UploadTemp", dstRoot, GoldenGateServerActivityLogger.silent);
 						String[] docIds = dst.getDocumentIDs();
 						int openedDocCount = 0;
 						StringVector errors = new StringVector(); 

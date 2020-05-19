@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -260,8 +260,10 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 				where += (" AND d." + DOCUMENT_TITLE_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(title) + "%'");
 			if (origin.length() != 0)
 				where += (" AND d." + DOCUMENT_ORIGIN_ATTRIBUTE + "Search" + " LIKE '%" + EasyIO.prepareForLIKE(origin) + "%'");
-			if (page.length() != 0)
-				where += (" AND (d." + PAGE_NUMBER_ATTRIBUTE + " <= " + EasyIO.sqlEscape(page) + " AND d." + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + EasyIO.sqlEscape(page) + ")");
+			if (page.length() != 0) try {
+				int pageNr = Integer.parseInt(page);
+				where += (" AND (d." + PAGE_NUMBER_ATTRIBUTE + " <= " + pageNr + " AND d." + LAST_PAGE_NUMBER_ATTRIBUTE + " >= " + pageNr + ")");
+			} catch (RuntimeException re) { /* big fat finger for hinky page numbers */ }
 		}
 		
 		//	assemble query

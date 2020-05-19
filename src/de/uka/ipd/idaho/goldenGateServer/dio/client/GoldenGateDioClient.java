@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -46,7 +46,7 @@ import de.uka.ipd.idaho.gamta.util.GenericQueriableAnnotationWrapper;
 import de.uka.ipd.idaho.gamta.util.ProgressMonitor;
 import de.uka.ipd.idaho.goldenGateServer.client.ServerConnection.Connection;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
 import de.uka.ipd.idaho.goldenGateServer.uaa.client.AuthenticatedClient;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 
@@ -82,10 +82,11 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * list will not contain any elements. However, the getListFieldValues()
 	 * method of the document list will provide summary sets that can be used as
 	 * filter suggestions for the user.
+	 * @param pm a progress monitor to observe the loading process
 	 * @return the list of documents available from the backing DIO
 	 */
-	public DocumentList getDocumentList() throws IOException {
-		return this.getDocumentList(null);
+	public DioDocumentList getDocumentList(ProgressMonitor pm) throws IOException {
+		return this.getDocumentList(null, pm);
 	}
 	
 	/**
@@ -117,10 +118,12 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 	 * conjuncted.
 	 * @param filter a properties object containing filter predicates for the
 	 *            document list
+	 * @param pm a progress monitor to observe the loading process
 	 * @return the list of documents available from the backing DIO
 	 */
-	public DocumentList getDocumentList(Properties filter) throws IOException {
-		if (!this.authClient.isLoggedIn()) throw new IOException("Not logged in.");
+	public DioDocumentList getDocumentList(Properties filter, ProgressMonitor pm) throws IOException {
+		if (!this.authClient.isLoggedIn())
+			throw new IOException("Not logged in.");
 		
 		final Connection con = this.authClient.getConnection();
 		BufferedWriter bw = con.getWriter();
@@ -154,7 +157,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 		final BufferedReader br = con.getReader();
 		String error = br.readLine();
 		if (GET_DOCUMENT_LIST.equals(error))
-			return DocumentList.readDocumentList(new Reader() {
+			return DioDocumentList.readDocumentList(new Reader() {
 				public void close() throws IOException {
 					br.close();
 					con.close();
@@ -162,8 +165,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 				public int read(char[] cbuf, int off, int len) throws IOException {
 					return br.read(cbuf, off, len);
 				}
-			});
-		
+			}, pm);
 		else {
 			con.close();
 			throw new IOException(error);
@@ -463,7 +465,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 				return log.toStringArray();
 			}
 			else if (DUPLICATE_EXTERNAL_IDENTIFIER.equals(error))
-				throw new DuplicateExternalIdentifierException(br.readLine(), br.readLine(), DocumentList.readDocumentList(br));
+				throw new DuplicateExternalIdentifierException(br.readLine(), br.readLine(), DioDocumentList.readDocumentList(br));
 			else throw new IOException(error);
 		}
 		finally {
@@ -797,7 +799,7 @@ public class GoldenGateDioClient implements GoldenGateDioConstants {
 				return log.toStringArray();
 			}
 			else if (DUPLICATE_EXTERNAL_IDENTIFIER.equals(error))
-				throw new DuplicateExternalIdentifierException(br.readLine(), br.readLine(), DocumentList.readDocumentList(br));
+				throw new DuplicateExternalIdentifierException(br.readLine(), br.readLine(), DioDocumentList.readDocumentList(br));
 			else throw new IOException(error);
 		}
 		finally {

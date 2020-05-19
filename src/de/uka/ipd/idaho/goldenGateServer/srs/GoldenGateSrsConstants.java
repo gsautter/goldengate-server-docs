@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -42,8 +42,7 @@ import java.util.ArrayList;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.ReadOnlyDocument;
-import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
-import de.uka.ipd.idaho.goldenGateServer.dst.GoldenGateServerDocConstants;
+import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStoreConstants;
 import de.uka.ipd.idaho.htmlXmlUtil.Parser;
 import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
@@ -56,14 +55,17 @@ import de.uka.ipd.idaho.htmlXmlUtil.grammars.StandardGrammar;
  * 
  * @author sautter
  */
-public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, LiteratureConstants {
+public interface GoldenGateSrsConstants extends DocumentStoreConstants {
 	
 	/** the list documents command */
 	public static final String LIST_DOCUMENTS = "SRS_LIST_DOCUMENTS";
-
+	
 	/** the command for obtaining search forms */
 	public static final String GET_SEARCH_FIELDS = "SRS_GET_SEARCH_FIELDS";
-
+	
+	/** the command for obtaining the timestamp of the last data modification */
+	public static final String GET_LAST_MODIFIED = "SRS_GET_LAST_MODIFIED";
+	
 	
 	/** the command for obtaining statistics on the document collection */
 	public static final String GET_STATISTICS = "SRS_GET_STATISTICS";
@@ -110,33 +112,39 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 	 * details contributed by indexers
 	 */
 	public static final String SEARCH_DOCUMENT_DETAILS = "SRS_SEARCH_DOCUMENT_DETAILS";
-
+	
 	/**
 	 * the command for searching document meta data, the relevance, the ID, the
-	 * title, author, page number, and checkin user, but not the document itself
+	 * title, author, page number, and checkin user, but not the documents proper
 	 */
 	public static final String SEARCH_DOCUMENT_DATA = "SRS_SEARCH_DOCUMENT_DATA";
-
+	
 	/**
 	 * the command for searching document IDs, the relevance and the ID, but not
 	 * the document itself
 	 */
 	public static final String SEARCH_DOCUMENT_IDS = "SRS_SEARCH_DOCUMENT_IDS";
-
+	
 	/** the command for obtaining one specific document in its plain XML form */
 	public static final String GET_XML_DOCUMENT = "SRS_GET_XML_DOCUMENT";
-
+	
+	/** the command for obtaining a version one specific document in its plain XML form */
+	public static final String GET_XML_DOCUMENT_VERSION = "SRS_GET_XML_DOCUMENT_VERSION";
+	
 	/** the command for searching entries of index tables */
 	public static final String SEARCH_INDEX = "SRS_SEARCH_INDEX";
-
+	
 	/** the command for thesaurus-style searching index tables */
 	public static final String SEARCH_THESAURUS = "SRS_SEARCH_THESAURUS";
-
+	
 	/** the query parameter holding specific document IDs */
 	public static final String ID_QUERY_FIELD_NAME = "idQuery";
-
+	
 	/** the query parameter holding specific document UUIDs */
 	public static final String UUID_QUERY_FIELD_NAME = "uuid";
+	
+	/** the query parameter holding a specific version number in conjunction with specific document IDs */
+	public static final String VERSION_QUERY_FIELD_NAME = "version";
 
 	/**
 	 * the query parameter holding the name of the index to obtain results from
@@ -1043,10 +1051,7 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 	 * 
 	 * @author sautter
 	 */
-	public static class SrsDocumentEvent extends GoldenGateServerEvent {
-		
-		public static final int UPDATE_TYPE = 0;
-		public static final int DELETE_TYPE = 1;
+	public static class SrsDocumentEvent extends DataObjectEvent {
 		
 		/**
 		 * An DocumentStorageListener listens for documents being stored, updated and
@@ -1085,10 +1090,8 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 			public abstract void documentDeleted(SrsDocumentEvent dse);
 		}
 		
-		/** The name of the user who caused the event */
-		public final String user;
-		
-		/** The ID of the document affected by the event */
+		/** The ID of the document affected by the event
+		 * @deprecated use dataId instead */
 		public final String documentId;
 		
 		/**
@@ -1103,12 +1106,6 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 		//	==> NO NEED, as EXP doesn't enqueue objects of this class proper, only update events that only store the document ID
 		
 		/**
-		 * The current version number of the document affected by this event, -1
-		 * for deletion events
-		 */
-		public final int version;
-		
-		/**
 		 * Constructor for update events
 		 * @param user the name of the user who caused the event
 		 * @param documentId the ID of the document that was updated
@@ -1116,6 +1113,7 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 		 * @param version the current version number of the document (after the
 		 *            update)
 		 * @param sourceClassName the class name of the component issuing the event
+		 * @param eventTime the timstamp of the event
 		 * @param logger a DocumentStorageLogger to collect log messages while the
 		 *            event is being processed in listeners
 		 */
@@ -1128,6 +1126,7 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 		 * @param user the name of the user who caused the event
 		 * @param documentId the ID of the document that was deleted
 		 * @param sourceClassName the class name of the component issuing the event
+		 * @param eventTime the timstamp of the event
 		 * @param logger a DocumentStorageLogger to collect log messages while the
 		 *            event is being processed in listeners
 		 */
@@ -1136,18 +1135,9 @@ public interface GoldenGateSrsConstants extends GoldenGateServerDocConstants, Li
 		}
 		
 		private SrsDocumentEvent(String user, String documentId, QueriableAnnotation document, int version, String sourceClassName, long eventTime, EventLogger logger, int type) {
-			super(type, sourceClassName, eventTime, (documentId + "-" + eventTime), logger);
-			this.user = user;
+			super(user, documentId, version, type, sourceClassName, eventTime, logger);
 			this.documentId = documentId;
 			this.document = ((document == null) ? null : new ReadOnlyDocument(document, "The document contained in a DocumentStorageEvent cannot be modified."));
-			this.version = version;
-		}
-		
-		/* (non-Javadoc)
-		 * @see de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent#getParameterString()
-		 */
-		public String getParameterString() {
-			return (super.getParameterString() + " " + this.user + " " + this.documentId + " " + this.version);
 		}
 		
 		/**

@@ -10,11 +10,11 @@
  *     * Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of the Universität Karlsruhe (TH) nor the
+ *     * Neither the name of the Universitaet Karlsruhe (TH) nor the
  *       names of its contributors may be used to endorse or promote products
  *       derived from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY UNIVERSITÄT KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
+ * THIS SOFTWARE IS PROVIDED BY UNIVERSITAET KARLSRUHE (TH) / KIT AND CONTRIBUTORS 
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
  * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
@@ -31,13 +31,13 @@ import java.io.IOException;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentListElement;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponent.ComponentActionConsole;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentList;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DocumentListElement;
+import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP.GoldenGateExpBinding;
 import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
@@ -77,10 +77,10 @@ public class GoldenGateDioEXP extends GoldenGateExpBinding {
 			public void documentCheckedOut(DioDocumentEvent dse) {}
 			public void documentReleased(DioDocumentEvent dse) {}
 			public void documentUpdated(DioDocumentEvent dse) {
-				host.documentUpdated(dse.documentId, dse.document, dse.user);
+				host.documentUpdated(dse.dataId, dse.document, dse.user);
 			}
 			public void documentDeleted(DioDocumentEvent dse) {
-				host.documentDeleted(dse.documentId, dse.user);
+				host.documentDeleted(dse.dataId, dse.user);
 			}
 		});
 	}
@@ -101,7 +101,7 @@ public class GoldenGateDioEXP extends GoldenGateExpBinding {
 				else return null;
 			}
 			protected void performAction(String[] arguments) throws Exception {
-				DocumentList docList = dio.getDocumentListFull();
+				DioDocumentList docList = dio.getDocumentListFull();
 				this.enteringMainLoop("Got document list");
 				int count = 0;
 				while (this.continueAction() && docList.hasNextDocument()) {
