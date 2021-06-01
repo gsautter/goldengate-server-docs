@@ -28,15 +28,10 @@
 package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.Reader;
-import java.io.Writer;
-import java.util.Comparator;
 import java.util.Properties;
 
-import de.uka.ipd.idaho.gamta.AnnotationUtils;
-import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSrsConstants;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
 
 /**
@@ -44,7 +39,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
  * 
  * @author sautter
  */
-public abstract class ThesaurusResult extends SrsSearchResult implements GoldenGateSrsConstants {
+public abstract class ThesaurusResult extends CsvResult {
 	
 	/** the annotation type this thesaurus result contains */
 	public final String thesaurusEntryType;
@@ -82,69 +77,12 @@ public abstract class ThesaurusResult extends SrsSearchResult implements GoldenG
 		return this.startTagAttributes;
 	}
 	private Properties startTagAttributes = null;
-
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#getSortOrder()
-	 */
-	public Comparator getSortOrder() {
-		if (this.sortOrder == null)
-			this.sortOrder = new Comparator() {
-				public int compare(Object o1, Object o2) {
-					ThesaurusResultElement tre1 = ((ThesaurusResultElement) o1);
-					ThesaurusResultElement tre2 = ((ThesaurusResultElement) o2);
-					int c = 0;
-					for (int a = 0; a < resultAttributes.length; a++) {
-						String s1 = ((String) tre1.getAttribute(resultAttributes[a], ""));
-						String s2 = ((String) tre2.getAttribute(resultAttributes[a], ""));
-						if ((c = s1.compareTo(s2)) != 0)
-							return c;
-					}
-					return c;
-				}
-			};
-		return this.sortOrder;
-	}
-	private Comparator sortOrder;
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#writeElement(java.io.Writer, de.uka.ipd.idaho.goldenGateServer.srs.data.ResultElement)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.CsvResult#newResultElement()
 	 */
-	public void writeElement(Writer out, SrsSearchResultElement element) throws IOException {
-		
-		//	produce writer
-		BufferedWriter buf = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
-		
-		//	write element
-		buf.write("  <" + RESULT_NODE_NAME);
-		for (int a = 0; a < this.resultAttributes.length; a++) {
-			String thesaurusFieldValue = ((String) element.getAttribute(this.resultAttributes[a]));
-			if ((thesaurusFieldValue != null) && (thesaurusFieldValue.length() != 0))
-				buf.write(" " + this.resultAttributes[a] + "=\"" + AnnotationUtils.escapeForXml(thesaurusFieldValue, true) + "\"");
-		}
-		buf.write("/>");
-		buf.newLine();
-		
-		//	flush Writer if it was wrapped
-		if (buf != out)
-			buf.flush();
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#readElement(java.lang.String[])
-	 */
-	public SrsSearchResultElement readElement(String[] tokens) throws IOException {
-		TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(tokens[0], grammar);
-		String[] attributeNames = tnas.getAttributeNames();
-		ThesaurusResultElement tre = null;
-		for (int a = 0; a < attributeNames.length; a++) {
-			String attributeValue = tnas.getAttribute(attributeNames[a]);
-			if (attributeValue != null) {
-				if (tre == null)
-					tre = new ThesaurusResultElement();
-				tre.setAttribute(attributeNames[a], attributeValue);
-			}
-		}
-		return tre;
+	protected CsvResultElement newResultElement() {
+		return new ThesaurusResultElement();
 	}
 	
 	/**
@@ -167,9 +105,10 @@ public abstract class ThesaurusResult extends SrsSearchResult implements GoldenG
 		ThesaurusResultBuilder(Reader in) throws IOException {
 			super(in);
 		}
-		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
-			String thesaurusName = attributes.getProperty(RESULT_INDEX_NAME_ATTRIBUTE);
-			String thesaurusLabel = attributes.getProperty(RESULT_INDEX_LABEL_ATTRIBUTE);
+//		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+		SrsSearchResult buildResult(String[] resultAttributes, TreeNodeAttributeSet attributes) {
+			String thesaurusName = attributes.getAttribute(RESULT_INDEX_NAME_ATTRIBUTE);
+			String thesaurusLabel = attributes.getAttribute(RESULT_INDEX_LABEL_ATTRIBUTE);
 			return new ThesaurusResult(resultAttributes, thesaurusName, thesaurusLabel) {
 				public boolean hasNextElement() {
 					return ThesaurusResultBuilder.this.hasNextElement();

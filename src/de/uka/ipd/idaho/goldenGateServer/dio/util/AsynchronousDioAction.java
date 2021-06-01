@@ -90,7 +90,7 @@ public abstract class AsynchronousDioAction extends AsynchronousConsoleAction im
 			try {
 				
 				//	do sub class specific update
-				update(docData);
+				update(docData, arguments);
 				
 				//	done
 				this.log("    - document '" + docName + "' (" + (d+1) + " of " + dlb.size() + ") done");
@@ -104,12 +104,20 @@ public abstract class AsynchronousDioAction extends AsynchronousConsoleAction im
 		}
 	}
 	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction#getActionName()
+	 */
+	protected String getActionName() {
+		return (this.dio.getLetterCode() + "." + super.getActionName());
+	}
+	
 	/**
 	 * Do the actual (sub class specific) update work.
 	 * @param docData the current document's meta data
+	 * @param arguments the arguments specified when starting the asynchronous action
 	 * @throws IOException
 	 */
-	protected abstract void update(StringTupel docData) throws IOException;
+	protected abstract void update(StringTupel docData, String[] arguments) throws IOException;
 	
 	/**
 	 * Retrieve an actual document from the wrapped GoldenGATE DIO.

@@ -31,6 +31,7 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -44,7 +45,6 @@ import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
 import de.uka.ipd.idaho.htmlXmlUtil.grammars.Grammar;
 import de.uka.ipd.idaho.htmlXmlUtil.grammars.StandardGrammar;
-import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
  * Common root class for all results of SRS search queries.
@@ -53,10 +53,7 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  */
 public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 	
-	/**
-	 * the attribute names for the result, in the order the attribute values
-	 * should be displayed
-	 */
+	/** the attribute names for the result, in the order the attribute values should be displayed */
 	public final String[] resultAttributes;
 
 	/**
@@ -212,8 +209,6 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 	 * @throws IOException
 	 */
 	public void writeXml(Writer out) throws IOException {
-		
-		//	produce writer
 		BufferedWriter buf = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 		
 		//	result with elements
@@ -234,7 +229,7 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 			buf.newLine();
 		}
 		
-		//	flush Writer if it was wrapped
+		//	flush Writer if wrapped here
 		if (buf != out)
 			buf.flush();
 	}
@@ -255,43 +250,26 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 	 * 
 	 * @author sautter
 	 */
-	protected static abstract class ResultBuilder extends TokenReceiver {
-		
+	static abstract class ResultBuilder extends TokenReceiver {
 		private Reader in;
-//		private char[] buffer = new char[1024];
-//		private PipedWriter toParser = new PipedWriter();
-//		private Thread parserThread;
 		private ParserInstance pi;
-		
-		private IOException exception = null;
 		
 		private SrsSearchResult result;
 		private LinkedList elementBuffer = new LinkedList();
-		private StringVector elementDataBuffer = new StringVector();
+		private ArrayList elementDataBuffer = new ArrayList();
 		
 		private LinkedList elementDataStack = new LinkedList();
-		private boolean inResult = false;
+		private boolean inResults = false;
 		
-		/**
-		 * Constructor
-		 * @param in the Reader to read from
-		 * @throws IOException
-		 */
-		public ResultBuilder(Reader in) throws IOException {
+		ResultBuilder(Reader in) throws IOException {
 			this.in = in;
-			this.pi = parser.getInstance(in, this);
+			this.pi = parser.getInstance(this.in, this);
 		}
 		
-		/* (non-Javadoc)
-		 * @see java.lang.Object#finalize()
-		 */
 		protected void finalize() throws Throwable {
-			
-			/*
-			 * if data has not been read completely before result object is
+			/* if data has not been read completely before result object is
 			 * abandoned (i.e., becomes eligible for garbage collection), source
-			 * reader is still open, occupying system resources ==> close it.
-			 */
+			 * reader is still open, occupying system resources ==> close it. */
 			if (this.in != null)
 				this.in.close();
 		}
@@ -310,15 +288,10 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 		 *            result start tag
 		 * @return a specific result wrapping the specified generic result
 		 */
-		protected abstract SrsSearchResult buildResult(String[] resultAttributes, Properties attributes);
+//		abstract SrsSearchResult buildResult(String[] resultAttributes, Properties attributes);
+		abstract SrsSearchResult buildResult(String[] resultAttributes, TreeNodeAttributeSet attributes);
 		
-		/**
-		 * @return the result created from the XML data
-		 */
-		protected SrsSearchResult getResult() throws IOException {
-			if (this.exception != null)
-				throw this.exception;
-			
+		SrsSearchResult getResult() throws IOException {
 			while (this.result == null) {
 				if (this.pi.hasMoreTokens())
 					this.pi.consumeToken();
@@ -328,34 +301,19 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 					return this.result;
 				}
 			}
-			
 			return this.result;
 		}
 		
-		/* (non-Javadoc)
-		 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#hasNextElement()
-		 */
-		public boolean hasNextElement() {
-			if (this.exception != null)
-				throw new RuntimeException("Exception retrieving next element.", this.exception);
-			
+		boolean hasNextElement() {
 			this.fillElementBuffer();
-			return !this.isElementBufferEmpty();
+			return (this.elementBuffer.size() != 0);
 		}
-		
-		/* (non-Javadoc)
-		 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#getNextElement()
-		 */
-		public final SrsSearchResultElement getNextElement() {
-			if (this.exception != null)
-				throw new RuntimeException("Exception retrieving next element.", this.exception);
-			
+		final SrsSearchResultElement getNextElement() {
 			this.fillElementBuffer();
-			return this.getFromElementBuffer();
+			return (this.elementBuffer.isEmpty() ? null : ((SrsSearchResultElement) this.elementBuffer.removeFirst()));
 		}
-		
 		private void fillElementBuffer() {
-			while (this.isElementBufferEmpty()) try {
+			while (this.elementBuffer.isEmpty()) try {
 				if (!this.pi.consumeToken()) {
 					if (this.in != null)
 						this.in.close();
@@ -364,127 +322,73 @@ public abstract class SrsSearchResult implements GoldenGateSrsConstants {
 				}
 			}
 			catch (IOException ioe) {
-				this.exception = ioe;
 				throw new RuntimeException("Exception retrieving next element.", ioe);
 			}
 		}
 		
-		private boolean isElementBufferEmpty() {
-			synchronized(this.elementBuffer) {
-				return this.elementBuffer.isEmpty();
-			}
-		}
-		private void addToElementBuffer(SrsSearchResultElement re) {
-			synchronized(this.elementBuffer) {
-				if (re != null)
-					this.elementBuffer.addLast(re);
-			}
-		}
-		private SrsSearchResultElement getFromElementBuffer() {
-			synchronized(this.elementBuffer) {
-				return (this.elementBuffer.isEmpty() ? null : ((SrsSearchResultElement) this.elementBuffer.removeFirst()));
-			}
-		}
-		
-		/* (non-Javadoc)
-		 * @see de.htmlXmlUtil.TokenReceiver#close()
-		 */
 		public void close() throws IOException {
 			//	nothing to close, shutdown occurs automatically at end of backing data stream
 		}
-		
-		//	TODO use stack (as in Open String Pool) to catch 'results' nodes in data
-		
-		/* (non-Javadoc)
-		 * @see de.htmlXmlUtil.TokenReceiver#storeToken(java.lang.String, int)
-		 */
 		public void storeToken(String token, int treeDepth) throws IOException {
 //			System.out.println("ResultBuilder: received token '" + token + "'");
 //			System.out.print(token);
-			
-			//	markup token
 			if (grammar.isTag(token)) {
 				String type = grammar.getType(token);
-				
-				//	main result
 				if (RESULTS_NODE_NAME.equals(type)) {
-					
-					//	end of main result
 					if (grammar.isEndTag(token))
-						this.inResult = false;
-					
-					//	start of main result
-					else {
+						this.inResults = false;
+					else /* start of main result */ {
 						TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
-						
-						StringVector resultAttributes = new StringVector();
-						resultAttributes.parseAndAddElements(tnas.getAttribute(RESULT_INDEX_FIELDS_ATTRIBUTE, ""), " ");
-						resultAttributes.removeAll("");
-						
-						String[] attributeNames = tnas.getAttributeNames();
-						Properties attributes = new Properties();
-						for (int a = 0; a < attributeNames.length; a++) {
-							if (!RESULT_INDEX_FIELDS_ATTRIBUTE.equals(attributeNames[a]))
-								attributes.setProperty(attributeNames[a], tnas.getAttribute(attributeNames[a]));
-						}
-						this.result = this.buildResult(resultAttributes.toStringArray(), attributes);
-						this.inResult = true;
+						String resultAttributeString = tnas.getAttribute(RESULT_INDEX_FIELDS_ATTRIBUTE, "").trim();
+						String[] resultAttributes = resultAttributeString.split("\\s+");
+//						String[] attributeNames = tnas.getAttributeNames();
+//						Properties attributes = new Properties();
+//						for (int a = 0; a < attributeNames.length; a++) {
+//							if (!RESULT_INDEX_FIELDS_ATTRIBUTE.equals(attributeNames[a]))
+//								attributes.setProperty(attributeNames[a], tnas.getAttribute(attributeNames[a]));
+//						}
+//						this.result = this.buildResult(resultAttributes, attributes);
+						tnas.removeAttribute(RESULT_INDEX_FIELDS_ATTRIBUTE);
+						this.result = this.buildResult(resultAttributes, tnas);
+						this.inResults = true;
 					}
 				}
-				
-				//	we're inside the main root tag
-				else if (this.inResult) {
-					
-					//	empty element
+				else if (this.inResults) {
 					if (grammar.isSingularTag(token)) {
-						
-						//	store data
-						this.elementDataBuffer.addElement(token);
-						
-						//	stack is empty, no result element open ==> empty result element data, produce element
-						if (this.elementDataStack.isEmpty()) {
-							this.addToElementBuffer(this.result.readElement(this.elementDataBuffer.toStringArray()));
-							this.elementDataBuffer.clear();
-//							System.out.println("  ==> stored next element");
+						this.elementDataBuffer.add(token);
+						if (this.elementDataStack.isEmpty()) /* no result element open ==> empty result element data */ {
+							this.consumeElementData();
+//							this.addToElementBuffer(this.result.readElement((String[]) this.elementDataBuffer.toArray(new String[this.elementDataBuffer.size()])));
+//							this.elementDataBuffer.clear();
 						}
 					}
-					
-					//	end tag
 					else if (grammar.isEndTag(token)) {
-						
-						//	store data
-						this.elementDataBuffer.addElement(token);
-						
-						//	pop one open element from stack (if any)
-						if (!this.elementDataStack.isEmpty())
+						this.elementDataBuffer.add(token);
+						if (this.elementDataStack.size() != 0)
 							this.elementDataStack.removeLast();
-						
-						//	stack is empty, result element closed ==> end of result element data, produce element
-						if (this.elementDataStack.isEmpty()) {
-							this.addToElementBuffer(this.result.readElement(this.elementDataBuffer.toStringArray()));
-							this.elementDataBuffer.clear();
-//							System.out.println("  ==> stored next element");
+						if (this.elementDataStack.isEmpty()) /* result element closed ==> end of result element data */ {
+							this.consumeElementData();
+//							this.addToElementBuffer(this.result.readElement((String[]) this.elementDataBuffer.toArray(new String[this.elementDataBuffer.size()])));
+//							this.elementDataBuffer.clear();
 						}
 					}
-					
-					//	start tag
 					else {
-						
-						//	store data
-						this.elementDataBuffer.addElement(token);
-						
-						//	put on stack in order to allow for tracking end of result elements
-						this.elementDataStack.addLast(type);
+						this.elementDataBuffer.add(token);
+						this.elementDataStack.addLast(type); // stack allows tracking end of result elements
 					}
 				}
 			}
-			
-			//	text data, store if some result element open
-			else if (this.elementDataStack.size() != 0) {
+			else if (this.elementDataStack.size() != 0) /* store text data only if some result element open */ {
 				String value = token.replaceAll("[\\r\\n]", "");
 				if (value.length() != 0)
-					this.elementDataBuffer.addElement(value);
+					this.elementDataBuffer.add(value);
 			}
+		}
+		private void consumeElementData() throws IOException {
+			SrsSearchResultElement sre = this.result.readElement((String[]) this.elementDataBuffer.toArray(new String[this.elementDataBuffer.size()]));
+			if (sre != null)
+				this.elementBuffer.add(sre);
+			this.elementDataBuffer.clear();
 		}
 	}
 	

@@ -46,14 +46,17 @@ import de.uka.ipd.idaho.easyIO.sql.TableColumnDefinition;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.easyIO.util.HashUtils.MD5;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
+import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML.DocumentReader;
+import de.uka.ipd.idaho.gamta.util.ProgressMonitor;
 import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousDataActionHandler;
-import de.uka.ipd.idaho.goldenGateServer.util.SlaveInstallerUtils;
-import de.uka.ipd.idaho.stringUtils.StringVector;
+import de.uka.ipd.idaho.goldenGateServer.util.masterSlave.SlaveInstallerUtils;
+import de.uka.ipd.idaho.goldenGateServer.util.masterSlave.SlaveJob;
+import de.uka.ipd.idaho.goldenGateServer.util.masterSlave.SlaveProcessInterface;
 
 /**
  * GoldenGATE Processor provides automated processing of XML documents stored
@@ -62,15 +65,26 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * @author sautter
  */
 public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
-	
 	private GoldenGateDIO dio;
 	
 	private String updateUserName;
 	private int maxSlaveMemory;
 	
 	private File workingFolder;
+	private File logFolder;
 	private File cacheFolder;
 	private AsynchronousDataActionHandler documentProcessor;
+	
+	private Process batchRun = null;
+	private DprSlaveProcessInterface batchInterface = null;
+	private String processingDocId = null;
+	private long processingStart = -1;
+	private String processorName = null;
+	private long processorStart = -1;
+	private String processingStep = null;
+	private long processingStepStart = -1;
+	private String processingInfo = null;
+	private long processingInfoStart = -1;
 	
 	private String ggConfigHost;
 	private String ggConfigName;
@@ -101,6 +115,13 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		this.workingFolder = (((workingFolderName.indexOf(":\\") == -1) && (workingFolderName.indexOf(":/") == -1) && !workingFolderName.startsWith("/")) ? new File(this.dataPath, workingFolderName) : new File(workingFolderName));
 		this.workingFolder.mkdirs();
 		
+		//	get log folder
+		String logFolderName = this.configuration.getSetting("logFolderName", "Logs");
+		while (logFolderName.startsWith("./"))
+			logFolderName = logFolderName.substring("./".length());
+		this.logFolder = (((logFolderName.indexOf(":\\") == -1) && (logFolderName.indexOf(":/") == -1) && !logFolderName.startsWith("/")) ? new File(this.workingFolder, logFolderName) : new File(logFolderName));
+		this.logFolder.mkdirs();
+		
 		//	get document transfer cache folder (RAM disc !!!)
 		String cacheFolderName = this.configuration.getSetting("cacheFolderName", "Cache");
 		while (cacheFolderName.startsWith("./"))
@@ -116,10 +137,16 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		SlaveInstallerUtils.installSlaveJar("GgServerDprSlave.jar", this.dataPath, this.workingFolder, true);
 		
 		//	create asynchronous worker
-		TableColumnDefinition[] argCols = {new TableColumnDefinition("DpName", TableDefinition.VARCHAR_DATATYPE, 128)};
+		TableColumnDefinition[] argCols = {
+			new TableColumnDefinition("DpName", TableDefinition.VARCHAR_DATATYPE, 128),
+			new TableColumnDefinition("UserName", TableDefinition.VARCHAR_DATATYPE, 32),
+		};
 		this.documentProcessor = new AsynchronousDataActionHandler("Dpr", argCols, this, this.host.getIoProvider()) {
 			protected void performDataAction(String dataId, String[] arguments) throws Exception {
-				processDocument(dataId, arguments[0]);
+//				processDocument(dataId, arguments[0]);
+				String dpName = ((arguments[0].length() == 0) ? null : arguments[0]);
+				String userName = (((arguments.length < 2) || (arguments[1].length() == 0)) ? null : arguments[1]);
+				processDocument(dataId, dpName, userName);
 			}
 		};
 		
@@ -159,9 +186,14 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	}
 	
 	private static final String PROCESS_DOCUMENT_COMMAND = "process";
+	private static final String PROCESS_STATUS_COMMAND = "procStatus";
+	private static final String PROCESS_THREADS_COMMAND = "procThreads";
+	private static final String PROCESS_THREAD_GROUPS_COMMAND = "procThreadGroups";
+	private static final String PROCESS_STACK_COMMAND = "procStack";
+	private static final String PROCESS_WAKE_COMMAND = "procWake";
+	private static final String PROCESS_KILL_COMMAND = "procKill";
 	private static final String LIST_PROCESSORS_COMMAND = "processors";
 	private static final String QUEUE_SIZE_COMMAND = "queueSize";
-	//	TODO add same status indicators as in IMP
 	
 	/*
 	 * (non-Javadoc)
@@ -171,6 +203,15 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		ArrayList cal = new ArrayList(Arrays.asList(this.documentProcessor.getActions()));
 		ComponentAction ca;
 		
+		//	sort out generic scheduling actions (we need to validate and adjust parameters)
+		for (int a = 0; a < cal.size(); a++) {
+			ca = ((ComponentAction) cal.get(a));
+			if ("scheduleAction".equals(ca.getActionCommand()))
+				cal.remove(a--);
+			else if ("enqueueAction".equals(ca.getActionCommand()))
+				cal.remove(a--);
+		}
+		
 		//	schedule processing a document
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
@@ -178,18 +219,196 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 			}
 			public String[] getExplanation() {
 				String[] explanation = {
-						PROCESS_DOCUMENT_COMMAND + " <documentId> <processorName>",
+						PROCESS_DOCUMENT_COMMAND + " <documentId> <processorName> <userName>",
 						"Schedule a document for processing:",
 						"- <documentId>: The ID of the document to process",
-						"- <processorName>: The name of the document processor to use"
+						"- <processorName>: The name of the document processor to use",
+						"- <userName>: The name of the user to attribute processing to (optional)"
 					};
-				//	TODO add (to-credit) user name as optional third argument ???
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length == 2)
-					scheduleProcessing(arguments[0], arguments[1]);
+					scheduleProcessing(arguments[0], arguments[1], null);
+				else if (arguments.length == 3)
+					scheduleProcessing(arguments[0], arguments[1], arguments[2]);
 				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID and processor name as the only arguments.");
+			}
+		};
+		cal.add(ca);
+		
+		//	check processing status of a document
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return PROCESS_STATUS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						PROCESS_STATUS_COMMAND,
+						"Show the status of a document that is processing"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				if (processingStart == -1) {
+					this.reportResult("There is no document processing at the moment");
+					return;
+				}
+				//	TODO list status of all running slaves
+				//	TODO include slave IDs
+				//	TODO list more detailed status of individual slave if ID specified
+				long time = System.currentTimeMillis();
+				this.reportResult("Processing document " + processingDocId + " (started " + (time - processingStart) + "ms ago)");
+				this.reportResult(" - current processor is " + processorName + " (since " + (time - processorStart) + "ms)");
+				this.reportResult(" - current step is " + processingStep + " (since " + (time - processingStepStart) + "ms)");
+				this.reportResult(" - current info is " + processingInfo + " (since " + (time - processingInfoStart) + "ms)");
+			}
+		};
+		cal.add(ca);
+		
+		//	list the threads of a batch processing a document
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return PROCESS_THREADS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						PROCESS_THREADS_COMMAND,
+						"Show the threads of the batch processing a document"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				if (processingStart == -1) {
+					this.reportResult("There is no document processing at the moment");
+					return;
+				}
+				batchInterface.setReportTo(this);
+				batchInterface.listThreads();
+				batchInterface.setReportTo(null);
+			}
+		};
+		cal.add(ca);
+		
+		//	list the thread groups of a batch processing a document
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return PROCESS_THREAD_GROUPS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						PROCESS_THREAD_GROUPS_COMMAND,
+						"Show the thread groups of the batch processing a document"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				if (processingStart == -1) {
+					this.reportResult("There is no document processing at the moment");
+					return;
+				}
+				batchInterface.setReportTo(this);
+				batchInterface.listThreadGroups();
+				batchInterface.setReportTo(null);
+			}
+		};
+		cal.add(ca);
+		
+		//	check the stack of a batch processing a document
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return PROCESS_STACK_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						PROCESS_STACK_COMMAND + " <threadName>",
+						"Show the stack trace of the batch processing a document:",
+						"- <threadName>: The name of the thread whose stack to show (optional, omitting targets main thread)"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length > 1) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify at most the name of the target thread.");
+					return;
+				}
+				if (processingStart == -1) {
+					this.reportResult("There is no document processing at the moment");
+					return;
+				}
+				batchInterface.setReportTo(this);
+				batchInterface.printThreadStack((arguments.length == 0) ? null : arguments[0]);
+				batchInterface.setReportTo(null);
+			}
+		};
+		cal.add(ca);
+		
+		//	wake a batch processing a document, or a thread therein
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return PROCESS_WAKE_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						PROCESS_WAKE_COMMAND + " <threadName>",
+						"Wake the batch processing a document, or a thread therein:",
+						"- <threadName>: The name of the thread to wake (optional, omitting targets main thread)"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length > 1) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				if (processingStart == -1) {
+					this.reportResult("There is no document processing at the moment");
+					return;
+				}
+				batchInterface.setReportTo(this);
+				batchInterface.wakeThread((arguments.length == 0) ? null : arguments[0]);
+				batchInterface.setReportTo(null);
+			}
+		};
+		cal.add(ca);
+		
+		//	kill a batch processing a document, or a thread therein
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return PROCESS_KILL_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						PROCESS_KILL_COMMAND + " <threadName>",
+						"Kill the batch processing a document, or a thread therein:",
+						"- <threadName>: The name of the thread to kill (optional, omitting targets main thread)"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length > 1) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				if (processingStart == -1) {
+					this.reportResult("There is no document processing at the moment");
+					return;
+				}
+				batchInterface.setReportTo(this);
+				batchInterface.killThread((arguments.length == 0) ? null : arguments[0]);
+				batchInterface.setReportTo(null);
 			}
 		};
 		cal.add(ca);
@@ -272,65 +491,56 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 			if (managersOnly)
 				continue;
 			for (int p = 1; p < this.docProcessorList[m].length; p++)
-				cac.reportResult(this.docProcessorList[m][p]);
+				cac.reportResult(" - " + this.docProcessorList[m][p]);
 		}
 	}
 	
 	private String[][] loadDocumentProcessorList(final ComponentActionConsole cac) throws IOException {
 		cac.reportResult("Loading document processor list ...");
 		
-		//	assemble command
-		StringVector command = new StringVector();
-		command.addElement("java");
-		command.addElement("-jar");
-		command.addElement("-Xmx1024m");
-		command.addElement("GgServerDprSlave.jar");
-		
-		//	add parameters
-		if (this.ggConfigHost != null)
-			command.addElement("CONFHOST=" + this.ggConfigHost); // config host (if any)
-		command.addElement("CONFNAME=" + this.ggConfigName); // config name
-		command.addElement("DPNAME=" + "LISTDPS"); // constant returning list
-		command.addElement("SINGLECORE"); // run on single CPU core only (we don't want to knock out the whole server, do we?)
+		//	assemble slave job
+		DprSlaveJob dsj = new DprSlaveJob(Gamta.getAnnotationID(), null); // TODO use persistent UUID
+		dsj.setMaxMemory(1024);
 		
 		//	start batch processor slave process
-		Process processing = Runtime.getRuntime().exec(command.toStringArray(), new String[0], this.workingFolder);
-		
-		//	loop through error messages
-		final BufferedReader processorError = new BufferedReader(new InputStreamReader(processing.getErrorStream()));
-		new Thread() {
-			public void run() {
-				try {
-					for (String errorLine; (errorLine = processorError.readLine()) != null;)
-						cac.reportError(errorLine);
-				}
-				catch (Exception e) {
-					cac.reportError(e);
-				}
-			}
-		}.start();
+		Process dpLister = Runtime.getRuntime().exec(dsj.getCommand(null), new String[0], this.workingFolder);
 		
 		//	collect document processor listing
-		ArrayList docProcessorManagerList = new ArrayList();
-		ArrayList docProcessorList = new ArrayList();
-		BufferedReader processorIn = new BufferedReader(new InputStreamReader(processing.getInputStream()));
-		for (String inLine; (inLine = processorIn.readLine()) != null;) {
-			if (inLine.startsWith("DPM:")) {
-				if (docProcessorList.size() != 0)
-					docProcessorManagerList.add(docProcessorList.toArray(new String[docProcessorList.size()]));
-				docProcessorList.clear();
-				docProcessorList.add(inLine.substring("DPM:".length()));
+		final ArrayList docProcessorManagerList = new ArrayList();
+		SlaveProcessInterface spi = new SlaveProcessInterface(dpLister, ("DprBatch" + "ListDocProcessors")) {
+			private ArrayList docProcessorList = new ArrayList();
+			protected void handleInput(String input) {
+				if (input.startsWith("DPM:")) {
+					this.finalizeDocProcessorManager();
+					this.docProcessorList.add(input.substring("DPM:".length()));
+				}
+				else if (input.startsWith("DP:"))
+					this.docProcessorList.add(input.substring("DP:".length()));
+				else cac.reportResult(input);
 			}
-			else if (inLine.startsWith("DP:"))
-				docProcessorList.add(inLine.substring("DP:".length()));
-			else cac.reportResult(inLine);
-		}
-		if (docProcessorList.size() != 0)
-			docProcessorManagerList.add(docProcessorList.toArray(new String[docProcessorList.size()]));
+			protected void handleResult(String result) {
+				cac.reportResult(result);
+			}
+			protected void finalizeSystemOut() {
+				this.finalizeDocProcessorManager();
+			}
+			protected void handleError(String error) {
+				cac.reportError(error);;
+			}
+			protected void finalizeSystemErr() {
+				this.finalizeDocProcessorManager();
+			}
+			private synchronized void finalizeDocProcessorManager() {
+				if (this.docProcessorList.size() != 0)
+					docProcessorManagerList.add(this.docProcessorList.toArray(new String[this.docProcessorList.size()]));
+				this.docProcessorList.clear();
+			}
+		};
+		spi.start();
 		
 		//	wait for processing to finish
 		while (true) try {
-			processing.waitFor();
+			dpLister.waitFor();
 			break;
 		} catch (InterruptedException ie) {}
 		
@@ -338,18 +548,49 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		return ((String[][]) docProcessorManagerList.toArray(new String[docProcessorManagerList.size()][]));
 	}
 	
-	private void scheduleProcessing(String docId, String prName) {
-		String[] args = {prName};
+	private void scheduleProcessing(String docId, String dpName, String userName) {
+		String[] args = {
+			dpName,
+			((userName == null) ? "" : userName)
+		};
 		this.documentProcessor.enqueueDataAction(docId, args);
 	}
 	
-	private void processDocument(String docId, String processorName) throws IOException {
+//	private void processDocument(String docId, String processorName) throws IOException {
+	private void processDocument(String docId, String processorName, String userName) throws IOException {
 		
-		//	check out document as stream
-		DocumentReader docIn = this.dio.checkoutDocumentAsStream(this.updateUserName, docId);
+		//	check out document as data, process it, and clean up
+		DocumentReader docIn = null;
+		try {
+			this.processingDocId = docId;
+			this.processingStart = System.currentTimeMillis();
+			docIn = this.dio.checkoutDocumentAsStream(this.updateUserName, docId);
+			this.processDocument(docId, docIn, processorName, userName);
+		}
+		catch (IOException ioe) {
+			this.dio.releaseDocument(this.updateUserName, docId); // need to release here in case respective code not reached in processing
+			throw ioe;
+		}
+		finally {
+			this.batchRun = null;
+			this.batchInterface = null;
+			this.processingDocId = null;
+			this.processingStart = -1;
+			this.processorName = null;
+			this.processorStart = -1;
+			this.processingStep = null;
+			this.processingStepStart = -1;
+			this.processingInfo = null;
+			this.processingInfoStart = -1;
+		}
+	}
+	
+//	private void processDocument(String docId, DocumentReader docIn, String processorName) throws IOException {
+	private void processDocument(String docId, DocumentReader docIn, String processorName, String userName) throws IOException {
 		
-		//	preserve original update user TODO observe argument to-credit user
-		String docUpdateUser = ((String) docIn.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE, this.updateUserName));
+		//	preserve original update user (unless user name explicitly specified)
+//		String docUpdateUser = ((String) docIn.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE, this.updateUserName));
+		String docUpdateUser = ((userName == null) ? ((String) docIn.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE, this.updateUserName)) : userName);
 		
 		//	create document cache file
 		File cacheFile = new File(this.cacheFolder, ("cache-" + docId + ".gamta.xml"));
@@ -365,54 +606,35 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		docIn.close();
 		String docHash = docHashOut.getDataHash();
 		
-		//	assemble command
-		StringVector command = new StringVector();
-		command.addElement("java");
-		command.addElement("-jar");
-		if (this.maxSlaveMemory > 512)
-			command.addElement("-Xmx" + this.maxSlaveMemory + "m");
-		command.addElement("GgServerDprSlave.jar");
-		
-		//	add parameters
-		command.addElement("DATA=" + cacheFile.getAbsolutePath()); // cache folder
-		if (this.ggConfigHost != null)
-			command.addElement("CONFHOST=" + this.ggConfigHost); // config host (if any)
-		command.addElement("CONFNAME=" + this.ggConfigName); // config name
-		command.addElement("DPNAME=" + processorName); // document processor to run
-		command.addElement("SINGLECORE"); // run on single CPU core only (we don't want to knock out the whole server, do we?)
+		//	start batch processor slave process
+		DprSlaveJob dsj = new DprSlaveJob(Gamta.getAnnotationID(), processorName); // TODO use persistent UUID
+		dsj.setDataPath(cacheFile.getAbsolutePath());
 		
 		//	start batch processor slave process
-		Process processing = Runtime.getRuntime().exec(command.toStringArray(), new String[0], this.workingFolder);
+		this.batchRun = Runtime.getRuntime().exec(dsj.getCommand(null), new String[0], this.workingFolder);
 		
-		//	loop through error messages
-		final BufferedReader processorError = new BufferedReader(new InputStreamReader(processing.getErrorStream()));
-		new Thread() {
-			public void run() {
-				try {
-					for (String errorLine; (errorLine = processorError.readLine()) != null;)
-						logError(errorLine);
-				}
-				catch (Exception e) {
-					logError(e);
-				}
+		//	get output channel
+		this.batchInterface = new DprSlaveProcessInterface(this.batchRun, ("DprBatch" + docId));
+		this.batchInterface.setProgressMonitor(new ProgressMonitor() {
+			public void setStep(String step) {
+				logInfo(step);
+				processingStep = step;
+				processingStepStart = System.currentTimeMillis();
 			}
-		}.start();
+			public void setInfo(String info) {
+				logDebug(info);
+				processingInfo = info;
+				processingInfoStart = System.currentTimeMillis();
+			}
+			public void setBaseProgress(int baseProgress) {}
+			public void setMaxProgress(int maxProgress) {}
+			public void setProgress(int progress) {}
+		});
+		this.batchInterface.start();
 		
-		//	loop through step information only
-		BufferedReader processorIn = new BufferedReader(new InputStreamReader(processing.getInputStream()));
-		for (String inLine; (inLine = processorIn.readLine()) != null;) {
-			if (inLine.startsWith("S:"))
-				logInfo(inLine.substring("S:".length()));
-			else if (inLine.startsWith("I:")) {}
-			else if (inLine.startsWith("P:")) {}
-			else if (inLine.startsWith("BP:")) {}
-			else if (inLine.startsWith("MP:")) {}
-			else logInfo(inLine);
-		}
-		
-		//	wait for processing to finish
+		//	wait for batch process to finish
 		while (true) try {
-			processing.waitFor();
+			this.batchRun.waitFor();
 			break;
 		} catch (InterruptedException ie) {}
 		
@@ -438,32 +660,26 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	}
 	
 	private static class DataHashInputStream extends FilterInputStream {
-//		private MessageDigest dataHasher = getDataHasher();
 		private MD5 dataHasher = new MD5();
 		private String dataHash = null;
-		
 		DataHashInputStream(InputStream in) {
 			super(in);
 		}
-		
 		public int read() throws IOException {
 			int r = super.read();
 			if (r != -1)
 				this.dataHasher.update((byte) r);
 			return r;
 		}
-
 		public int read(byte[] b) throws IOException {
 			return this.read(b, 0, b.length);
 		}
-
 		public int read(byte[] b, int off, int len) throws IOException {
 			int r = super.read(b, off, len);
 			if (r != -1)
 				this.dataHasher.update(b, off, r);
 			return r;
 		}
-		
 		public void close() throws IOException {
 			super.close();
 			
@@ -472,42 +688,33 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 				return;
 			
 			//	finalize hash and rename file
-//			this.dataHash = new String(RandomByteSource.getHexCode(this.dataHasher.digest()));
 			this.dataHash = this.dataHasher.digestHex();
 			
 			//	return digester to instance pool
-//			returnDataHash(this.dataHasher);
 			this.dataHasher = null;
 		}
-		
 		String getDataHash() {
 			return this.dataHash;
 		}
 	}
 	
 	private static class DataHashOutputStream extends FilterOutputStream {
-//		private MessageDigest dataHasher = getDataHasher();
 		private MD5 dataHasher = new MD5();
 		private String dataHash = null;
-		
 		DataHashOutputStream(OutputStream out) {
 			super(out);
 		}
-		
 		public void write(int b) throws IOException {
 			this.out.write(b);
 			this.dataHasher.update((byte) b);
 		}
-		
 		public void write(byte[] b) throws IOException {
 			this.write(b, 0, b.length);
 		}
-		
 		public synchronized void write(byte[] b, int off, int len) throws IOException {
 			this.out.write(b, off, len);
 			this.dataHasher.update(b, off, len);
 		}
-		
 		public void close() throws IOException {
 			super.close();
 			
@@ -516,38 +723,58 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 				return;
 			
 			//	finalize hash and rename file
-//			this.dataHash = new String(RandomByteSource.getHexCode(this.dataHasher.digest()));
 			this.dataHash = this.dataHasher.digestHex();
 			
 			//	return digester to instance pool
-//			returnDataHash(this.dataHasher);
 			this.dataHasher = null;
 		}
-		
 		String getDataHash() {
 			return this.dataHash;
 		}
 	}
-//	
-//	private static LinkedList dataHashPool = new LinkedList();
-//	private static synchronized MessageDigest getDataHasher() {
-//		if (dataHashPool.size() != 0) {
-//			MessageDigest dataHash = ((MessageDigest) dataHashPool.removeFirst());
-//			dataHash.reset();
-//			return dataHash;
-//		}
-//		try {
-//			MessageDigest dataHash = MessageDigest.getInstance("MD5");
-//			dataHash.reset();
-//			return dataHash;
-//		}
-//		catch (NoSuchAlgorithmException nsae) {
-//			System.out.println(nsae.getClass().getName() + " (" + nsae.getMessage() + ") while creating checksum digester.");
-//			nsae.printStackTrace(System.out); // should not happen, but Java don't know ...
-//			return null;
-//		}
-//	}
-//	private static synchronized void returnDataHash(MessageDigest dataHash) {
-//		dataHashPool.addLast(dataHash);
-//	}
+	
+	private class DprSlaveJob extends SlaveJob {
+		DprSlaveJob(String slaveJobId, String processorName) {
+			super(slaveJobId, "GgServerDprSlave.jar");
+			if (maxSlaveMemory > 512)
+				this.setMaxMemory(maxSlaveMemory);
+			this.setMaxCores(1);
+			this.setLogPath(logFolder.getAbsolutePath());
+			if (ggConfigHost != null)
+				this.setProperty("CONFHOST", ggConfigHost);
+			this.setProperty("CONFNAME", ggConfigName);
+			this.setProperty("DPNAME", ((processorName == null) ? "LISTDPS" : processorName));
+		}
+	}
+	
+	private class DprSlaveProcessInterface extends SlaveProcessInterface {
+		private ComponentActionConsole reportTo = null;
+		DprSlaveProcessInterface(Process slave, String slaveName) {
+			super(slave, slaveName);
+		}
+		void setReportTo(ComponentActionConsole reportTo) {
+			this.reportTo = reportTo;
+		}
+		protected void handleInput(String input) {
+			if (input.startsWith("PR:")) {
+				input = input.substring("PR:".length());
+				logInfo("Running Document Processor '" + input + "'");
+				processorName = input;
+				processorStart = System.currentTimeMillis();
+			}
+			else logInfo(input);
+		}
+		protected void handleResult(String result) {
+			ComponentActionConsole cac = this.reportTo;
+			if (cac == null)
+				logInfo(result);
+			else cac.reportResult(result);
+		}
+		protected void handleError(String error) {
+			ComponentActionConsole cac = this.reportTo;
+			if (cac == null)
+				logError(error);
+			else cac.reportError(error);
+		}
+	}
 }

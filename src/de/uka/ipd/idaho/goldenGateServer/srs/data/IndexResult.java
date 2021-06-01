@@ -109,8 +109,6 @@ public abstract class IndexResult extends SrsSearchResult {
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#writeElement(java.io.Writer, de.uka.ipd.idaho.goldenGateServer.srs.data.ResultElement)
 	 */
 	public void writeElement(Writer out, SrsSearchResultElement element) throws IOException {
-		
-		//	produce writer
 		BufferedWriter buf = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 		
 		//	write result
@@ -170,7 +168,7 @@ public abstract class IndexResult extends SrsSearchResult {
 			buf.newLine();
 		}
 		
-		//	flush Writer if it was wrapped
+		//	flush Writer if wrapped here
 		if (buf != out)
 			buf.flush();
 	}
@@ -195,26 +193,18 @@ public abstract class IndexResult extends SrsSearchResult {
 		
 		for (int t = 0; t < tokens.length; t++) {
 			String token = tokens[t];
-			
-			//	markup token
 			if (grammar.isTag(token)) {
 				String tokenType = grammar.getType(token);
-				
-				//	sub result
 				if (SUB_RESULTS_NODE_NAME.equals(tokenType)) {
-					
-					//	end of sub result
 					if (grammar.isSingularTag(token) || grammar.isEndTag(token)) {
-						if ((reSubResult != null) && (reSubResultElementList != null) && (reSubResultElementList.size() != 0)) {
+						if ((reSubResult != null) && (reSubResultElementList.size() != 0)) {
 							Collections.sort(reSubResultElementList, reSubResult.getSortOrder());
 							reSubResults.add(reSubResult);
 						}
 						reSubResult = null;
 						reSubResultElementList = null;
 					}
-					
-					//	start of sub result
-					else {
+					else /* start of sub result */ {
 						TreeNodeAttributeSet srTnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						StringVector fieldNames = new StringVector();
 						fieldNames.parseAndAddElements(srTnas.getAttribute(RESULT_INDEX_FIELDS_ATTRIBUTE, ""), " ");
@@ -235,22 +225,14 @@ public abstract class IndexResult extends SrsSearchResult {
 						};
 					}
 				}
-				
-				//	ignore value tags, only there to mark value
-				else if (IndexResultElement.INDEX_ENTRY_VALUE_ATTRIBUTE.equals(tokenType)) {
-					
-					//	empty values may occur
+				else if (IndexResultElement.INDEX_ENTRY_VALUE_ATTRIBUTE.equals(tokenType)) /* ignore value tags, only there to mark value */ {
 					if (grammar.isSingularTag(token)) {
 						if (reSubResult == null)
 							reValue = "";
 						else sreValue = "";
 					}
 				}
-				
-				//	sub result tag
-				else if (reSubResult != null) {
-					
-					//	read empty element
+				else if (reSubResult != null) /* sub result tag */ {
 					if (grammar.isSingularTag(token)) {
 						TreeNodeAttributeSet sreTnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						String docNr = sreTnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
@@ -263,11 +245,7 @@ public abstract class IndexResult extends SrsSearchResult {
 						}
 						reSubResultElementList.add(subIre);
 					}
-					
-					//	end of sub result element
 					else if (grammar.isEndTag(token)) {
-						
-						//	store element if data complete
 						if ((reSubResult != null) && (sreType != null) && (sreAttributes != null) && (sreValue != null)) {
 							String docNr = sreAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
 							IndexResultElement subIre = new IndexResultElement(Long.parseLong(docNr), sreType, sreValue);
@@ -279,34 +257,20 @@ public abstract class IndexResult extends SrsSearchResult {
 							}
 							reSubResultElementList.add(subIre);
 						}
-						
-						//	clear data slots
 						sreType = null;
 						sreValue = null;
 						sreAttributes = null;
 					}
-					
-					//	start of sub result element
 					else {
 						sreType = tokenType;
 						sreAttributes = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 					}
 				}
-				
-				//	result tag
-				else {
-					
-					//	read empty element
+				else /* result tag */ {
 					if (grammar.isSingularTag(token)) {
-						
-						//	extract attributes
 						TreeNodeAttributeSet reTnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
-						
-						//	create result element
 						String docNr = reTnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
 						ire = new IndexResultElement(Long.parseLong(docNr), tokenType, "");
-						
-						//	add attributes
 						String[] attributeNames = reTnas.getAttributeNames();
 						for (int a = 0; a < attributeNames.length; a++) {
 							String attributeValue = reTnas.getAttribute(attributeNames[a]);
@@ -314,31 +278,20 @@ public abstract class IndexResult extends SrsSearchResult {
 								ire.setAttribute(attributeNames[a], attributeValue);
 						}
 					}
-					
 					else if (grammar.isEndTag(token)) {
-						
-						//	store element if data complete
 						if ((reType != null) && (reAttributes != null) && (reValue != null)) {
-							
-							//	create main result element
 							String docNr = reAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
 							ire = new IndexResultElement(Long.parseLong(docNr), reType, reValue);
-							
-							//	add attributes
 							String[] attributeNames = reAttributes.getAttributeNames();
 							for (int a = 0; a < attributeNames.length; a++) {
 								String attributeValue = reAttributes.getAttribute(attributeNames[a]);
 								if ((attributeValue != null) && (attributeValue.length() != 0))
 									ire.setAttribute(attributeNames[a], attributeValue);
 							}
-							
-							//	add sub results
 							for (int s = 0; s < reSubResults.size(); s++)
 								ire.addSubResult((IndexResult) reSubResults.get(s));
 						}
 					}
-					
-					//	start of result element
 					else {
 						reType = tokenType;
 						reAttributes = TreeNodeAttributeSet.getTagAttributes(token, grammar);
@@ -346,16 +299,10 @@ public abstract class IndexResult extends SrsSearchResult {
 
 				}
 			}
-			
-			//	text data
-			else {
-				
-				//	sub result element value
-				if ((sreType != null) && (sreAttributes != null) && (token.trim().length() != 0))
+			else /* text data */ {
+				if ((sreType != null) && (sreAttributes != null) && (token.trim().length() != 0)) // sub result element value
 					sreValue = grammar.unescape(token.trim());
-				
-				//	result element value
-				else if ((reType != null) && (reAttributes != null) && (token.trim().length() != 0))
+				else if ((reType != null) && (reAttributes != null) && (token.trim().length() != 0)) // result element value
 					reValue = grammar.unescape(token.trim());
 			}
 		}
@@ -384,9 +331,10 @@ public abstract class IndexResult extends SrsSearchResult {
 		IndexResultBuilder(Reader in) throws IOException {
 			super(in);
 		}
-		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
-			String indexName = attributes.getProperty(RESULT_INDEX_NAME_ATTRIBUTE);
-			String indexLabel = attributes.getProperty(RESULT_INDEX_LABEL_ATTRIBUTE);
+//		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+		SrsSearchResult buildResult(String[] resultAttributes, TreeNodeAttributeSet attributes) {
+			String indexName = attributes.getAttribute(RESULT_INDEX_NAME_ATTRIBUTE);
+			String indexLabel = attributes.getAttribute(RESULT_INDEX_LABEL_ATTRIBUTE);
 			return new IndexResult(resultAttributes, indexName, indexLabel) {
 				public boolean hasNextElement() {
 					return IndexResultBuilder.this.hasNextElement();

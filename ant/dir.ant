@@ -15,6 +15,7 @@
 		<mkdir dir="${dist.home}/DocGateway" />
 		<mkdir dir="${dist.home}/Plugins" />
 		<mkdir dir="${dist.home}/Components" />
+		<mkdir dir="${dist.home}/Components/Bin" />
 		<mkdir dir="${dist.home}/Components/GgServerELSData" />
 		<mkdir dir="${dist.home}/Components/GgServerSRSData" />
 		<mkdir dir="${dist.home}/Components/GgServerSRSData/Plugins" />
@@ -56,6 +57,7 @@
 		<copy todir="${dist.home}/Components/Bin">
 			<fileset dir="${lib.home}" includes="BibRefUtils.jar" />
 			<fileset dir="${lib.home}" includes="GoldenGATE.jar" />
+			<fileset dir="${lib.home}" includes="GgServerSlaveUtils.jar" />
 		</copy>
 	</target>
 </project>

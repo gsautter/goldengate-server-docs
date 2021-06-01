@@ -54,6 +54,7 @@ import java.util.TimeZone;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import javax.xml.transform.ErrorListener;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.stream.StreamResult;
@@ -325,6 +326,26 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 		
 		if (xslt == null)
 			throw new IOException("XSLT transformer chain broken at '" + xsltName + "'");
+		
+		final ErrorListener xsltErrorListener = xslt.getErrorListener();
+		xslt.setErrorListener(new ErrorListener() {
+			public void warning(TransformerException exception) throws TransformerException {
+				logWarning("TransformerWarning: " + exception.getMessage());
+				if (xsltErrorListener != null)
+					xsltErrorListener.warning(exception);
+			}
+			public void error(TransformerException exception) throws TransformerException {
+				logError("TransformerError: " + exception.getMessage());
+				if (xsltErrorListener != null)
+					xsltErrorListener.error(exception);
+			}
+			public void fatalError(TransformerException exception) throws TransformerException {
+				logError("TransformerFatalError: " + exception.getMessage());
+				if (xsltErrorListener != null)
+					xsltErrorListener.fatalError(exception);
+			}
+		});
+		
 		return xslt;
 	}
 	
@@ -619,6 +640,7 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 	
 	private void doExport(CollectionExporter exporter, long time) throws Exception {
 		this.setExportStatus("SRS Collection Packer: starting export", true);
+		long startTime;
 		
 		//	create index writer
 		IndexWriter indexWriter = new IndexWriter(this.indexFile, this.uuidPatterns);
@@ -627,29 +649,32 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 		//	get dumps due for export
 		ArrayList dumps = new ArrayList();
 		ArrayList dumpWriters = new ArrayList();
+		startTime = System.currentTimeMillis();
 		for (int d = 0; d < this.dumps.length; d++)
 			if (this.dumps[d].exportDue <= time) {
 				dumps.add(this.dumps[d]);
 				dumpWriters.add(new DumpWriter(this.dumps[d].name, this.dumps[d].dumpFile, this.dumps[d].options, this.dumps[d].xslt, this.dumps[d].fileExtension));
 			}
-		this.setExportStatus(" - " + dumpWriters.size() + " dump writers created", true);
+		this.setExportStatus((" - " + dumpWriters.size() + " dump writers created in " + (System.currentTimeMillis() - startTime) + "ms"), true);
 		
 		//	build collection writer
 		CollectionWriter collectionWriter = new CollectionWriter(indexWriter, this.srs, ((DumpWriter[]) dumpWriters.toArray(new DumpWriter[dumpWriters.size()])));
 		this.setExportStatus(" - collection writer created", true);
 		
 		//	get document list from SRS
+		startTime = System.currentTimeMillis();
 		DocumentList srsDocList = this.srs.getDocumentListFull("-" + UPDATE_TIME_ATTRIBUTE);
 		
 		//	cache document list locally, so we don't block database table for all too long
 		LinkedList docList = new LinkedList();
 		while (srsDocList.hasNextElement())
 			docList.addLast(srsDocList.getNextElement());
-		this.setExportStatus((" - document list retrieved, got " + docList.size() + " documents to export"), true);
+		this.setExportStatus((" - document list retrieved in " + (System.currentTimeMillis() - startTime) + "ms, got " + docList.size() + " documents to export"), true);
 		
 		//	filter document list
 		DocumentListElementWrapper dleWrapper = new DocumentListElementWrapper();
 		int fDocCount = 0;
+		startTime = System.currentTimeMillis();
 		for (Iterator dleit = docList.iterator(); dleit.hasNext();) {
 			dleWrapper.setDocumentListElement((DocumentListElement) dleit.next());
 			if (this.filterOut(dleWrapper)) {
@@ -657,7 +682,7 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 				fDocCount++;
 			}
 		}
-		this.setExportStatus((" - document list filtered, retained " + docList.size() + " documents to export, filtered out " + fDocCount), true);
+		this.setExportStatus((" - document list filtered in " + (System.currentTimeMillis() - startTime) + "ms, retained " + docList.size() + " documents to export, filtered out " + fDocCount), true);
 		
 		//	write documents
 		int pDocCount = 0;

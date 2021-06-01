@@ -28,7 +28,6 @@
 package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 import de.uka.ipd.idaho.stringUtils.StringUtils;
-import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
  * A single element in a result that can convert its content to a String in CSV
@@ -37,7 +36,7 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * @author sautter
  */
 public class CsvResultElement extends SrsSearchResultElement {
-
+	
 	/**
 	 * Convert the data in this result element to a line for a CSV file.
 	 * @param valueDelimiter the character to use as the value delimiter (will
@@ -48,13 +47,39 @@ public class CsvResultElement extends SrsSearchResultElement {
 	 */
 	public String toCsvString(char valueDelimiter, String[] keys) {
 		String delimiter = ("" + valueDelimiter);
-		StringVector values = new StringVector();
+		StringBuffer csv = new StringBuffer();
 		for (int k = 0; k < keys.length; k++) {
-			Object value = this.getAttribute(keys[k]);
-			if ((value == null) || !(value instanceof String))
-				value = "";
-			values.addElement(delimiter + StringUtils.replaceAll(value.toString(), delimiter, (delimiter + delimiter)) + delimiter);
+			String value = this.getValueString(keys[k]);
+			if (k != 0)
+				csv.append(",");
+			csv.append(delimiter + StringUtils.replaceAll(value, delimiter, (delimiter + delimiter)) + delimiter);
 		}
-		return values.concatStrings(",");
+		return csv.toString();
+	}
+	
+	/**
+	 * Convert the data in this result element to a line for a TSV file.
+	 * @param keys an array containing the keys whose values to include
+	 * @return a String concatenated from the values of the specified keys, in
+	 *         the order of the keys
+	 */
+	public String toTsvString(String[] keys) {
+		StringBuffer tsv = new StringBuffer();
+		for (int k = 0; k < keys.length; k++) {
+			String value = this.getValueString(keys[k]);
+			if (k != 0)
+				tsv.append("\t");
+			tsv.append(value.replaceAll("\\s", " "));
+		}
+		return tsv.toString();
+	}
+	
+	private String getValueString(String key) {
+		Object valueObj = this.getAttribute(key);
+		if (valueObj instanceof String)
+			return ((String) valueObj);
+		else if (valueObj instanceof CharSequence)
+			return ((CharSequence) valueObj).toString();
+		else return "";
 	}
 }

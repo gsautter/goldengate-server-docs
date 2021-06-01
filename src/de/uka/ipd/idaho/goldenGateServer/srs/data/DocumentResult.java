@@ -116,8 +116,6 @@ public abstract class DocumentResult extends SrsSearchResult {
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#writeElement(java.io.Writer, de.uka.ipd.idaho.goldenGateServer.srs.data.ResultElement)
 	 */
 	public void writeElement(Writer out, SrsSearchResultElement element) throws IOException {
-		
-		//	produce writer
 		BufferedWriter buf = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
 		
 		//	get data
@@ -151,8 +149,6 @@ public abstract class DocumentResult extends SrsSearchResult {
 		
 		//	plain document data
 		else if (subResults.length == 0) {
-			
-			//	open result
 			buf.write("<" + RESULT_NODE_NAME + " " + RELEVANCE_ATTRIBUTE + "=\"" + dre.relevance + "\" " + DOCUMENT_ID_ATTRIBUTE + "=\"" + dre.documentId + "\"");
 			String[] attributeNames = dre.getAttributeNames();
 			for (int a = 0; a < attributeNames.length; a++) {
@@ -168,8 +164,6 @@ public abstract class DocumentResult extends SrsSearchResult {
 		
 		//	entry with sub results
 		else {
-			
-			//	open result
 			buf.write("<" + RESULT_NODE_NAME + " " + RELEVANCE_ATTRIBUTE + "=\"" + dre.relevance + "\" " + DOCUMENT_ID_ATTRIBUTE + "=\"" + dre.documentId + "\"");
 			String[] attributeNames = dre.getAttributeNames();
 			for (int a = 0; a < attributeNames.length; a++) {
@@ -215,7 +209,7 @@ public abstract class DocumentResult extends SrsSearchResult {
 			buf.newLine();
 		}
 		
-		//	flush Writer if it was wrapped
+		//	flush Writer if wrapped here
 		if (buf != out)
 			buf.flush();
 	}
@@ -235,18 +229,9 @@ public abstract class DocumentResult extends SrsSearchResult {
 		
 		for (int t = 0; t < tokens.length; t++) {
 			String token = tokens[t];
-			
 			if (grammar.isTag(token) && RESULT_NODE_NAME.equals(grammar.getType(token))) {
-				
-				//	end of result element, nothing to do
-				if (grammar.isEndTag(token)) {
-					//	TODO: clean up if block empty
-				}
-				
-				//	start tag (empty or not)
+				if (grammar.isEndTag(token)) {}
 				else {
-					
-					//	read attributes
 					TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 					double relevance = 0.0;
 					try {
@@ -270,26 +255,18 @@ public abstract class DocumentResult extends SrsSearchResult {
 					}
 				}
 			}
-			
-			//	content of result element
-			else if (dre != null) {
-				
+			else if (dre != null) /* content of result element */ {
 				if (grammar.isTag(token)) {
 					String tokenType = grammar.getType(token);
-					
 					if (SUB_RESULTS_NODE_NAME.equals(tokenType)) {
-						
-						//	end of result or sub result
 						if (grammar.isSingularTag(token) || grammar.isEndTag(token)) {
-							if ((reSubResult != null) && (reSubResultElementList != null) && (reSubResultElementList.size() != 0)) {
+							if ((reSubResult != null) && (reSubResultElementList.size() != 0)) {
 								Collections.sort(reSubResultElementList, reSubResult.getSortOrder());
 								dre.addSubResult(reSubResult);
 							}
 							reSubResult = null;
 							reSubResultElementList = null;
 						}
-						
-						//	start of a result or sub result
 						else {
 							TreeNodeAttributeSet srTnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 							StringVector fieldNames = new StringVector();
@@ -311,11 +288,7 @@ public abstract class DocumentResult extends SrsSearchResult {
 							};
 						}
 					}
-					
-					//	sub result tag
 					else if (reSubResult != null) {
-						
-						//	read empty element
 						if (grammar.isSingularTag(token)) {
 							TreeNodeAttributeSet sreTnas = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 							String docNr = sreTnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
@@ -328,11 +301,7 @@ public abstract class DocumentResult extends SrsSearchResult {
 							}
 							reSubResultElementList.add(subIre);
 						}
-						
-						//	end of sub result element
 						else if (grammar.isEndTag(token)) {
-							
-							//	store element if data complete
 							if ((reSubResult != null) && (sreType != null) && (sreAttributes != null) && (sreValue != null)) {
 								String docNr = sreAttributes.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE, "0");
 								IndexResultElement subIre = new IndexResultElement(Long.parseLong(docNr), sreType, sreValue);
@@ -344,25 +313,17 @@ public abstract class DocumentResult extends SrsSearchResult {
 								}
 								reSubResultElementList.add(subIre);
 							}
-							
-							//	clear data slots
 							sreType = null;
 							sreValue = null;
 							sreAttributes = null;
 						}
-						
-						//	start of sub result element
 						else {
 							sreType = tokenType;
 							sreAttributes = TreeNodeAttributeSet.getTagAttributes(token, grammar);
 						}
 					}
 				}
-				
-				//	text data
-				else {
-					
-					//	sub result element value
+				else /* text data, can only be sub result element value */ {
 					if ((sreType != null) && (sreAttributes != null) && (token.trim().length() != 0))
 						sreValue = grammar.unescape(token.trim());
 				}
@@ -395,7 +356,8 @@ public abstract class DocumentResult extends SrsSearchResult {
 		DocumentDataResultBuilder(Reader in) throws IOException {
 			super(in);
 		}
-		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+//		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+		SrsSearchResult buildResult(String[] resultAttributes, TreeNodeAttributeSet attributes) {
 			return new DocumentResult(resultAttributes) {
 				public boolean hasNextElement() {
 					return DocumentDataResultBuilder.this.hasNextElement();
@@ -429,7 +391,8 @@ public abstract class DocumentResult extends SrsSearchResult {
 		DocumentResultBuilder(Reader in) throws IOException {
 			super(in);
 		}
-		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+//		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+		SrsSearchResult buildResult(String[] resultAttributes, TreeNodeAttributeSet attributes) {
 			return new DocumentResult(resultAttributes) {
 				public boolean hasNextElement() {
 					return DocumentResultBuilder.this.hasNextElement();

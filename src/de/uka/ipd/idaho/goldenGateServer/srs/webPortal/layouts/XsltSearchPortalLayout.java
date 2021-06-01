@@ -353,6 +353,10 @@ xsl:with-param select="expression"
 							if (qName.indexOf('*') != -1)
 								usedElementNames.include.add("*");
 						}
+						if (expressionAttributeValue.startsWith("*"))
+							usedElementNames.include.add("*");
+						else if (expressionAttributeValue.indexOf("/*") != -1)
+							usedElementNames.include.add("*");
 					}
 				}
 				else if (xmlGrammar.isComment(token)) {
@@ -510,34 +514,36 @@ xsl:with-param select="expression"
 		};
 		
 		//	create guard thread TODO remove this once hang-ups clarified
-		final StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-		final String queryUrl = (tr.request.getServerName() + tr.request.getContextPath() + tr.request.getServletPath() + tr.request.getPathInfo() + "?" + tr.request.getQueryString());
-		Thread transformerPipelineGuard = new Thread("TransformerPipelineGuard") {
-			public void run() {
-				try {
-					sleep(60 * 1000);
-				} catch (InterruptedException ie) {}
-				if (transformerInputWriterFinished[0] && transformerOutputUnescaperFinished[0])
-					return;
-				if (!transformerInputWriterFinished[0]) {
-					System.out.println("Transformer Input Writer failed to finish after one minute; current stack:");
-		    		final StackTraceElement[] tiwStackTrace = transformerInputWriterThread.getStackTrace();
-		            for (int s = 0; s < tiwStackTrace.length; s++)
-		            	System.out.println("\tat " + tiwStackTrace[s]);
+		if (DEBUG_XSLT) {
+			final StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+			final String queryUrl = (tr.request.getServerName() + tr.request.getContextPath() + tr.request.getServletPath() + tr.request.getPathInfo() + "?" + tr.request.getQueryString());
+			Thread transformerPipelineGuard = new Thread("TransformerPipelineGuard") {
+				public void run() {
+					try {
+						sleep(60 * 1000);
+					} catch (InterruptedException ie) {}
+					if (transformerInputWriterFinished[0] && transformerOutputUnescaperFinished[0])
+						return;
+					if (!transformerInputWriterFinished[0]) {
+						System.out.println("Transformer Input Writer failed to finish after one minute; current stack:");
+			    		final StackTraceElement[] tiwStackTrace = transformerInputWriterThread.getStackTrace();
+			            for (int s = 0; s < tiwStackTrace.length; s++)
+			            	System.out.println("\tat " + tiwStackTrace[s]);
+					}
+					if (!transformerOutputUnescaperFinished[0]) {
+						System.out.println("Transformer Output Unescaper failed to finish after one minute; current stack:");
+			    		final StackTraceElement[] touStackTrace = transformerOutputUnescaperThread.getStackTrace();
+			            for (int s = 0; s < touStackTrace.length; s++)
+			            	System.out.println("\tat " + touStackTrace[s]);
+					}
+					System.out.println("Query was " + queryUrl);
+					System.out.println("Call stack:");
+		            for (int s = 0; s < stackTrace.length; s++)
+		            	System.out.println("\tat " + stackTrace[s]);
 				}
-				if (!transformerOutputUnescaperFinished[0]) {
-					System.out.println("Transformer Output Unescaper failed to finish after one minute; current stack:");
-		    		final StackTraceElement[] touStackTrace = transformerOutputUnescaperThread.getStackTrace();
-		            for (int s = 0; s < touStackTrace.length; s++)
-		            	System.out.println("\tat " + touStackTrace[s]);
-				}
-				System.out.println("Query was " + queryUrl);
-				System.out.println("Call stack:");
-	            for (int s = 0; s < stackTrace.length; s++)
-	            	System.out.println("\tat " + stackTrace[s]);
-			}
-		};
-		transformerPipelineGuard.start();
+			};
+			transformerPipelineGuard.start();
+		}
 		
 		//	start thread pipeline
 		transformerInputWriterThread.start();
@@ -690,7 +696,7 @@ xsl:with-param select="expression"
 			this.writeExceptionAsXmlComment("Cause", t.getCause(), hpb);
 	}
 	
-	private static final boolean DEBUG_XSLT = true;
+	private static final boolean DEBUG_XSLT = false;
 	
 	/* (non-Javadoc)
 	 * @see de.goldenGateSrs.webPortal.SearchPortalLayout#includeNavigationLinks(de.goldenGateSrs.webPortal.SearchPortalServletFlexLayout.NavigationLink[], de.htmlXmlUtil.HtmlPageBuilder)

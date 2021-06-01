@@ -41,6 +41,7 @@ import java.util.LinkedList;
 import java.util.Properties;
 
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
+import de.uka.ipd.idaho.gamta.Gamta;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
 import de.uka.ipd.idaho.gamta.util.gPath.GPath;
@@ -182,9 +183,41 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 						}
 						return;
 					}
+					if ("link".equals(type) && (tnas != null)) {
+						String link = tnas.getAttribute("link");
+						if (link == null)
+							return;
+						String conditionStr = tnas.getAttribute("condition");
+						GPathExpression condition = null;
+						if (conditionStr != null) try {
+							condition = GPathParser.parseExpression(conditionStr);
+						}
+						catch (GPathSyntaxException gpse) {
+							System.out.println("StatFieldSet: Could not parse condition from '" + token.trim() + "'");
+							gpse.printStackTrace(System.out);
+							return;
+						}
+						StatFieldLink sfl = new StatFieldLink(link, condition);
+						if (this.sf != null)
+							this.sf.links.add(sfl);
+						return;
+					}
+					if ("join".equals(type) && (this.sfg != null)) {
+						if (tnas == null)
+							return;
+						String fieldName = tnas.getAttribute("fieldName");
+						if (fieldName == null)
+							return;
+						String joinFieldName = tnas.getAttribute("joinFieldName");
+						if (joinFieldName == null)
+							return;
+						if (joinFieldName.indexOf(".") == -1)
+							return;
+						this.sfg.joins.add(new StatFieldGroupJoin(fieldName, joinFieldName));
+					}
 					if ("field".equals(type) && (this.sfg != null)) {
 						if (tnas == null) {
-							if ((this.sf != null) && (this.sf.selectors.size() != 0))
+							if ((this.sf != null) && ((this.sf.selectors.size() != 0) || (this.sfg.virtualTableName != null)))
 								this.sfg.fields.add(this.sf);
 							this.sf = null;
 						}
@@ -210,7 +243,15 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 									defValue = new GPathNumber(Math.round(defValue.asNumber().value));
 									defAggregate = "sum";
 								}
-								this.sf = new StatField(this.sfg, name, label, dataType, dataLength, defValue, tnas.getAttribute("aggregate", defAggregate), tnas.getAttribute("statName"), tnas.containsAttribute("indexed"));
+								else if (StatField.LONG_TYPE.equals(dataType)) {
+									defValue = new GPathNumber(Math.round(defValue.asNumber().value));
+									defAggregate = "sum";
+								}
+								this.sf = new StatField(this.sfg, name, label, dataType, dataLength, defValue, tnas.getAttribute("aggregate", defAggregate), tnas.getAttribute("statName"), tnas.containsAttribute("indexed"), tnas.getAttribute("colName"), tnas.containsAttribute("isRefId"));
+								if (grammar.isSingularTag(token) && (this.sfg != null) && (this.sfg.virtualTableName != null)) {
+									this.sfg.fields.add(this.sf);
+									this.sf = null;
+								}
 							}
 							catch (NumberFormatException nfe) {
 								System.out.println("StatFieldSet: Could not parse field from '" + token.trim() + "'");
@@ -231,11 +272,14 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 								return;
 							String label = tnas.getAttribute("label");
 							String contextStr = tnas.getAttribute("context");
-							if (contextStr == null)
+							String virtualTableName = tnas.getAttribute("tableName");
+							String virtualColumnPrefix = tnas.getAttribute("columnPrefix");
+							String refIdFieldName = tnas.getAttribute("refId");
+							if ((contextStr == null) && (virtualTableName == null))
 								return;
 							try {
 								GPath context = ((contextStr == null) ? null : (GPathParser.parsePath(contextStr)));
-								this.sfg = new StatFieldGroup(name, label, context);
+								this.sfg = new StatFieldGroup(name, label, "true".equalsIgnoreCase(tnas.getAttribute("supplementary")), context, virtualTableName, virtualColumnPrefix, refIdFieldName);
 							}
 							catch (GPathSyntaxException gpse) {
 								System.out.println("StatFieldSet: Could not parse selector from '" + token.trim() + "'");
@@ -291,15 +335,40 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the label of the field group, i.e., a nice name for use in a UI */
 		public final String label;
 		
+		/** is the field group supplementary, i.e., infrequently used in a UI? */
+		public final boolean isSupplementary;
+		
 		/** the default context of the field group, i.e., a selector for the document annotations to to extract data values from */
 		public final GPath defContext;
 		
+		/** the name of the underlying virtual table, i.e., one that can only be read, but not updated */
+		public final String virtualTableName;
+		
+		/** the field group name to use for prefixing field names in the underlying virtual table (in case it is linked in from another statistics engine and the group name differs) */
+		public final String virtualColumnPrefix;
+		
+		/** the fully qualified name of the field referenced by the document ID column in the underlying virtual table */
+		public final String refIdFieldName;
+		
 		private LinkedList variables = new LinkedList();
 		private LinkedList fields = new LinkedList();
-		StatFieldGroup(String name, String label, GPath defContext) {
+		private LinkedList joins = new LinkedList();
+		StatFieldGroup(String name, String label, boolean isSupplementary, GPath defContext, String virtualTableName, String virtualColumnPrefix, String refIdFieldName) {
 			this.name = name;
 			this.label = ((label == null) ? name : label);
+			this.isSupplementary = isSupplementary;
 			this.defContext = defContext;
+			this.virtualTableName = ("".equals(virtualTableName) ? null : virtualTableName);
+			this.virtualColumnPrefix = (("".equals(virtualColumnPrefix) || (this.virtualTableName == null)) ? null : virtualColumnPrefix);
+			this.refIdFieldName = (("".equals(refIdFieldName) || (this.virtualTableName == null)) ? null : refIdFieldName);
+		}
+		
+		/**
+		 * Retrieve the custom joins of the field group.
+		 * @return an array holding the joins
+		 */
+		public StatFieldGroupJoin[] getJoins() {
+			return ((StatFieldGroupJoin[]) this.joins.toArray(new StatFieldGroupJoin[this.joins.size()]));
 		}
 		
 		/**
@@ -332,14 +401,59 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			bw.write("<fieldGroup" +
 					" name=\"" + StatFieldSet.grammar.escape(this.name) + "\"" +
 					" label=\"" + StatFieldSet.grammar.escape(this.label) + "\"" +
-					" context=\"" + StatFieldSet.grammar.escape(this.defContext.toString()) + "\"" +
+					(this.isSupplementary ? " supplementary=\"true\"" : "") +
+					((this.defContext == null) ? "" : (" context=\"" + StatFieldSet.grammar.escape(this.defContext.toString()) + "\"")) +
+					((this.virtualTableName == null) ? "" : (" tableName=\"" + StatFieldSet.grammar.escape(this.virtualTableName) + "\"")) +
+					((this.virtualColumnPrefix == null) ? "" : (" columnPrefix=\"" + StatFieldSet.grammar.escape(this.virtualColumnPrefix) + "\"")) +
+					((this.refIdFieldName == null) ? "" : (" refId=\"" + StatFieldSet.grammar.escape(this.refIdFieldName) + "\"")) +
 					">");
 			bw.newLine();
+			for (Iterator jit = this.joins.iterator(); jit.hasNext();)
+				((StatFieldGroupJoin) jit.next()).writeXml(bw);
 			for (Iterator vit = this.variables.iterator(); vit.hasNext();)
 				((StatVariable) vit.next()).writeXml(bw);
 			for (Iterator fit = this.fields.iterator(); fit.hasNext();)
 				((StatField) fit.next()).writeXml(bw);
 			bw.write("</fieldGroup>");
+			bw.newLine();
+			if (bw != out)
+				bw.flush();
+		}
+	}
+	
+	/**
+	 * An inherit join between two groups of related fields in a statistics,
+	 * forcing a join on some other criteria if both field groups are present
+	 * in a query.
+	 * 
+	 * @author sautter
+	 */
+	public static class StatFieldGroupJoin {
+		
+		/** the local name of the field to join */
+		public final String fieldName;
+		
+		/** the fully qualified name of the field to join with */
+		public final String joinFieldName;
+		
+		StatFieldGroupJoin(String fieldName, String joinFieldName) {
+			this.fieldName = fieldName;
+			this.joinFieldName = joinFieldName;
+		}
+		
+		/**
+		 * Serialize the field group join as XML. If the argument writer is not
+		 * a <code>BufferedWriter</code>, this method wraps it in one, and
+		 * calls its <code>flush()</code> method before returning.
+		 * @param out the writer to write to
+		 * @throws IOException
+		 */
+		public void writeXml(Writer out) throws IOException {
+			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
+			bw.write("<join" +
+					" fieldName=\"" + StatFieldSet.grammar.escape(this.fieldName) + "\"" +
+					" joinFieldName=\"" + StatFieldSet.grammar.escape(this.joinFieldName) + "\"" +
+					"/>");
 			bw.newLine();
 			if (bw != out)
 				bw.flush();
@@ -366,6 +480,9 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the type constant indicating an integer number field */
 		public static final String INTEGER_TYPE = "integer";
 		
+		/** the type constant indicating a long integer number field */
+		public static final String LONG_TYPE = "long";
+		
 		/** the type constant indicating a boolean field */
 		public static final String BOOLEAN_TYPE = "boolean";
 		
@@ -387,13 +504,11 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the length of the field (relevant only if the data type is <code>string</code>) */
 		public final int dataLength;
 		
-		/** index the field in the database? */
-		public final boolean indexed;
-		
 		/** the default value */
 		public final GPathObject defValue;
 		
 		private LinkedList selectors = new LinkedList();
+		private LinkedList links = new LinkedList();
 		
 		/** the aggregation function to use by default (<code>count-distinct</code> for <code>string</code> fields, <code>sum</code> for <code>integer</code> and <code>real</code> fields) */
 		public final String defAggregate;
@@ -401,7 +516,16 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		/** the name of the field in a statistics (defaults to <code>&lt;groupName&gt;&lt;fieldName&gt;</code> if not specified) */
 		public final String statColName;
 		
-		StatField(StatFieldGroup fieldGroup, String name, String label, String dataType, int dataLength, GPathObject defValue, String defAggregate, String statColName, boolean indexed) {
+		/** index the field in the database? */
+		public final boolean indexed;
+		
+		/** the name of the field as a column in a database table (defaults to the <code>statColName</code>) */
+		public final String columnName;
+		
+		/** use the field as the document ID in a virtual table? */
+		public final boolean isVirtualRefId;
+		
+		StatField(StatFieldGroup fieldGroup, String name, String label, String dataType, int dataLength, GPathObject defValue, String defAggregate, String statColName, boolean indexed, String columnName, boolean isVirtualRefId) {
 			this.group = fieldGroup;
 			this.name = name;
 			this.fullName = (this.group.name + "." + this.name);
@@ -412,6 +536,12 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			this.defAggregate = defAggregate;
 			this.statColName = ((statColName == null) ? (this.group.name.substring(0, 1).toUpperCase() + this.group.name.substring(1) + this.name.substring(0, 1).toUpperCase() + this.name.substring(1)) : statColName);
 			this.indexed = indexed;
+			if (columnName != null)
+				this.columnName = columnName;
+			else if (this.group.virtualColumnPrefix != null)
+				this.columnName = (((this.group.virtualTableName == null) || (this.group.virtualColumnPrefix == null)) ? this.statColName : (("".equals(this.group.virtualColumnPrefix) ? "" : (this.group.virtualColumnPrefix.substring(0, 1).toUpperCase() + this.group.virtualColumnPrefix.substring(1))) + this.name.substring(0, 1).toUpperCase() + this.name.substring(1)));
+			else this.columnName = this.statColName;
+			this.isVirtualRefId = isVirtualRefId;
 		}
 		
 		/**
@@ -433,7 +563,7 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			for (Iterator sit = this.selectors.iterator(); sit.hasNext();) try {
 				StatDataSelector sds = ((StatDataSelector) sit.next());
 				GPathObject sdsValue = sds.getFieldValue(doc, context, variables);
-				if ((sdsValue != null) && (BOOLEAN_TYPE.equals(this.dataType) || sdsValue.asBoolean().value) && ((!REAL_TYPE.equals(this.dataType) && !INTEGER_TYPE.equals(this.dataType)) || !"NaN".equals(sdsValue.asString().value))) {
+				if ((sdsValue != null) && (BOOLEAN_TYPE.equals(this.dataType) || sdsValue.asBoolean().value) && ((!REAL_TYPE.equals(this.dataType) && !INTEGER_TYPE.equals(this.dataType) && !LONG_TYPE.equals(this.dataType)) || !"NaN".equals(sdsValue.asString().value))) {
 					if (DEBUG) System.out.println(" ==> " + sdsValue.toString() + " (" + sdsValue.asString().value + ")");
 					return sdsValue;
 				}
@@ -444,6 +574,25 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 			}
 			if (DEBUG) System.out.println(" =D=> " + this.defValue.toString() + " (" + this.defValue.asString().value + ")");
 			return this.defValue;
+		}
+		
+		/**
+		 * Find a link that is applicable to the values of the field in the
+		 * result of a given query.
+		 * @param query the query
+		 * @return the (first) applicable link
+		 */
+		public StatFieldLink getFieldLink(GPathVariableResolver query) {
+			for (Iterator lit = this.links.iterator(); lit.hasNext();) try {
+				StatFieldLink sfl = ((StatFieldLink) lit.next());
+				if (sfl.isApplicable(query))
+					return sfl;
+			}
+			catch (VariableNotBoundException vnbe) { /* we just ignore this one, as it can always happen at runtime */ }
+			catch (GPathException gpe) {
+				System.out.println("Exception finding link for field '" + this.fullName + "': " + gpe.getMessage());
+			}
+			return null;
 		}
 		
 		/**
@@ -463,12 +612,85 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 					" default=\"" + StatFieldSet.grammar.escape(this.defValue.asString().value) + "\"" +
 					" aggregate=\"" + StatFieldSet.grammar.escape(this.defAggregate) + "\"" +
 					" statName=\"" + StatFieldSet.grammar.escape(this.statColName) + "\"" +
-					(this.indexed ? " statName=\"true\"" : "") +
+					(this.indexed ? " indexed=\"true\"" : "") +
+					(this.statColName.equals(this.columnName) ? "" : (" colName=\"" + StatFieldSet.grammar.escape(this.columnName) + "\"")) +
+					(this.isVirtualRefId ? " isRefId=\"true\"" : "") +
 					">");
 			bw.newLine();
 			for (Iterator sit = this.selectors.iterator(); sit.hasNext();)
 				((StatDataSelector) sit.next()).writeXml(bw);
+			for (Iterator lit = this.links.iterator(); lit.hasNext();)
+				((StatFieldLink) lit.next()).writeXml(bw);
 			bw.write("</field>");
+			bw.newLine();
+			if (bw != out)
+				bw.flush();
+		}
+	}
+	
+	/**
+	 * A statistics field link. Links decorate field values with interactive
+	 * functionality in an HTML based web UI.
+	 * 
+	 * @author sautter
+	 */
+	public static class StatFieldLink {
+		
+		/** the link pattern in which to insert a given field value to create a functional link (can either generate a link URL or a JavaScript function call, in which latter case it has to start with 'return ') */
+		public final String link;
+		
+		/** an optional condition deciding whether or not the link is applicable to the result of a given query */
+		public final GPathExpression condition;
+		
+		StatFieldLink(String link, GPathExpression condition) {
+			this.link = link;
+			this.condition = condition;
+		}
+		
+		/**
+		 * Check whether or not the link is applicable to the result of a given
+		 * query.
+		 * @param query the query
+		 * @return true if the link is applicable
+		 */
+		public boolean isApplicable(GPathVariableResolver query) {
+			if (this.condition == null)
+				return true;
+			else return GPath.evaluateExpression(this.condition, isApplicableDummyDoc, query).asBoolean().value;
+		}
+		private static final QueriableAnnotation isApplicableDummyDoc = Gamta.newDocument(Gamta.newTokenSequence("DUMMY", null));
+		
+		/**
+		 * Create a link for a given field value. If the link is not applicable
+		 * to the argument field value or in the context of the argument data,
+		 * this method returns null.
+		 * @param fieldValue the field value
+		 * @param values the tupel of values the given field value belongs to 
+		 * @return a link string
+		 */
+		public String getFieldLink(String fieldValue, StringTupel values) {
+			if (fieldValue == null)
+				return null;
+			fieldValue = fieldValue.trim();
+			if (fieldValue.length() == 0)
+				return null;
+			//	TODO replace other values as well
+			return this.link.replaceAll("\\$value", fieldValue);
+		}
+		
+		/**
+		 * Serialize the field link as XML. If the argument writer is not a
+		 * <code>BufferedWriter</code>, this method wraps it in one, and calls
+		 * its <code>flush()</code> method before returning.
+		 * @param out the writer to write to
+		 * @throws IOException
+		 */
+		public void writeXml(Writer out) throws IOException {
+			BufferedWriter bw = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
+			bw.write("<link" +
+					" link=\"" + StatFieldSet.grammar.escape(this.link) + "\"" +
+					((this.condition == null) ? "" : (" condition=\"" + StatFieldSet.grammar.escape(this.condition.toString()) + "\"")) +
+					"/>");
 			bw.newLine();
 			if (bw != out)
 				bw.flush();
@@ -505,14 +727,15 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		 * fields. If that is not the case for either of the data selectors,
 		 * this method returns the default value.
 		 * @param doc the whole document
+		 * @param context the context annotation
 		 * @param variables the field set variables defined so far
 		 * @return the value for the variable
 		 */
-		public GPathObject getValue(QueriableAnnotation doc, GPathVariableResolver variables) {
+		public GPathObject getValue(QueriableAnnotation doc, QueriableAnnotation context, GPathVariableResolver variables) {
 			if (StatField.DEBUG) System.out.println("Extracting variable " + this.name);
 			for (Iterator sit = this.selectors.iterator(); sit.hasNext();) try {
 				StatDataSelector sds = ((StatDataSelector) sit.next());
-				GPathObject sdsValue = sds.getFieldValue(doc, doc, variables);
+				GPathObject sdsValue = sds.getFieldValue(doc, context, variables);
 				if ((sdsValue != null) && sdsValue.asBoolean().value && !"NaN".equals(sdsValue.asString().value)) {
 					if (StatField.DEBUG) System.out.println(" ==> " + sdsValue.toString() + " (" + sdsValue.asString().value + ")");
 					return sdsValue;

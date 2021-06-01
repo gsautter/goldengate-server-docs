@@ -28,14 +28,10 @@
 package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.Reader;
-import java.io.Writer;
-import java.util.Comparator;
 import java.util.Properties;
 
-import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
 
 /**
@@ -43,7 +39,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
  * 
  * @author sautter
  */
-public abstract class DocumentList extends SrsSearchResult {
+public abstract class DocumentList extends CsvResult {
 	
 	/** Constructor
 	 * @param dataFieldNames
@@ -70,66 +66,10 @@ public abstract class DocumentList extends SrsSearchResult {
 	private Properties startTagAttributes = null;
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#getSortOrder()
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.CsvResult#newResultElement()
 	 */
-	public Comparator getSortOrder() {
-		if (this.sortOrder == null)
-			this.sortOrder = new Comparator() {
-				public int compare(Object o1, Object o2) {
-					DocumentListElement dle1 = ((DocumentListElement) o1);
-					DocumentListElement dle2 = ((DocumentListElement) o2);
-					int c = 0;
-					for (int a = 0; a < resultAttributes.length; a++) {
-						String s1 = ((String) dle1.getAttribute(resultAttributes[a], ""));
-						String s2 = ((String) dle2.getAttribute(resultAttributes[a], ""));
-						if ((c = s1.compareTo(s2)) != 0)
-							return c;
-					}
-					return c;
-				}
-			};
-		return this.sortOrder;
-	}
-	private Comparator sortOrder;
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#writeElement(java.io.Writer, de.uka.ipd.idaho.goldenGateServer.srs.data.ResultElement)
-	 */
-	public void writeElement(Writer out, SrsSearchResultElement element) throws IOException {
-		
-		//	produce writer
-		BufferedWriter buf = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
-		
-		//	write element
-		buf.write("  <" + RESULT_NODE_NAME);
-		for (int a = 0; a < this.resultAttributes.length; a++) {
-			String listFieldValue = ((String) element.getAttribute(this.resultAttributes[a]));
-			if ((listFieldValue != null) && (listFieldValue.length() != 0))
-				buf.write(" " + this.resultAttributes[a] + "=\"" + AnnotationUtils.escapeForXml(listFieldValue, true) + "\"");
-		}
-		buf.write("/>");
-		buf.newLine();
-		
-		//	flush Writer if it was wrapped
-		if (buf != out)
-			buf.flush();
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#readElement(java.lang.String[])
-	 */
-	public SrsSearchResultElement readElement(String[] tokens) throws IOException {
-		TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(tokens[0], grammar);
-		DocumentListElement dle = null;
-		for (int a = 0; a < this.resultAttributes.length; a++) {
-			String attributeValue = tnas.getAttribute(this.resultAttributes[a]);
-			if (attributeValue != null) {
-				if (dle == null)
-					dle = new DocumentListElement();
-				dle.setAttribute(this.resultAttributes[a], attributeValue);
-			}
-		}
-		return dle;
+	protected CsvResultElement newResultElement() {
+		return new DocumentListElement();
 	}
 	
 	/**
@@ -152,7 +92,8 @@ public abstract class DocumentList extends SrsSearchResult {
 		DocumentListBuilder(Reader in) throws IOException {
 			super(in);
 		}
-		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+//		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+		SrsSearchResult buildResult(String[] resultAttributes, TreeNodeAttributeSet attributes) {
 			return new DocumentList(resultAttributes) {
 				public boolean hasNextElement() {
 					return DocumentListBuilder.this.hasNextElement();

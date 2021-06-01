@@ -39,7 +39,9 @@ import java.io.Writer;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Map;
 
+import de.uka.ipd.idaho.easyIO.util.JsonParser;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.ReadOnlyDocument;
 import de.uka.ipd.idaho.goldenGateServer.dst.DocumentStoreConstants;
@@ -1054,16 +1056,16 @@ public interface GoldenGateSrsConstants extends DocumentStoreConstants {
 	public static class SrsDocumentEvent extends DataObjectEvent {
 		
 		/**
-		 * An DocumentStorageListener listens for documents being stored, updated and
-		 * deleted in a GoldenGATE server component involved with document IO.
+		 * A listener for events notifying about documents being stored,
+		 * updated, and deleted in a GoldenGATE SRS.
 		 * 
 		 * @author sautter
 		 */
 		public static abstract class SrsDocumentEventListener extends GoldenGateServerEventListener {
-			
-			/* (non-Javadoc)
-			 * @see de.uka.ipd.idaho.goldenGateServer.events.GoldenGateServerEventListener#notify(de.uka.ipd.idaho.goldenGateServer.events.GoldenGateServerEvent)
-			 */
+			static {
+				//	register factory for event instances soon as first listener created
+				registerFactory();
+			}
 			public void notify(GoldenGateServerEvent gse) {
 				if (gse instanceof SrsDocumentEvent) {
 					SrsDocumentEvent dse = ((SrsDocumentEvent) gse);
@@ -1094,6 +1096,9 @@ public interface GoldenGateSrsConstants extends DocumentStoreConstants {
 		 * @deprecated use dataId instead */
 		public final String documentId;
 		
+		/** The ID of the master document the document affected by the event belongs to */
+		public final String masterDocumentId;
+		
 		/**
 		 * The document affected by the event, null for deletion events. This
 		 * document is strictly read-only, any attempt of modification will
@@ -1109,35 +1114,84 @@ public interface GoldenGateSrsConstants extends DocumentStoreConstants {
 		 * Constructor for update events
 		 * @param user the name of the user who caused the event
 		 * @param documentId the ID of the document that was updated
+		 * @param masterDocumentId the ID of the master document the updated
+		 *        document belongs to
 		 * @param document the actual document that was updated
 		 * @param version the current version number of the document (after the
 		 *            update)
-		 * @param sourceClassName the class name of the component issuing the event
+		 * @param sourceClassName the class name of the component issuing the
+		 *            event
 		 * @param eventTime the timstamp of the event
-		 * @param logger a DocumentStorageLogger to collect log messages while the
-		 *            event is being processed in listeners
+		 * @param logger a DocumentStorageLogger to collect log messages while
+		 *            the event is being processed in listeners
 		 */
-		public SrsDocumentEvent(String user, String documentId, QueriableAnnotation document, int version, String sourceClassName, long eventTime, EventLogger logger) {
-			this(user, documentId, document, version, sourceClassName, eventTime, logger, UPDATE_TYPE);
+		public SrsDocumentEvent(String user, String documentId, String masterDocumentId, QueriableAnnotation document, int version, String sourceClassName, long eventTime, EventLogger logger) {
+			this(user, documentId, masterDocumentId, document, version, sourceClassName, eventTime, logger, UPDATE_TYPE);
 		}
 		
 		/**
 		 * Constructor for deletion events
 		 * @param user the name of the user who caused the event
 		 * @param documentId the ID of the document that was deleted
-		 * @param sourceClassName the class name of the component issuing the event
+		 * @param masterDocumentId the ID of the master document the deleted
+		 *        document belonged to
+		 * @param sourceClassName the class name of the component issuing the
+		 *        event
 		 * @param eventTime the timstamp of the event
-		 * @param logger a DocumentStorageLogger to collect log messages while the
-		 *            event is being processed in listeners
+		 * @param logger a DocumentStorageLogger to collect log messages while 
+		 *            the event is being processed in listeners
 		 */
-		public SrsDocumentEvent(String user, String documentId, String sourceClassName, long eventTime, EventLogger logger) {
-			this(user, documentId, null, -1, sourceClassName, eventTime, logger, DELETE_TYPE);
+		public SrsDocumentEvent(String user, String documentId, String masterDocumentId, String sourceClassName, long eventTime, EventLogger logger) {
+			this(user, documentId, masterDocumentId, null, -1, sourceClassName, eventTime, logger, DELETE_TYPE);
 		}
 		
-		private SrsDocumentEvent(String user, String documentId, QueriableAnnotation document, int version, String sourceClassName, long eventTime, EventLogger logger, int type) {
+		private SrsDocumentEvent(String user, String documentId, String masterDocumentId, QueriableAnnotation document, int version, String sourceClassName, long eventTime, EventLogger logger, int type) {
 			super(user, documentId, version, type, sourceClassName, eventTime, logger);
 			this.documentId = documentId;
+			this.masterDocumentId = masterDocumentId;
 			this.document = ((document == null) ? null : new ReadOnlyDocument(document, "The document contained in a DocumentStorageEvent cannot be modified."));
+		}
+		
+		/* (non-Javadoc)
+		 * @see de.uka.ipd.idaho.goldenGateServer.util.DataObjectUpdateConstants.DataObjectEvent#getParameterString()
+		 */
+		public String getParameterString() {
+			return (super.getParameterString() + " " + this.masterDocumentId);
+		}
+		
+		public Map toJsonObject() {
+			Map json = super.toJsonObject();
+			json.put("eventClass", SrsDocumentEvent.class.getName());
+			json.put("masterDocId", this.masterDocumentId);
+			return json;
+		}
+		
+		private static EventFactory factory = new EventFactory() {
+			public GoldenGateServerEvent getEvent(Map json) {
+				if (!SrsDocumentEvent.class.getName().equals(json.get("eventClass")))
+					return null;
+				Number eventType = JsonParser.getNumber(json, "eventType");
+				String sourceClassName = JsonParser.getString(json, "sourceClass");
+				Number eventTime = JsonParser.getNumber(json, "eventTime");
+//				String eventId = JsonParser.getString(json, "eventId");
+//				boolean isHighPriority = (JsonParser.getBoolean(json, "highPriority") != null);
+				
+				String user = JsonParser.getString(json, "user");
+				String docId = JsonParser.getString(json, "dataId");
+				Number docVersion = JsonParser.getNumber(json, "dataVersion");
+				String masterDocId = JsonParser.getString(json, "masterDocId");
+				return new SrsDocumentEvent(user, docId, masterDocId, null, docVersion.intValue(), sourceClassName, eventTime.longValue(), null, eventType.intValue());
+			}
+			public GoldenGateServerEvent getEvent(String className, String paramString) {
+				return (SrsDocumentEvent.class.getName().equals(className) ? parseEvent(paramString) : null);
+			}
+		};
+		static void registerFactory() {
+			addFactory(factory);
+		}
+		static {
+			//	register factory for event instances soon as first instance created
+			registerFactory();
 		}
 		
 		/**
@@ -1145,10 +1199,11 @@ public interface GoldenGateSrsConstants extends DocumentStoreConstants {
 		 * getParameterString() method.
 		 * @param data the string to parse
 		 * @return a document event created from the specified data
+		 * @deprecated use JSON based serialization
 		 */
 		public static SrsDocumentEvent parseEvent(String data) {
 			String[] dataItems = data.split("\\s");
-			return new SrsDocumentEvent(dataItems[4], dataItems[5], null, Integer.parseInt(dataItems[6]), dataItems[1], Long.parseLong(dataItems[2]), null, Integer.parseInt(dataItems[0]));
+			return new SrsDocumentEvent(dataItems[4], dataItems[5], dataItems[7], null, Integer.parseInt(dataItems[6]), dataItems[1], Long.parseLong(dataItems[2]), null, Integer.parseInt(dataItems[0]));
 		}
 	}
 }

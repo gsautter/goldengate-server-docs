@@ -38,6 +38,10 @@ import java.io.OutputStreamWriter;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Properties;
 
 import javax.xml.transform.Transformer;
@@ -52,6 +56,7 @@ import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
 import de.uka.ipd.idaho.goldenGateServer.AsynchronousWorkQueue;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
+import de.uka.ipd.idaho.goldenGateServer.util.DataObjectUpdateConstants;
 import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
 import de.uka.ipd.idaho.htmlXmlUtil.accessories.XsltUtils;
@@ -65,7 +70,7 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * 
  * @author sautter
  */
-public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateDcsConstants {
+public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateDcsConstants, DataObjectUpdateConstants {
 	
 	private IoProvider io;
 	
@@ -134,8 +139,8 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		}
 	}
 	
+	private static final String LIST_FILED_GROUPS_COMMAND = "listGroups";
 	private static final String RELOAD_STATIC_EXPORTS_COMMAND = "reloadStatic";
-	
 	private static final String UPDATE_STATIC_EXPORTS_COMMAND = "updateStatic";
 	
 	/* (non-Javadoc)
@@ -220,13 +225,41 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		};
 		cal.add(ca);
 		
+		//	list field groups
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return LIST_FILED_GROUPS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						LIST_FILED_GROUPS_COMMAND,
+						"List the field groups in the wrapped stats engine."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				StatFieldGroup[] fgs = fieldSet.getFieldGroups();
+				this.reportResult("There are " + fgs.length + " field groups in stats '" + fieldSet.label + "':");
+				for (int g = 0; g < fgs.length; g++)
+					this.reportResult(" - '" + fgs[g].name + "': " + fgs[g].label + ((fgs[g].virtualTableName == null) ? "" : (" (virtual, from '" + fgs[g].virtualTableName + "')")));
+			}
+		};
+		cal.add(ca);
+		
 		//	reload static export definitions
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
 				return RELOAD_STATIC_EXPORTS_COMMAND;
 			}
 			public String[] getExplanation() {
-				String[] explanation = { RELOAD_STATIC_EXPORTS_COMMAND, "Reload the static statistics export definitions." };
+				String[] explanation = {
+						RELOAD_STATIC_EXPORTS_COMMAND,
+						"Reload the static statistics export definitions."
+					};
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
@@ -249,7 +282,10 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				return UPDATE_STATIC_EXPORTS_COMMAND;
 			}
 			public String[] getExplanation() {
-				String[] explanation = { UPDATE_STATIC_EXPORTS_COMMAND, "Trigger an update for static statistics exports" };
+				String[] explanation = {
+						UPDATE_STATIC_EXPORTS_COMMAND,
+						"Trigger an update for static statistics exports"
+					};
 				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
@@ -261,6 +297,155 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 		cal.add(ca);
 		
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
+	}
+	
+	protected LinkedHashMap getUpdateParams() {
+		LinkedHashMap params = new LinkedHashMap();
+		params.put("fieldGroups", "- <fieldGroups>: the field groups to update (optional, for filtering)");
+		return params;
+	}
+	
+	protected long encodeUpdateParams(String[] fgnParams) throws IllegalArgumentException {
+		if ((fgnParams == null) || (fgnParams.length == 0))
+			return 0;
+		
+		//	sort parameters
+		LinkedHashSet validFieldGroupNames = new LinkedHashSet(); 
+		StringBuffer invalidFieldGroupNames = new StringBuffer();
+		StatFieldGroup[] fieldGroups = this.fieldSet.getFieldGroups();
+		for (int p = 0; p < fgnParams.length; p++) {
+			if (fgnParams[p] == null)
+				continue;
+			if (fgnParams[p].length() == 0)
+				continue;
+			boolean invalid = true;
+			for (int g = 0; g < fieldGroups.length; g++)
+				if (fieldGroups[g].name.equalsIgnoreCase(fgnParams[p])) {
+					invalid = false;
+					validFieldGroupNames.add(fieldGroups[g].name);
+					break;
+				}
+			if (invalid) {
+				if (invalidFieldGroupNames.length() != 0)
+					invalidFieldGroupNames.append(", ");
+				invalidFieldGroupNames.append(fgnParams[p]);
+			}
+		}
+		
+		//	any invalid parameters?
+		if (invalidFieldGroupNames.length() != 0) {
+			if (invalidFieldGroupNames.indexOf(", ") == -1)
+				throw new IllegalArgumentException("field group " + invalidFieldGroupNames + " does not exist.");
+			else throw new IllegalArgumentException("field groups " + invalidFieldGroupNames + " do not exist.");
+		}
+		
+		//	anything to sensibly filter by?
+		if (validFieldGroupNames.isEmpty())
+			return 0;
+		if (validFieldGroupNames.size() == fieldGroups.length)
+			return 0;
+		if (validFieldGroupNames.size() > 7)
+			throw new IllegalArgumentException("can at most filter 7 field groups at a time.");
+		
+		//	encode parameters
+		int bitsPerFieldGroupName;
+		int fieldGroupNameHashMask;
+		if (validFieldGroupNames.size() < 2) {
+			bitsPerFieldGroupName = 32;
+			fieldGroupNameHashMask = 0xFFFFFFFF;
+		}
+		else if (validFieldGroupNames.size() < 3) {
+			bitsPerFieldGroupName = 30;
+			fieldGroupNameHashMask = 0x3FFFFFFF;
+		}
+		else if (validFieldGroupNames.size() < 4) {
+			bitsPerFieldGroupName = 20;
+			fieldGroupNameHashMask = 0x000FFFFF;
+		}
+		else if (validFieldGroupNames.size() < 5) {
+			bitsPerFieldGroupName = 15;
+			fieldGroupNameHashMask = 0x00007FFF;
+		}
+		else if (validFieldGroupNames.size() < 6) {
+			bitsPerFieldGroupName = 12;
+			fieldGroupNameHashMask = 0x00000FFF;
+		}
+		else if (validFieldGroupNames.size() < 7) {
+			bitsPerFieldGroupName = 10;
+			fieldGroupNameHashMask = 0x000003FF;
+		}
+		else {
+			bitsPerFieldGroupName = 8;
+			fieldGroupNameHashMask = 0x000000FF;
+		}
+		long encodedParams = 0;
+		for (Iterator fgnit = validFieldGroupNames.iterator(); fgnit.hasNext();) {
+			String fgn = ((String) fgnit.next());
+			encodedParams |= (fgn.hashCode() & fieldGroupNameHashMask);
+			if (fgnit.hasNext())
+				encodedParams <<= bitsPerFieldGroupName;
+		}
+		encodedParams |= ((validFieldGroupNames.size() & 0x00000007) << 60); // highest 4 bit store number of field group names
+		return encodedParams;
+	}
+	
+	private HashSet decodeUpdateParams(long encodedParams) {
+		if (encodedParams == 0)
+			return null;
+		
+		//	extract decoding parameters
+		int fieldGroupNameCount = ((int) ((encodedParams >>> 60) & 0x00000007));
+		int bitsPerFieldGroupName;
+		int fieldGroupNameHashMask;
+		if (fieldGroupNameCount < 2) {
+			bitsPerFieldGroupName = 32;
+			fieldGroupNameHashMask = 0xFFFFFFFF;
+		}
+		else if (fieldGroupNameCount < 3) {
+			bitsPerFieldGroupName = 30;
+			fieldGroupNameHashMask = 0x3FFFFFFF;
+		}
+		else if (fieldGroupNameCount < 4) {
+			bitsPerFieldGroupName = 20;
+			fieldGroupNameHashMask = 0x000FFFFF;
+		}
+		else if (fieldGroupNameCount < 5) {
+			bitsPerFieldGroupName = 15;
+			fieldGroupNameHashMask = 0x00007FFF;
+		}
+		else if (fieldGroupNameCount < 6) {
+			bitsPerFieldGroupName = 12;
+			fieldGroupNameHashMask = 0x00000FFF;
+		}
+		else if (fieldGroupNameCount < 7) {
+			bitsPerFieldGroupName = 10;
+			fieldGroupNameHashMask = 0x000003FF;
+		}
+		else {
+			bitsPerFieldGroupName = 8;
+			fieldGroupNameHashMask = 0x000000FF;
+		}
+		
+		//	collect matching field group names
+		HashSet fieldGroupNames = new HashSet();
+		StatFieldGroup[] fieldGroups = this.fieldSet.getFieldGroups();
+		for (int p = 0; p < fieldGroupNameCount; p++) {
+			int fieldGroupNameHashSuffix = ((int) (encodedParams & fieldGroupNameHashMask));
+			StringBuffer matchFieldGroupNames = new StringBuffer();
+			for (int g = 0; g < fieldGroups.length; g++)
+				if ((fieldGroups[g].name.hashCode() & fieldGroupNameHashMask) == fieldGroupNameHashSuffix) {
+					fieldGroupNames.add(fieldGroups[g].name);
+					if (matchFieldGroupNames.length() != 0)
+						matchFieldGroupNames.append(", ");
+					matchFieldGroupNames.append(fieldGroups[g].name);
+				}
+			encodedParams >>>= bitsPerFieldGroupName;
+			if (matchFieldGroupNames.length() == 0)
+				this.logWarning("Invalid field group name hash suffix " + Integer.toString(fieldGroupNameHashSuffix, 16).toUpperCase());
+			else if (matchFieldGroupNames.indexOf(", ") != -1)
+				this.logWarning("Ambiguous field group name hash suffix " + Integer.toString(fieldGroupNameHashSuffix, 16).toUpperCase() + ", matches " + matchFieldGroupNames);
+		}
+		return fieldGroupNames;
 	}
 	
 	/* (non-Javadoc)
@@ -333,12 +518,26 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	}
 	
 	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#doUpdate(java.lang.String, java.lang.String, java.util.Properties, long)
+	 */
+	protected void doUpdate(String dataId, String user, Properties dataAttributes, long params) throws IOException {
+		this.doUpdate(this.binding.getDocument(dataId), dataAttributes, params);
+	}
+	
+	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#doUpdate(de.uka.ipd.idaho.gamta.QueriableAnnotation, java.util.Properties)
 	 */
 	protected void doUpdate(QueriableAnnotation doc, Properties docAttributes) throws IOException {
+		this.doUpdate(doc, docAttributes, 0);
+	}
+	
+	private void doUpdate(QueriableAnnotation doc, Properties docAttributes, long params) throws IOException {
+		
+		//	get field groups to update
+		HashSet fieldGroups = this.decodeUpdateParams(params);
 		
 		//	update data tables
-		this.statEngine.updateDocument(doc);
+		this.statEngine.updateDocument(doc, fieldGroups);
 		
 		//	trigger update for static exports
 		this.updateStaticStatExports(false);

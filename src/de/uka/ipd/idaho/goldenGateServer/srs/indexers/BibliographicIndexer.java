@@ -33,6 +33,8 @@ import java.net.URLEncoder;
 import java.sql.SQLException;
 import java.util.Iterator;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
@@ -49,11 +51,13 @@ import de.uka.ipd.idaho.goldenGateServer.srs.QueryResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.QueryResultElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResultElement;
+import de.uka.ipd.idaho.goldenGateServer.srs.data.SrsSearchResultElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResult;
 import de.uka.ipd.idaho.plugins.bibRefs.BibRefConstants;
 import de.uka.ipd.idaho.plugins.bibRefs.BibRefTypeSystem;
 import de.uka.ipd.idaho.plugins.bibRefs.BibRefUtils;
 import de.uka.ipd.idaho.plugins.bibRefs.BibRefUtils.RefData;
+import de.uka.ipd.idaho.stringUtils.StringUtils;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
@@ -62,6 +66,14 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * @author sautter
  */
 public class BibliographicIndexer extends AbstractIndexer implements BibRefConstants {
+	private static final String[] indexResultColumns = {
+		DOCUMENT_AUTHOR_ATTRIBUTE,
+		DOCUMENT_DATE_ATTRIBUTE,
+		DOCUMENT_TITLE_ATTRIBUTE,
+		DOCUMENT_ORIGIN_ATTRIBUTE,
+		PAGE_NUMBER_ATTRIBUTE,
+		LAST_PAGE_NUMBER_ATTRIBUTE,
+	};
 	
 	private static final String EXT_ID_ATTRIBUTE = "extId";
 	private static final String EXT_ID_TYPE_ATTRIBUTE = "extIdType";
@@ -376,36 +388,21 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, long[], boolean)
 	 */
-	public IndexResult getIndexEntries(Query query, long[] docNumbers, boolean sort) {
+	public IndexResult getIndexEntries(Query query, long docNumber, boolean sort) {
 		this.host.logActivity("BibliographicIndexer: getting index entries ...");
 		
-		StringVector docNrs = new StringVector();
-		for (int n = 0; n < docNumbers.length; n++)
-			docNrs.addElementIgnoreDuplicates("" + docNumbers[n]);
-		if (docNrs.isEmpty()) return null;
-		
-		String[] columns = {
-//				BIB_ID_ATTRIBUTE, // do not add ID to result attributes, so it's given, but not displayed
-				DOCUMENT_AUTHOR_ATTRIBUTE,
-				DOCUMENT_DATE_ATTRIBUTE,
-				DOCUMENT_TITLE_ATTRIBUTE,
-				DOCUMENT_ORIGIN_ATTRIBUTE,
-				PAGE_NUMBER_ATTRIBUTE,
-				LAST_PAGE_NUMBER_ATTRIBUTE,
-			};
-		
 		StringBuffer sqlQuery = new StringBuffer("SELECT DISTINCT " + DOC_NUMBER_COLUMN_NAME + ", " + EXT_ID_ATTRIBUTE + ", " + EXT_ID_TYPE_ATTRIBUTE);
-		for (int c = 0; c < columns.length; c++) {
+		for (int c = 0; c < indexResultColumns.length; c++) {
 			sqlQuery.append(", ");
-			sqlQuery.append(columns[c]);
+			sqlQuery.append(indexResultColumns[c]);
 		}
 		sqlQuery.append(" FROM " + BIB_INDEX_TABLE_NAME); 
-		sqlQuery.append(" WHERE " + DOC_NUMBER_COLUMN_NAME + " IN (" + docNrs.concatStrings(", ") + ")");
+		sqlQuery.append(" WHERE " + DOC_NUMBER_COLUMN_NAME + " = " + docNumber);
 		sqlQuery.append(" ORDER BY ");
-		for (int c = 0; c < columns.length; c++) {
+		for (int c = 0; c < indexResultColumns.length; c++) {
 			if (c != 0)
 				sqlQuery.append(", ");
-			sqlQuery.append(columns[c]);
+			sqlQuery.append(indexResultColumns[c]);
 		}
 		sqlQuery.append(";");
 		this.host.logActivity("  - query is " + sqlQuery.toString());
@@ -413,12 +410,11 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		SqlQueryResult sqr = null;
 		try {
 			sqr = this.io.executeSelectQuery(sqlQuery.toString());
-			return new BibMetaDataIndexResult(columns, sqr) {
+			return new BibMetaDataIndexResult(indexResultColumns, sqr) {
 				
 				//	needs special handling because external ID is not in column list
 				protected IndexResultElement decodeResultElement(String[] elementData) {
 					IndexResultElement ire = new IndexResultElement(Long.parseLong(elementData[0]), this.entryType, ((elementData[1] == null) ? "" : elementData[1]));
-					
 					if (elementData.length > 1)
 						ire.setAttribute(EXT_ID_ATTRIBUTE, elementData[1]);
 					if (elementData.length > 2)
@@ -566,9 +562,16 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 	}
 	
 	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#filterIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult, boolean)
+	 */
+	public IndexResult filterIndexEntries(Query query, IndexResult allIndexEntries, boolean sort) {
+		return allIndexEntries; // if the document is in the result, we want the metadata as well
+	}
+	
+	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#index(de.uka.ipd.idaho.gamta.QueriableAnnotation, long)
 	 */
-	public void index(QueriableAnnotation doc, long docNr) {
+	public IndexResult index(QueriableAnnotation doc, long docNr) {
 		
 		//	what do we want to index?
 		String extId;
@@ -597,16 +600,16 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 		
 		//	try and get details from attributes if MODS header not given
 		if (ref == null) {
-			extId = doc.getAttribute(EXT_ID_ATTRIBUTE, "").toString().trim();
-			extIdType = doc.getAttribute(EXT_ID_TYPE_ATTRIBUTE, "").toString().trim();
+			extId = ((String) doc.getAttribute(EXT_ID_ATTRIBUTE, "")).trim();
+			extIdType = ((String) doc.getAttribute(EXT_ID_TYPE_ATTRIBUTE, "")).trim();
 			if ((extId.length() != 0) || (extIdType.length() != 0))
 				extIdsByType.put(extIdType, extId);
-			author = doc.getAttribute(DOCUMENT_AUTHOR_ATTRIBUTE, "").toString().trim();
-			date = doc.getAttribute(DOCUMENT_DATE_ATTRIBUTE, "").toString().trim();
-			title = doc.getAttribute(DOCUMENT_TITLE_ATTRIBUTE, "").toString().trim();
-			origin = doc.getAttribute(DOCUMENT_ORIGIN_ATTRIBUTE, "").toString().trim();
-			page = doc.getAttribute(PAGE_NUMBER_ATTRIBUTE, "0").toString().trim();
-			lastPage = doc.getAttribute(LAST_PAGE_NUMBER_ATTRIBUTE, "0").toString().trim();
+			author = ((String) doc.getAttribute(DOCUMENT_AUTHOR_ATTRIBUTE, "")).trim();
+			date = ((String) doc.getAttribute(DOCUMENT_DATE_ATTRIBUTE, "")).trim();
+			title = ((String) doc.getAttribute(DOCUMENT_TITLE_ATTRIBUTE, "")).trim();
+			origin = ((String) doc.getAttribute(DOCUMENT_ORIGIN_ATTRIBUTE, "")).trim();
+			page = cleanPageNumber(((String) doc.getAttribute(PAGE_NUMBER_ATTRIBUTE, "0")).trim(), "0");
+			lastPage = cleanPageNumber(((String) doc.getAttribute(LAST_PAGE_NUMBER_ATTRIBUTE, "0")).trim(), "0");
 		}
 		
 		//	get details from MODS header or attributes
@@ -640,13 +643,13 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 				origin = "";
 			String pagination = ref.getAttribute(PAGINATION_ANNOTATION_TYPE);
 			if (pagination == null) {
-				page = ("" + Integer.MIN_VALUE);
-				lastPage = ("" + Integer.MIN_VALUE);
+				page = "0";
+				lastPage = "0";
 			}
 			else {
 				String[] pages = pagination.split("\\s*[\\-\\u2010-\\u2015\\u2212]+\\s*");
-				page = pages[0];
-				lastPage = ((pages.length == 1) ? pages[0] : pages[1]);
+				page = cleanPageNumber(pages[0], "0");
+				lastPage = cleanPageNumber(((pages.length == 1) ? pages[0] : pages[1]), "0");
 			}
 		}
 		
@@ -738,6 +741,46 @@ public class BibliographicIndexer extends AbstractIndexer implements BibRefConst
 			extIdType = ((String) idtit.next());
 			this.indexExtId(((String) extIdsByType.get(extIdType)), extIdType, docNr);
 		}
+		
+		//	return single index result we created
+		final IndexResultElement[] idxIre = {new IndexResultElement(docNr, BIBLIOGRAPHIC_REFERENCE_TYPE, ((extId == null) ? "" : extId))};
+		if (extId != null) {
+			idxIre[0].setAttribute(EXT_ID_ATTRIBUTE, extId);
+			idxIre[0].setAttribute(EXT_ID_TYPE_ATTRIBUTE, extIdType);
+		}
+		idxIre[0].setAttribute(DOCUMENT_AUTHOR_ATTRIBUTE, author);
+		idxIre[0].setAttribute(DOCUMENT_DATE_ATTRIBUTE, date);
+		idxIre[0].setAttribute(DOCUMENT_TITLE_ATTRIBUTE, title);
+		idxIre[0].setAttribute(DOCUMENT_ORIGIN_ATTRIBUTE, origin);
+		if (!"0".equals(page))
+			idxIre[0].setAttribute(PAGE_NUMBER_ATTRIBUTE, page);
+		if (!"0".equals(lastPage))
+			idxIre[0].setAttribute(LAST_PAGE_NUMBER_ATTRIBUTE, lastPage);
+		return new IndexResult(indexResultColumns, BIBLIOGRAPHIC_REFERENCE_TYPE, "Bibliographic Metadata Index") {
+			public boolean hasNextElement() {
+				return (idxIre[0] != null);
+			}
+			public SrsSearchResultElement getNextElement() {
+				IndexResultElement ire = idxIre[0];
+				idxIre[0] = null;
+				return ire;
+			}
+		};
+	}
+	
+	private static final Pattern pageNumberPattern = Pattern.compile("[0-9]+");
+	private static String cleanPageNumber(String pageNumber, String defautValue) {
+		if (pageNumber == null)
+			return pageNumber;
+		if (pageNumberPattern.matcher(pageNumber).matches())
+			return pageNumber;
+		try {
+			return ("" + StringUtils.parseRomanNumber(pageNumber));
+		} catch (NumberFormatException nfe) {}
+		Matcher m = pageNumberPattern.matcher(pageNumber);
+		if (m.find())
+			return m.group();
+		return defautValue;
 	}
 	
 	private void indexRef(String ref, long docNr) {

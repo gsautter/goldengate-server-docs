@@ -60,16 +60,13 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 * markEssentialDetails() method
 	 */
 	public static final String DETAIL_ANNOTATION_TYPE = "DETAIL";
-
+	
 	/**
 	 * attribute name for specifying the type of a semantically important detail
 	 * in the markEssentialDetails() method
 	 */
 	public static final String DETAIL_TYPE_ATTRIBUTE = "DETAIL_TYPE";
-//
-//	/** standard definition object for the column to store the document number in */
-//	public static final TableColumnDefinition DOC_NUMBER_COLUMN = new TableColumnDefinition(DOC_NUMBER_COLUMN_NAME, TableDefinition.INT_DATATYPE, 0);
-
+	
 	/** standard definition object for the column to store the document number in */
 	public static final TableColumnDefinition DOC_NUMBER_COLUMN = new TableColumnDefinition(DOC_NUMBER_COLUMN_NAME, TableDefinition.BIGINT_DATATYPE, 0);
 	
@@ -83,7 +80,7 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *         should be synchronized
 	 */
 	public abstract QueryResult processQuery(Query query);
-
+	
 	/**
 	 * Create links for submitting contents of the specified document as search
 	 * queries directly
@@ -91,7 +88,7 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *            instance fields, it should be synchronized
 	 */
 	public abstract void markSearchables(MutableAnnotation doc);
-
+	
 	/**
 	 * Mark essential parts of the document with DETAIL_ANNOTATION_TYPE
 	 * annotations
@@ -99,7 +96,7 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *            instance fields, it should be synchronized
 	 */
 	public abstract void markEssentialDetails(MutableAnnotation doc);
-
+	
 	/**
 	 * Add the search link attributes to an Annotation, allowing for for
 	 * submitting search queries directly to this indexer
@@ -108,7 +105,7 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *            synchronized
 	 */
 	public abstract void addSearchAttributes(Annotation annotation);
-
+	
 	/**
 	 * Add the search link attributes to an array of Annotations, allowing for
 	 * for submitting search queries directly to this indexer
@@ -117,24 +114,7 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *            synchronized
 	 */
 	public abstract void addSearchAttributes(Annotation[] annotations);
-//
-//	/**
-//	 * Obtain the index table entries for a set of document numbers that match
-//	 * the specified query. The returned index result should return its elements
-//	 * in their natural sort order, i.e., in the order described by the
-//	 * Comparator the result returns from its getSortOrder() method. This is to
-//	 * facilitate processing index results in a streaming fashion in SRS, and
-//	 * because indexers naturally know best how to order their index elements.
-//	 * @param query the query to process
-//	 * @param docNumbers the document numbers the index entries for which to
-//	 *            include in the result
-//	 * @param sort sort the returned index entries in their natural ordering
-//	 *            (the way they should most likely be displayed)?
-//	 * @return the result of the lookup Note: if this method writes class or
-//	 *         instance fields, it should be synchronized
-//	 */
-//	public abstract IndexResult getIndexEntries(Query query, int[] docNumbers, boolean sort);
-
+	
 	/**
 	 * Obtain the index table entries for a set of document numbers that match
 	 * the specified query. The returned index result should return its elements
@@ -150,8 +130,25 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 * @return the result of the lookup Note: if this method writes class or
 	 *         instance fields, it should be synchronized
 	 */
-	public abstract IndexResult getIndexEntries(Query query, long[] docNumbers, boolean sort);
-
+	public abstract IndexResult getIndexEntries(Query query, long docNumber, boolean sort);
+	
+	/**
+	 * Obtain those index table entries for a document that match the specified
+	 * query. The returned index result should return its elements in their
+	 * natural sort order, i.e., in the order described by the Comparator the
+	 * result returns from its getSortOrder() method. This is to facilitate
+	 * processing index results in a streaming fashion in SRS, and because
+	 * indexers naturally know best how to order their index elements.
+	 * @param query the query to process
+	 * @param allIndexEntries all index entries for a given document, i.e., the
+	 *            list of index entries to filter
+	 * @param sort sort the returned index entries in their natural ordering
+	 *            (the way they should most likely be displayed)?
+	 * @return the result of the lookup Note: if this method writes class or
+	 *         instance fields, it should be synchronized
+	 */
+	public abstract IndexResult filterIndexEntries(Query query, IndexResult allIndexEntries, boolean sort);
+	
 	/**
 	 * Do a thesaurus lookup in the index table
 	 * @param query the query to process
@@ -160,37 +157,24 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *         writes class or instance fields, it should be synchronized
 	 */
 	public abstract ThesaurusResult doThesaurusLookup(Query query);
-//
-//	/**
-//	 * Produce the index entries for a document
-//	 * @param doc the document to produce the index entries for
-//	 * @param docNr the number of the specified document (to use as foreign key)
-//	 *            Note: if this method writes class or instance fields, it
-//	 *            should be synchronized
-//	 */
-//	public abstract void index(QueriableAnnotation doc, int docNr);
-
+	
 	/**
 	 * Produce the index entries for a document
 	 * @param doc the document to produce the index entries for
 	 * @param docNr the number of the specified document (to use as foreign key)
 	 *            Note: if this method writes class or instance fields, it
 	 *            should be synchronized
+	 * @return an index result containing the index entries for the argument
+	 *            document
 	 */
-	public abstract void index(QueriableAnnotation doc, long docNr);
-//
-//	/**
-//	 * Delete a document from the index
-//	 * @param docNr the number of the document to delete
-//	 */
-//	public abstract void deleteDocument(int docNr);
-
+	public abstract IndexResult index(QueriableAnnotation doc, long docNr);
+	
 	/**
 	 * Delete a document from the index
 	 * @param docNr the number of the document to delete
 	 */
 	public abstract void deleteDocument(long docNr);
-
+	
 	/**
 	 * Retrieve the name of the index provided by this Indexer. The String
 	 * returned by this method must not be null, and it has to be the same as
@@ -200,7 +184,7 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *         Indexer's index, preferably a valid word
 	 */
 	public abstract String getIndexName();
-
+	
 	/**
 	 * @return a search field group describing the search fields for this index,
 	 *         plus their alignment in rows

@@ -28,14 +28,10 @@
 package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.Reader;
-import java.io.Writer;
-import java.util.Comparator;
 import java.util.Properties;
 
-import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
 
 /**
@@ -43,7 +39,7 @@ import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
  * 
  * @author sautter
  */
-public abstract class CollectionStatistics extends SrsSearchResult {
+public abstract class CollectionStatistics extends CsvResult {
 	
 	/**	the number of master documents in the document collection */
 	public final int masterDocCount;
@@ -95,29 +91,6 @@ public abstract class CollectionStatistics extends SrsSearchResult {
 	}
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#getSortOrder()
-	 */
-	public Comparator getSortOrder() {
-		if (this.sortOrder == null)
-			this.sortOrder = new Comparator() {
-				public int compare(Object o1, Object o2) {
-					CollectionStatisticsElement cse1 = ((CollectionStatisticsElement) o1);
-					CollectionStatisticsElement cse2 = ((CollectionStatisticsElement) o2);
-					int c = 0;
-					for (int a = 0; a < resultAttributes.length; a++) {
-						String s1 = ((String) cse1.getAttribute(resultAttributes[a], ""));
-						String s2 = ((String) cse2.getAttribute(resultAttributes[a], ""));
-						if ((c = s1.compareTo(s2)) != 0)
-							return c;
-					}
-					return c;
-				}
-			};
-		return this.sortOrder;
-	}
-	private Comparator sortOrder;
-	
-	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#getStartTagAttributes()
 	 */
 	public Properties getStartTagAttributes() {
@@ -136,43 +109,10 @@ public abstract class CollectionStatistics extends SrsSearchResult {
 	private Properties startTagAttributes = null;
 	
 	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#writeElement(java.io.Writer, de.uka.ipd.idaho.goldenGateServer.srs.data.ResultElement)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.CsvResult#newResultElement()
 	 */
-	public void writeElement(Writer out, SrsSearchResultElement element) throws IOException {
-		
-		//	produce writer
-		BufferedWriter buf = ((out instanceof BufferedWriter) ? ((BufferedWriter) out) : new BufferedWriter(out));
-		
-		//	write element
-		buf.write("  <" + RESULT_NODE_NAME);
-		for (int a = 0; a < this.resultAttributes.length; a++) {
-			String statisticsFieldValue = ((String) element.getAttribute(this.resultAttributes[a]));
-			if ((statisticsFieldValue != null) && (statisticsFieldValue.length() != 0))
-				buf.write(" " + this.resultAttributes[a] + "=\"" + AnnotationUtils.escapeForXml(statisticsFieldValue, true) + "\"");
-		}
-		buf.write("/>");
-		buf.newLine();
-		
-		//	flush Writer if it was wrapped
-		if (buf != out)
-			buf.flush();
-	}
-	
-	/* (non-Javadoc)
-	 * @see de.uka.ipd.idaho.goldenGateServer.srs.data.Result#readElement(java.lang.String[])
-	 */
-	public SrsSearchResultElement readElement(String[] tokens) throws IOException {
-		TreeNodeAttributeSet tnas = TreeNodeAttributeSet.getTagAttributes(tokens[0], grammar);
-		CollectionStatisticsElement cse = null;
-		for (int a = 0; a < this.resultAttributes.length; a++) {
-			String attributeValue = tnas.getAttribute(this.resultAttributes[a]);
-			if (attributeValue != null) {
-				if (cse == null)
-					cse = new CollectionStatisticsElement();
-				cse.setAttribute(this.resultAttributes[a], attributeValue);
-			}
-		}
-		return cse;
+	protected CsvResultElement newResultElement() {
+		return new CollectionStatisticsElement();
 	}
 	
 	/**
@@ -195,14 +135,15 @@ public abstract class CollectionStatistics extends SrsSearchResult {
 		CollectionStatisticsBuilder(Reader in) throws IOException {
 			super(in);
 		}
-		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
-			int masterDocCount = Integer.parseInt(attributes.getProperty(MASTER_DOCUMENT_COUNT_ATTRIBUTE, "0"));
-			int docCount = Integer.parseInt(attributes.getProperty(DOCUMENT_COUNT_ATTRIBUTE, "0"));
-			int wordCount = Integer.parseInt(attributes.getProperty(WORD_COUNT_ATTRIBUTE, "0"));
-			String since = attributes.getProperty(GET_STATISTICS_SINCE_PARAMETER, "-1");
-			int masterDocCountSince = Integer.parseInt(attributes.getProperty(MASTER_DOCUMENT_COUNT_SINCE_ATTRIBUTE, "0"));
-			int docCountSince = Integer.parseInt(attributes.getProperty(DOCUMENT_COUNT_SINCE_ATTRIBUTE, "0"));
-			int wordCountSince = Integer.parseInt(attributes.getProperty(WORD_COUNT_SINCE_ATTRIBUTE, "0"));
+//		protected SrsSearchResult buildResult(String[] resultAttributes, Properties attributes) {
+		SrsSearchResult buildResult(String[] resultAttributes, TreeNodeAttributeSet attributes) {
+			int masterDocCount = Integer.parseInt(attributes.getAttribute(MASTER_DOCUMENT_COUNT_ATTRIBUTE, "0"));
+			int docCount = Integer.parseInt(attributes.getAttribute(DOCUMENT_COUNT_ATTRIBUTE, "0"));
+			int wordCount = Integer.parseInt(attributes.getAttribute(WORD_COUNT_ATTRIBUTE, "0"));
+			String since = attributes.getAttribute(GET_STATISTICS_SINCE_PARAMETER, "-1");
+			int masterDocCountSince = Integer.parseInt(attributes.getAttribute(MASTER_DOCUMENT_COUNT_SINCE_ATTRIBUTE, "0"));
+			int docCountSince = Integer.parseInt(attributes.getAttribute(DOCUMENT_COUNT_SINCE_ATTRIBUTE, "0"));
+			int wordCountSince = Integer.parseInt(attributes.getAttribute(WORD_COUNT_SINCE_ATTRIBUTE, "0"));
 			return new CollectionStatistics(resultAttributes, masterDocCount, docCount, wordCount, since, masterDocCountSince, docCountSince, wordCountSince) {
 				public boolean hasNextElement() {
 					return CollectionStatisticsBuilder.this.hasNextElement();

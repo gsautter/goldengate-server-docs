@@ -97,7 +97,7 @@ public class GoldenGateElsDioWriter extends LinkWriter {
 	 * @see de.uka.ipd.idaho.goldenGateServer.plazi.extLinks.GoldenGateELS.LinkWriter#canWriteLinks(java.lang.String)
 	 */
 	public boolean canWriteLinks(String dataId) {
-		return this.dio.isDocumentEditable(dataId);
+		return this.dio.isDocumentEditable(dataId, UPDATE_USER_NAME);
 	}
 	
 	/* (non-Javadoc)
@@ -152,7 +152,7 @@ public class GoldenGateElsDioWriter extends LinkWriter {
 			
 			//	store any changes
 			if (docTracker.docChanged)
-				this.dio.updateDocument(UPDATE_USER_NAME, dataId, doc, this);
+				this.dio.updateDocument(this.getUpdateUserName(), UPDATE_USER_NAME, dataId, doc, this);
 			
 			//	return whatever is left
 			return links;

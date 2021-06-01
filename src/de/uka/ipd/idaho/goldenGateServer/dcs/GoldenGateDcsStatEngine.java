@@ -29,22 +29,17 @@ package de.uka.ipd.idaho.goldenGateServer.dcs;
 
 import java.io.IOException;
 import java.sql.SQLException;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
-import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -55,18 +50,15 @@ import de.uka.ipd.idaho.easyIO.IoProvider;
 import de.uka.ipd.idaho.easyIO.SqlQueryResult;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
-import de.uka.ipd.idaho.gamta.util.GenericQueriableAnnotationWrapper;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathVariableResolver;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
-import de.uka.ipd.idaho.goldenGateServer.util.DataObjectUpdateConstants;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
 /**
  * @author sautter
- *
  */
-public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObjectUpdateConstants {
+public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 	
 	private static final String DOCUMENT_ID_HASH_ATTRIBUTE = "docIdHash";
 	
@@ -85,8 +77,6 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 	
 	private TreeMap fieldGroupsByName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
 	private TreeMap fieldsByFullName = new TreeMap(String.CASE_INSENSITIVE_ORDER);
-	
-	private Properties fieldLabels = new Properties();
 	
 	private long lastUpdate = System.currentTimeMillis();
 	
@@ -115,18 +105,14 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 		this.tableNamePrefix = tableNamePrefix;
 		
 		//	load field set
-		this.fieldLabels.setProperty("DocCount", this.fieldSet.docCountLabel);
 		this.fieldGroups = this.fieldSet.getFieldGroups();
 		for (int g = 0; g < this.fieldGroups.length; g++) {
 			this.fieldGroupsByName.put(this.fieldGroups[g].name, this.fieldGroups[g]);
 			if ("doc".equals(this.fieldGroups[g].name))
 				this.docFieldGroup = this.fieldGroups[g];
 			StatField[] fgFields = this.fieldGroups[g].getFields();
-			for (int f = 0; f < fgFields.length; f++) {
+			for (int f = 0; f < fgFields.length; f++)
 				this.fieldsByFullName.put(fgFields[f].fullName, fgFields[f]);
-				this.fieldLabels.setProperty(fgFields[f].fullName, fgFields[f].label);
-				this.fieldLabels.setProperty(fgFields[f].statColName, fgFields[f].label);
-			}
 		}
 		
 		//	create document table
@@ -143,16 +129,20 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 		TableDefinition[] statsTableDefs = new TableDefinition[this.fieldGroups.length];
 		TreeSet usedTableAliases = new TreeSet(String.CASE_INSENSITIVE_ORDER); // need to make sure table aliases are unique
 		usedTableAliases.add(docTableAlias);
-		ArrayList[] indexedColumnNames = new ArrayList[this.fieldGroups.length];
 		for (int g = 0; g < this.fieldGroups.length; g++) {
 			
 			//	find or create table definition
 			if ("doc".equals(this.fieldGroups[g].name))
 				statsTableDefs[g] = docTableDef;
-			else if (statsTableDefs[g] == null) {
+			else if (this.fieldGroups[g].virtualTableName == null) {
 				statsTableDefs[g] = new TableDefinition(this.tableNamePrefix + "Stats" + this.fieldGroups[g].name.substring(0, 1).toUpperCase() + this.fieldGroups[g].name.substring(1) + "Data");
 				statsTableDefs[g].addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 32);
 				statsTableDefs[g].addColumn(DOCUMENT_ID_HASH_ATTRIBUTE, TableDefinition.INT_DATATYPE, 0);
+			}
+			else {
+				statsTableDefs[g] = new TableDefinition(this.fieldGroups[g].virtualTableName);
+				if (findVirtualIdField(this.fieldGroups[g]) == null)
+					statsTableDefs[g].addColumn(DOCUMENT_ID_ATTRIBUTE, TableDefinition.VARCHAR_DATATYPE, 1);
 			}
 			
 			//	store table names and aliases for query construction
@@ -170,18 +160,17 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			
 			//	add data fields, and collect indexed columns
 			StatField[] fgFields = this.fieldGroups[g].getFields();
-			indexedColumnNames[g] = new ArrayList();
 			for (int f = 0; f < fgFields.length; f++) {
 				if (StatField.STRING_TYPE.equals(fgFields[f].dataType))
-					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.VARCHAR_DATATYPE, fgFields[f].dataLength);
+					statsTableDefs[g].addColumn(fgFields[f].columnName, TableDefinition.VARCHAR_DATATYPE, ((this.fieldGroups[g].virtualTableName == null) ? fgFields[f].dataLength : 1));
 				else if (StatField.INTEGER_TYPE.equals(fgFields[f].dataType))
-					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.INT_DATATYPE, 0);
+					statsTableDefs[g].addColumn(fgFields[f].columnName, TableDefinition.INT_DATATYPE, 0);
+				else if (StatField.LONG_TYPE.equals(fgFields[f].dataType))
+					statsTableDefs[g].addColumn(fgFields[f].columnName, TableDefinition.BIGINT_DATATYPE, 0);
 				else if (StatField.REAL_TYPE.equals(fgFields[f].dataType))
-					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.REAL_DATATYPE, 0);
+					statsTableDefs[g].addColumn(fgFields[f].columnName, TableDefinition.REAL_DATATYPE, 0);
 				else if (StatField.BOOLEAN_TYPE.equals(fgFields[f].dataType))
-					statsTableDefs[g].addColumn(fgFields[f].statColName, TableDefinition.CHAR_DATATYPE, 1);
-				if (fgFields[f].indexed)
-					indexedColumnNames[g].add(fgFields[f].statColName);
+					statsTableDefs[g].addColumn(fgFields[f].columnName, TableDefinition.CHAR_DATATYPE, 1);
 			}
 		}
 		
@@ -197,13 +186,20 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 		StatField[] docFgFields = this.docFieldGroup.getFields();
 		for (int f = 0; f < docFgFields.length; f++) {
 			if (docFgFields[f].indexed)
-				this.io.indexColumn(docTableDef.getTableName(), docFgFields[f].statColName);
+				this.io.indexColumn(docTableDef.getTableName(), docFgFields[f].columnName);
 		}
 		
 		//	create and index sub tables
 		for (int t = 0; t < statsTableDefs.length; t++) {
 			if (statsTableDefs[t] == docTableDef)
 				continue;
+			
+			//	no need to create virtual tables (only have to check whether or not they exist)
+			if (this.fieldGroups[t].virtualTableName != null) {
+				if (!this.io.ensureTable(statsTableDefs[t], false))
+					throw new RuntimeException("DocumentCollectionStatistics: cannot work without virtual table " + this.fieldGroups[t].virtualTableName);
+				continue;
+			}
 			
 			//	create and index table
 			if (!this.io.ensureTable(statsTableDefs[t], true))
@@ -219,9 +215,24 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			StatField[] fgFields = this.fieldGroups[t].getFields();
 			for (int f = 0; f < fgFields.length; f++) {
 				if (fgFields[f].indexed)
-					this.io.indexColumn(statsTableDefs[t].getTableName(), fgFields[f].statColName);
+					this.io.indexColumn(statsTableDefs[t].getTableName(), fgFields[f].columnName);
 			}
 		}
+	}
+	
+	private Map virtualIdFieldCache = Collections.synchronizedMap(new LinkedHashMap());
+	private StatField findVirtualIdField(StatFieldGroup fieldGroup) {
+		if (this.virtualIdFieldCache.containsKey(fieldGroup.name))
+			return ((StatField) this.virtualIdFieldCache.get(fieldGroup.name));
+		StatField[] fgFields = fieldGroup.getFields();
+		StatField idField = null;
+		for (int f = 0; f < fgFields.length; f++)
+			if (fgFields[f].isVirtualRefId) {
+				idField = fgFields[f];
+				break;
+			}
+		this.virtualIdFieldCache.put(fieldGroup.name, idField); // need to cache null as well
+		return idField;
 	}
 	
 	/**
@@ -231,30 +242,26 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 	 * @throws IOException
 	 */
 	public void updateDocument(QueriableAnnotation doc) throws IOException {
+		this.updateDocument(doc, null);
+	}
+	
+	/**
+	 * Update the data belonging to a specific document in the statistics
+	 * tables underlying the engine. The argument set provides a filter for the
+	 * field groups to update, with a null argument updating all field groups.
+	 * The filter mechanism is helpful for reducing effort in whole-collection
+	 * updates, e.g. after a modification to parts of the field set definition.
+	 * @param doc the document to update
+	 * @param fieldGroups a set holding the names of the field groups to update
+	 * @throws IOException
+	 */
+	public void updateDocument(QueriableAnnotation doc, HashSet fieldGroups) throws IOException {
 		
 		//	get document ID
 		String docId = ((String) doc.getAttribute(DOCUMENT_ID_ATTRIBUTE));
 		
 		//	clean up
-		this.deleteDocument(docId);
-		
-		//	wrap document to format timestamps
-		doc = new GenericQueriableAnnotationWrapper(doc) {
-			public Object getAttribute(String name, Object def) {
-				return this.adjustAttributeValue(name, super.getAttribute(name, def));
-			}
-			public Object getAttribute(String name) {
-				return this.adjustAttributeValue(name, super.getAttribute(name));
-			}
-			private Object adjustAttributeValue(String name, Object value) {
-				if (value == null)
-					return value;
-				if (CHECKIN_TIME_ATTRIBUTE.equals(name) || UPDATE_TIME_ATTRIBUTE.equals(name)) try {
-					return timestampDateFormat.format(new Date(Long.parseLong(value.toString())));
-				} catch (Exception e) {}
-				return value;
-			}
-		};
+		this.deleteDocument(docId, fieldGroups);
 		
 		//	assemble insert queries
 		String docTableFields = (DOCUMENT_ID_ATTRIBUTE + ", " + DOCUMENT_ID_HASH_ATTRIBUTE);
@@ -264,27 +271,33 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 		GPathVariableResolver variables = new GPathVariableResolver();
 		StatVariable[] fsVars = this.fieldSet.getVariables();
 		for (int v = 0; v < fsVars.length; v++) {
-			GPathObject value = fsVars[v].getValue(doc, variables);
+			GPathObject value = fsVars[v].getValue(doc, doc, variables);
 			if ((value != null) && (value.asBoolean().value))
 				variables.setVariable(fsVars[v].name, value);
 		}
 		
 		//	fill document table
-		this.updateFieldGroup(this.docFieldGroup, doc, doc, variables, docTableFields, docTableValues);
+		if ((fieldGroups == null) || fieldGroups.contains("doc"))
+			this.updateFieldGroup(this.docFieldGroup, doc, doc, variables, docTableFields, docTableValues);
 		
 		//	fill sub tables
 		String subTableFields = (DOCUMENT_ID_ATTRIBUTE + ", " + DOCUMENT_ID_HASH_ATTRIBUTE);
 		String subTableValues = ("'" + EasyIO.sqlEscape(docId) + "'" + ", " + docId.hashCode());
 		for (int g = 0; g < this.fieldGroups.length; g++) {
 			if (this.fieldGroups[g] == this.docFieldGroup)
-				continue;
+				continue; // we've done this one above
+			if (this.fieldGroups[g].virtualTableName != null)
+				continue; // no need to update virtual table names
+			if ((fieldGroups != null) && !fieldGroups.contains(this.fieldGroups[g].name))
+				continue; // filtered out
 			StatVariable[] fgVars = this.fieldGroups[g].getVariables();
-			QueriableAnnotation[] contexts = this.fieldGroups[g].defContext.evaluate(doc, variables);
+			QueriableAnnotation[] contexts = {doc};
+			if (this.fieldGroups[g].defContext != null)
+				contexts = this.fieldGroups[g].defContext.evaluate(doc, variables);
 			for (int c = 0; c < contexts.length; c++) {
-//				this.updateFieldGroup(this.fieldGroups[g], doc, contexts[c], variables, subTableFields, subTableValues);
 				GPathVariableResolver cVariables = new GPathVariableResolver(variables);
 				for (int v = 0; v < fgVars.length; v++) {
-					GPathObject value = fgVars[v].getValue(contexts[c], variables);
+					GPathObject value = fgVars[v].getValue(doc, contexts[c], cVariables);
 					if ((value != null) && (value.asBoolean().value))
 						cVariables.setVariable(fgVars[v].name, value);
 				}
@@ -296,14 +309,6 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 		this.cache.clear();
 		this.lastUpdate = System.currentTimeMillis();
 	}
-	
-	private static class UtcDateFormat extends SimpleDateFormat {
-		UtcDateFormat(String pattern) {
-			super(pattern, Locale.US);
-			this.setTimeZone(TimeZone.getTimeZone("UTC")); 
-		}
-	}
-	private static final DateFormat timestampDateFormat = new UtcDateFormat("yyyy-MM-dd HH:mm:ss");
 	
 	private void updateFieldGroup(StatFieldGroup fieldGroup, QueriableAnnotation doc, QueriableAnnotation context, GPathVariableResolver variables, String fieldsPrefix, String valuesPrefix) {
 		StringBuffer fieldNames = new StringBuffer(fieldsPrefix);
@@ -317,18 +322,20 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 				if (value != null)
 					value = this.normalizeFieldValue(fields[f], value);
 				if (StatField.STRING_TYPE.equals(fields[f].dataType)) {
-					fieldNames.append(", " + fields[f].statColName);
+					fieldNames.append(", " + fields[f].columnName);
 					if (value == null)
 						fieldValues.append(", ''");
 					else {
 						String str = value.asString().value;
+						str = str.trim();
+						str = str.replaceAll("\\s+", " ");
 						if (str.length() > fields[f].dataLength)
 							str = str.substring(0, fields[f].dataLength);
 						fieldValues.append(", '" + EasyIO.sqlEscape(str) + "'");
 					}
 				}
 				else if (StatField.INTEGER_TYPE.equals(fields[f].dataType)) {
-					fieldNames.append(", " + fields[f].statColName);
+					fieldNames.append(", " + fields[f].columnName);
 					if ((value == null) || "NaN".equals(value.asString().value))
 						fieldValues.append(", 0");
 					else try {
@@ -343,8 +350,24 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 						}
 					}
 				}
+				else if (StatField.LONG_TYPE.equals(fields[f].dataType)) {
+					fieldNames.append(", " + fields[f].columnName);
+					if ((value == null) || "NaN".equals(value.asString().value))
+						fieldValues.append(", 0");
+					else try {
+						fieldValues.append(", " + Long.parseLong(value.asString().value));
+					}
+					catch (NumberFormatException nfeInt) {
+						try {
+							fieldValues.append(", " + Math.round(Double.parseDouble(value.asString().value)));
+						}
+						catch (NumberFormatException nfeCast) {
+							fieldValues.append(", 0");
+						}
+					}
+				}
 				else if (StatField.REAL_TYPE.equals(fields[f].dataType)) {
-					fieldNames.append(", " + fields[f].statColName);
+					fieldNames.append(", " + fields[f].columnName);
 					if ((value == null) || "NaN".equals(value.asString().value))
 						fieldValues.append(", 0");
 					else try {
@@ -355,7 +378,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 					}
 				}
 				else if (StatField.BOOLEAN_TYPE.equals(fields[f].dataType)) {
-					fieldNames.append(", " + fields[f].statColName);
+					fieldNames.append(", " + fields[f].columnName);
 					if (value == null)
 						fieldValues.append(", 'F'");
 					else fieldValues.append(", '" + (value.asBoolean().value ? "T" : "F") + "'");
@@ -399,11 +422,19 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 	 * @throws IOException
 	 */
 	public void deleteDocument(String docId) throws IOException {
+		this.deleteDocument(docId, null);
+	}
+	
+	private void deleteDocument(String docId, HashSet fieldGroups) throws IOException {
 		
 		//	clean up sub tables first (we might have foreign keys to observe)
 		for (int g = 0; g < this.fieldGroups.length; g++) {
 			if ("doc".equals(this.fieldGroups[g].name))
-				continue;
+				continue; // we'll do this one below
+			if (this.fieldGroups[g].virtualTableName != null)
+				continue; // no need to update virtual table name
+			if ((fieldGroups != null) && !fieldGroups.contains(this.fieldGroups[g].name))
+				continue; // filtered out
 			String query = "DELETE FROM " + this.fieldGroupsToTables.getProperty(this.fieldGroups[g].name) + 
 					" WHERE " + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + docId.hashCode() + "" +
 					" AND " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
@@ -418,6 +449,9 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 				System.out.println("  Query was: " + query);
 			}
 		}
+		
+		if ((fieldGroups != null) && !fieldGroups.contains("doc"))
+			return; // no need to take on document table
 		
 		//	clean up document table last (now that all referencing tuples are deleted)
 		String query = "DELETE FROM " + this.fieldGroupsToTables.getProperty("doc") + 
@@ -528,7 +562,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 				outputFieldString.append(field);
 			else {
 				String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate).toLowerCase();
-				if (("sum".equals(aggregate) || "avg".equals(aggregate)) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
+				if (("sum".equals(aggregate) || "avg".equals(aggregate)) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.LONG_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
 					continue;
 				outputFieldString.append(field, aggregate);
 			}
@@ -577,6 +611,10 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 					try {
 						i = Integer.parseInt(predicateParts[p]);
 					} catch (NumberFormatException nfe) {}
+					long l = Long.MIN_VALUE;
+					try {
+						l = Long.parseLong(predicateParts[p]);
+					} catch (NumberFormatException nfe) {}
 					Double d = Double.NEGATIVE_INFINITY;
 					try {
 						d = Double.parseDouble(predicateParts[p].replaceAll("\\,", "."));
@@ -587,10 +625,12 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 							predicatePartWhere.append(" OR " + this.getQualifiedFieldName(fields[f]) + " LIKE '" + EasyIO.sqlEscape(predicateParts[p]) + "'");
 						else if (StatField.INTEGER_TYPE.equals(fields[f].dataType) && (i != Integer.MIN_VALUE))
 							predicatePartWhere.append(" OR " + this.getQualifiedFieldName(fields[f]) + " = " + i + "");
+						else if (StatField.LONG_TYPE.equals(fields[f].dataType) && (l != Long.MIN_VALUE))
+							predicatePartWhere.append(" OR " + this.getQualifiedFieldName(fields[f]) + " = " + i + "");
 						else if (StatField.REAL_TYPE.equals(fields[f].dataType) && (d != Double.NEGATIVE_INFINITY))
 							predicatePartWhere.append(" OR " + this.getQualifiedFieldName(fields[f]) + " = " + d + "");
 					}
-					if (predicatePartWhere.length() > 3)
+					if (predicatePartWhere.length() > "1=0".length())
 						whereString.append(" AND (" + predicatePartWhere.toString() + ")");
 				}
 				tableString.appendTableForFieldGroup(fieldGroup);
@@ -603,7 +643,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			String predicateString = fieldPredicates.getProperty(field.fullName);
 			if ((predicateString == null) || (predicateString.trim().length() == 0))
 				continue;
-			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(field.dataType) || StatField.REAL_TYPE.equals(field.dataType)));
+			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(field.dataType) || StatField.LONG_TYPE.equals(field.dataType) || StatField.REAL_TYPE.equals(field.dataType)));
 			if (predicate.isEmpty()) {
 				System.out.println(this.statName + ": empty predicate for " + field.dataType);
 				System.out.println("  input string was " + predicateString);
@@ -650,14 +690,14 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			if ((predicateString == null) || (predicateString.trim().length() == 0))
 				continue;
 			String aggregate = fieldAggregates.getProperty(field.fullName, field.defAggregate).toLowerCase();
-			if (("sum".equals(aggregate) || "avg".equals(aggregate)) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
+			if (("sum".equals(aggregate) || "avg".equals(aggregate)) && !StatField.INTEGER_TYPE.equals(field.dataType) && !StatField.LONG_TYPE.equals(field.dataType) && !StatField.REAL_TYPE.equals(field.dataType))
 				continue;
 			String aggregateDataType = field.dataType;
 			if ("count".equals(aggregate) || "count-distinct".equals(aggregate))
 				aggregateDataType = StatField.INTEGER_TYPE;
 			else if ("sum".equals(aggregate) || "avg".equals(aggregate))
-				aggregateDataType = (StatField.REAL_TYPE.equals(field.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
-			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(aggregateDataType) || StatField.REAL_TYPE.equals(aggregateDataType)));
+				aggregateDataType = (StatField.REAL_TYPE.equals(field.dataType) ? StatField.REAL_TYPE : (StatField.LONG_TYPE.equals(field.dataType) ? StatField.LONG_TYPE : StatField.INTEGER_TYPE));
+			Predicate predicate = parsePredicate(predicateString, (StatField.INTEGER_TYPE.equals(aggregateDataType) || StatField.LONG_TYPE.equals(aggregateDataType) || StatField.REAL_TYPE.equals(aggregateDataType)));
 			if (predicate.isEmpty()) {
 				System.out.println(this.statName + ": empty predicate for " + aggregateDataType);
 				System.out.println("  input string was " + predicateString);
@@ -674,27 +714,27 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			if (leftField == null)
 				continue;
 			String leftAggregate = fieldAggregates.getProperty(leftField.fullName, leftField.defAggregate).toLowerCase();
-			if (("sum".equals(leftAggregate) || "avg".equals(leftAggregate)) && !StatField.INTEGER_TYPE.equals(leftField.dataType) && !StatField.REAL_TYPE.equals(leftField.dataType))
+			if (("sum".equals(leftAggregate) || "avg".equals(leftAggregate)) && !StatField.INTEGER_TYPE.equals(leftField.dataType) && !StatField.LONG_TYPE.equals(leftField.dataType) && !StatField.REAL_TYPE.equals(leftField.dataType))
 				continue;
 			String leftAggregateDataType = leftField.dataType;
 			if ("count".equals(leftAggregate) || "count-distinct".equals(leftAggregate))
 				leftAggregateDataType = StatField.INTEGER_TYPE;
 			else if ("sum".equals(leftAggregate) || "avg".equals(leftAggregate))
-				leftAggregateDataType = (StatField.REAL_TYPE.equals(leftField.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
+				leftAggregateDataType = (StatField.REAL_TYPE.equals(leftField.dataType) ? StatField.REAL_TYPE : (StatField.LONG_TYPE.equals(leftField.dataType) ? StatField.LONG_TYPE : StatField.INTEGER_TYPE));
 			
 			StatField rightField = ((StatField) this.fieldsByFullName.get(cf.rightField));
 			if (rightField == null)
 				continue;
 			String rightAggregate = fieldAggregates.getProperty(rightField.fullName, rightField.defAggregate).toLowerCase();
-			if (("sum".equals(rightAggregate) || "avg".equals(rightAggregate)) && !StatField.INTEGER_TYPE.equals(rightField.dataType) && !StatField.REAL_TYPE.equals(rightField.dataType))
+			if (("sum".equals(rightAggregate) || "avg".equals(rightAggregate)) && !StatField.INTEGER_TYPE.equals(rightField.dataType) && !StatField.LONG_TYPE.equals(rightField.dataType) && !StatField.REAL_TYPE.equals(rightField.dataType))
 				continue;
 			String rightAggregateDataType = rightField.dataType;
 			if ("count".equals(rightAggregate) || "count-distinct".equals(rightAggregate))
 				rightAggregateDataType = StatField.INTEGER_TYPE;
 			else if ("sum".equals(rightAggregate) || "avg".equals(rightAggregate))
-				rightAggregateDataType = (StatField.REAL_TYPE.equals(rightField.dataType) ? StatField.REAL_TYPE : StatField.INTEGER_TYPE);
+				rightAggregateDataType = (StatField.REAL_TYPE.equals(rightField.dataType) ? StatField.REAL_TYPE : (StatField.LONG_TYPE.equals(rightField.dataType) ? StatField.LONG_TYPE : StatField.INTEGER_TYPE));
 			
-			if ((StatField.INTEGER_TYPE.equals(leftAggregateDataType) || StatField.REAL_TYPE.equals(leftAggregateDataType)) != (StatField.INTEGER_TYPE.equals(rightAggregateDataType) || StatField.REAL_TYPE.equals(rightAggregateDataType)))
+			if ((StatField.INTEGER_TYPE.equals(leftAggregateDataType) || StatField.LONG_TYPE.equals(leftAggregateDataType) || StatField.REAL_TYPE.equals(leftAggregateDataType)) != (StatField.INTEGER_TYPE.equals(rightAggregateDataType) || StatField.LONG_TYPE.equals(rightAggregateDataType) || StatField.REAL_TYPE.equals(rightAggregateDataType)))
 				continue;
 			String leftAggreateField = ("count-distinct".equals(leftAggregate) ? ("count(DISTINCT " + this.getQualifiedFieldName(leftField) + ")") : (leftAggregate + "(" + this.getQualifiedFieldName(leftField) + ")"));
 			String rightAggreateField = ("count-distinct".equals(rightAggregate) ? ("count(DISTINCT " + this.getQualifiedFieldName(rightField) + ")") : (rightAggregate + "(" + this.getQualifiedFieldName(rightField) + ")"));
@@ -751,10 +791,8 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 				" FROM " + tableString.toString() +
 				" WHERE " + whereString.toString() +
 				" AND " + tableString.getJoinWhereString() +
-//				" GROUP BY " + groupFieldString.toString() +
 				groupFieldString.toString() +
 				" HAVING " + havingString.toString() +
-//				" ORDER BY " + orderFieldString.toString() +
 				orderFieldString.toString() +
 				limitClause +
 				";";
@@ -777,8 +815,6 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			stats = new DcStatistics(statFields.toStringArray(), lastUpdate);
 			while (sqr.next()) {
 				StringTupel st = new StringTupel();
-//				for (int f = 1 /* skip the dummy */; (f < sqr.getColumnCount()) && ((f-1) < statFields.size()); f++)
-//					st.setValue(statFields.get(f-1), sqr.getString(f));
 				for (int f = 0; (f < sqr.getColumnCount()) && (f < statFields.size()); f++)
 					st.setValue(statFields.get(f), sqr.getString(f));
 				stats.addElement(st);
@@ -806,7 +842,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 	}
 	
 	private String getQualifiedFieldName(StatField field) {
-		return (this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + field.statColName);
+		return (this.fieldGroupsToTableAliases.getProperty(field.group.name) + "." + field.columnName);
 	}
 	
 	private class FieldListBuffer {
@@ -840,7 +876,11 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 				this.sb.append(" AS " + field.statColName);
 			}
 			
-			//	GROUP BY or ORDER BY clause
+			//	GROUP BY clause
+			else if (" GROUP BY ".equals(this.fieldListPrefix))
+				this.sb.append(getQualifiedFieldName(field));
+			
+			//	ORDER BY clause
 			else this.sb.append(field.statColName + ((aggregateOrOrder == null) ? "" : aggregateOrOrder));
 			
 			//	indicate we did something
@@ -872,14 +912,44 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			if (!this.tables.add(fieldGroup.name))
 				return;
 			this.sb.append(", " + fieldGroupsToTables.getProperty(fieldGroup.name) + " " + fieldGroupsToTableAliases.getProperty(fieldGroup.name));
-			this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
-			this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
+			if (fieldGroup.virtualTableName == null) {
+				this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
+				this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
+			}
+			else /* ID hash not necessarily available in virtual table */ {
+				StatField idField = findVirtualIdField(fieldGroup);
+				if (fieldGroup.refIdFieldName == null)
+					this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + ((idField == null) ? DOCUMENT_ID_ATTRIBUTE : idField.columnName) + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
+				else {
+					StatField refIdField = ((StatField) fieldsByFullName.get(fieldGroup.refIdFieldName));
+					this.appendTableForField(refIdField);
+					this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + ((idField == null) ? DOCUMENT_ID_ATTRIBUTE : idField.columnName) + " = " + fieldGroupsToTableAliases.getProperty(refIdField.group.name) + "." + refIdField.columnName);
+				}
+			}
 		}
 		public String toString() {
 			return this.sb.toString();
 		}
 		String getJoinWhereString() {
-			return this.joinWhere.toString();
+			StringBuffer sfgJoinWhere = new StringBuffer();
+			for (Iterator sfgnit = this.tables.iterator(); sfgnit.hasNext();) {
+				StatFieldGroup sfg = ((StatFieldGroup) fieldGroupsByName.get(sfgnit.next()));
+				StatFieldGroupJoin[] sfgjs = sfg.getJoins();
+				if (sfgjs.length == 0)
+					continue;
+				for (int j = 0; j < sfgjs.length; j++) {
+					StatField sf = ((StatField) fieldsByFullName.get(sfg.name + "." + sfgjs[j].fieldName));
+					if (sf == null)
+						continue; // some configuration error
+					StatField jsf = ((StatField) fieldsByFullName.get(sfgjs[j].joinFieldName));
+					if (jsf == null)
+						continue; // some configuration error
+					if (!this.tables.contains(jsf.group.name))
+						continue; // other table not in query
+					sfgJoinWhere.append(" AND " + getQualifiedFieldName(sf) + " = " + getQualifiedFieldName(jsf));
+				}
+			}
+			return (this.joinWhere.toString() + sfgJoinWhere.toString());
 		}
 	}
 	
@@ -1015,9 +1085,14 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 					else if (this.right == null)
 						return ("(" + field + " < '" + EasyIO.sqlEscape(this.left) + "')");
 					else if (this.left.equals(this.right)) {
-						if (this.left.indexOf('%') == -1)
-							return ("(" + field + " <> '" + EasyIO.sqlEscape(this.left) + "')");
-						else return ("(" + field + " NOT LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+//						if (this.left.indexOf('%') == -1)
+//							return ("(" + field + " <> '" + EasyIO.sqlEscape(this.left) + "')");
+//						else return ("(" + field + " NOT LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+						if (this.left.indexOf('%') != -1)
+							return ("(" + field + " NOT LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+						else if (this.left.indexOf('_') != -1)
+							return ("(" + field + " NOT LIKE '" + EasyIO.prepareForLIKE(this.left) + "')");
+						else return ("(" + field + " <> '" + EasyIO.sqlEscape(this.left) + "')");
 					}
 					else return ("((" + field + " < '" + EasyIO.sqlEscape(this.left) + "') OR (" + field + " > '" + EasyIO.sqlEscape(this.right) + "'))");
 				}
@@ -1038,9 +1113,14 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 					else if (this.right == null)
 						return ("(" + field + " >= '" + EasyIO.sqlEscape(this.left) + "')");
 					else if (this.left.equals(this.right)) {
-						if (this.left.indexOf('%') == -1)
-							return ("(" + field + " = '" + EasyIO.sqlEscape(this.left) + "')");
-						else return ("(" + field + " LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+//						if (this.left.indexOf('%') == -1)
+//							return ("(" + field + " = '" + EasyIO.sqlEscape(this.left) + "')");
+//						else return ("(" + field + " LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+						if (this.left.indexOf('%') != -1)
+							return ("(" + field + " LIKE '" + EasyIO.prepareForLIKE(this.left) + "%')");
+						else if (this.left.indexOf('_') != -1)
+							return ("(" + field + " LIKE '" + EasyIO.prepareForLIKE(this.left) + "')");
+						else return ("(" + field + " = '" + EasyIO.sqlEscape(this.left) + "')");
 					}
 					else return ("((" + field + " >= '" + EasyIO.sqlEscape(this.left) + "') AND (" + field + " <= '" + EasyIO.sqlEscape(this.right) + "'))");
 				}
@@ -1086,9 +1166,6 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			this.operator = operator;
 			this.rightField = rightField;
 		}
-		String getSql() {
-			return (this.leftField + " " + this.operator + " " + this.rightField);
-		}
 	}
 	
 	private static Predicate parsePredicate(String predString, boolean isNumeric) {
@@ -1111,9 +1188,13 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 				intBuf.append(ch);
 			}
 			
+			//	in quotes
+			else if (quoter != 0)
+				intBuf.append(ch);
+			
 			//	start of quotes
 			else if (ch == '"') {
-				quoter = ch;
+				quoter = '"';
 				intBuf.append(ch);
 			}
 			else if (ch == '[') {
@@ -1124,10 +1205,6 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 				quoter = ')';
 				intBuf.append(ch);
 			}
-			
-			//	in quotes
-			else if (quoter != 0)
-				intBuf.append(ch);
 			
 			//	end of interval
 			else if (ch < 33) {
@@ -1226,7 +1303,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants, DataObje
 			
 			//	start of quotes
 			else if (ch == '"') {
-				quoter = ch;
+				quoter = '"';
 				tokBuf.append(ch);
 			}
 			

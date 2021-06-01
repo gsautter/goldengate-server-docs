@@ -594,11 +594,18 @@ public class FullTextIndexer extends AbstractIndexer {
 	public void addSearchAttributes(Annotation annotation) {
 		//	no search links for full text
 	}
+//	
+//	/* (non-Javadoc)
+//	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, long[], boolean)
+//	 */
+//	public IndexResult getIndexEntries(Query query, long[] docNumbers, boolean sort) {
+//		return null; //	no support for index search
+//	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#getIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, long[], boolean)
 	 */
-	public IndexResult getIndexEntries(Query query, long[] docNumbers, boolean sort) {
+	public IndexResult getIndexEntries(Query query, long docNumber, boolean sort) {
 		return null; //	no support for index search
 	}
 	
@@ -606,14 +613,21 @@ public class FullTextIndexer extends AbstractIndexer {
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#doThesaurusLookup(de.uka.ipd.idaho.goldenGateServer.srs.Query)
 	 */
 	public ThesaurusResult doThesaurusLookup(Query query) {
-		//	no support for thesaurus search
-		return null;
+		return null; // no support for thesaurus search
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#filterIndexEntries(de.uka.ipd.idaho.goldenGateServer.srs.Query, de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult, boolean)
+	 */
+	public IndexResult filterIndexEntries(Query query, IndexResult allIndexEntries, boolean sort) {
+		return null; //	no support for index search
 	}
 	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#index(de.uka.ipd.idaho.gamta.QueriableAnnotation, long)
 	 */
-	public void index(QueriableAnnotation doc, long docNr) {
+//	public void index(QueriableAnnotation doc, long docNr) {
+	public IndexResult index(QueriableAnnotation doc, long docNr) {
 		
 		//	mark document number as valid
 		synchronized (this.invalidDocumentNumbers) {
@@ -622,7 +636,7 @@ public class FullTextIndexer extends AbstractIndexer {
 		
 		//	catch empty document
 		if (doc.size() == 0)
-			return;
+			return null;
 		
 		//	extract index terms
 		TokenSequence termTs = Gamta.newTokenSequence(doc, Gamta.NO_INNER_PUNCTUATION_TOKENIZER);
@@ -689,6 +703,8 @@ public class FullTextIndexer extends AbstractIndexer {
 				pendingEntries.add(new TermIndexEntry(docNr, tf, docLenLog));
 			}
 		}
+		
+		return null; // still no support for index search
 	}
 	
 	/* (non-Javadoc)

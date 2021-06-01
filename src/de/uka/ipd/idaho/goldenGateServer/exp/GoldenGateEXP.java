@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Properties;
 
 import de.uka.ipd.idaho.easyIO.EasyIO;
@@ -87,7 +88,8 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 	
 	private TableColumnDefinition[] indexFields;
 	
-	private GoldenGateExpBinding binding;
+	/** the binding to the underlying document repository */
+	protected GoldenGateExpBinding binding;
 	
 	private GPathExpression[] filters = new GPathExpression[0];
 	
@@ -313,6 +315,28 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 		};
 		cal.add(ca);
 		
+		//	get explanations of custom parameters
+		LinkedHashMap updateParams = this.getUpdateParams();
+		final String updateParamString;
+		final String[] updateParamExplanations;
+		if (updateParams != null) {
+			StringBuffer updateParamList = new StringBuffer();
+			updateParamExplanations = new String[updateParams.size()];
+			int upei = 0;
+			for (Iterator upnit = updateParams.keySet().iterator(); upnit.hasNext();) {
+				String upn = ((String) upnit.next());
+				updateParamList.append(" <");
+				updateParamList.append(upn);
+				updateParamList.append(">");
+				updateParamExplanations[upei++] = ((String) updateParams.get(upn));
+			}
+			updateParamString = updateParamList.toString();
+		}
+		else {
+			updateParamString = "";
+			updateParamExplanations = null;
+		}
+		
 		//	update data matching a filter on a custom index field
 		for (int f = 0; f < this.indexFields.length; f++) {
 			final String fieldName = this.indexFields[f].getColumnName();
@@ -324,37 +348,52 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 				}
 				public String[] getExplanation() {
 					String[] explanation = {
-							(UPDATE_FIELD_COMMAND_PREFIX + StringUtils.capitalize(fieldName)) + " <" + fieldName.toLowerCase() + "> <priority>",
-							"Issue update events for documents with a specific " + fieldName.toLowerCase() + ":",
-							"- <" + fieldName.toLowerCase() + ">: the " + fieldName.toLowerCase() + " to issue update events for",
+							((UPDATE_FIELD_COMMAND_PREFIX + StringUtils.capitalize(fieldName)) + " <" + fieldName.toLowerCase() + "> <priority>" + updateParamString),
+							("Issue update events for documents with a specific " + fieldName.toLowerCase() + ":"),
+							("- <" + fieldName.toLowerCase() + ">: the " + fieldName.toLowerCase() + " to issue update events for"),
 							"- <priority>: set to '-n' or '-h' to issue normal or high-priority events, respectively (optional)."
 						};
-					return explanation;
+					return mergeArrays(explanation, updateParamExplanations);
 				}
 				public void performActionConsole(String[] arguments) {
-					if (arguments.length == 0)
+					if (arguments.length == 0) {
 						this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify at least the " + fieldName.toLowerCase() + ".");
-					else if (arguments.length < 3) {
-						char priority = PRIORITY_LOW;
-						if (arguments.length == 2) {
-							if ("-h".equals(arguments[1]))
-								priority = PRIORITY_HIGH;
-							else if ("-n".equals(arguments[1]))
-								priority = PRIORITY_NORMAL;
-						}
-						String where;
-						if (TableDefinition.INT_DATATYPE.equals(dataType) || TableDefinition.BIGINT_DATATYPE.equals(dataType))
-							where = (fieldName + " = " + Integer.parseInt(arguments[0]));
-						else {
-							String fieldValue = EasyIO.sqlEscape(arguments[0]);
-							if (fieldValue.length() > fieldLength)
-								fieldValue = fieldValue.substring(0, fieldLength);
-							where = (fieldName + " LIKE '" + fieldValue + "%'");
-						}
-						int count = triggerUpdatesFromIndex(where, priority);
-						this.reportResult("Issued update events for " + count + " documents.");
+						return;
 					}
-					else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the " + fieldName.toLowerCase() + " and priority as the only arguments.");
+					else if ((arguments.length > 2) && (updateParamString.length() == 0)) {
+						this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the " + fieldName.toLowerCase() + " and priority as the only arguments.");
+						return;
+					}
+					char priority = PRIORITY_LOW;
+					int paramStart = 2;
+					if (arguments.length > 1) {
+						if ("-h".equals(arguments[1]))
+							priority = PRIORITY_HIGH;
+						else if ("-n".equals(arguments[1]))
+							priority = PRIORITY_NORMAL;
+						else if ("-l".equals(arguments[1]))
+							priority = PRIORITY_LOW;
+						else paramStart--;
+					}
+					long params;
+					try {
+						params = ((arguments.length <= paramStart) ? 0 : encodeUpdateParams(Arrays.copyOfRange(arguments, paramStart, arguments.length)));
+					}
+					catch (IllegalArgumentException iae) {
+						this.reportError(" Invalid arguments for '" + this.getActionCommand() + "': " + iae.getMessage());
+						return;
+					}
+					String where;
+					if (TableDefinition.INT_DATATYPE.equals(dataType) || TableDefinition.BIGINT_DATATYPE.equals(dataType))
+						where = (fieldName + " = " + Integer.parseInt(arguments[0]));
+					else {
+						String fieldValue = EasyIO.sqlEscape(arguments[0]);
+						if (fieldValue.length() > fieldLength)
+							fieldValue = fieldValue.substring(0, fieldLength);
+						where = (fieldName + " LIKE '" + fieldValue + "%'");
+					}
+					int count = triggerUpdatesFromIndex(where, priority, params);
+					this.reportResult("Issued update events for " + count + " documents.");
 				}
 			};
 			cal.add(ca);
@@ -367,28 +406,44 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 			}
 			public String[] getExplanation() {
 				String[] explanation = {
-						UPDATE_YEAR_COMMAND + " <year> <priority>",
+						(UPDATE_YEAR_COMMAND + " <year> <priority>" + updateParamString),
 						"Issue update events for documents from a specific year:",
 						"- <year>: the year to issue update events for",
 						"- <priority>: set to '-n' or '-h' to issue normal or high-priority events, respectively (optional)."
 					};
-				return explanation;
+//				return explanation;
+				return mergeArrays(explanation, updateParamExplanations);
 			}
 			public void performActionConsole(String[] arguments) {
-				if (arguments.length == 0)
+				if (arguments.length == 0) {
 					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify at least the year.");
-				else if (arguments.length < 3) {
-					char priority = PRIORITY_LOW;
-					if (arguments.length == 2) {
-						if ("-h".equals(arguments[1]))
-							priority = PRIORITY_HIGH;
-						else if ("-n".equals(arguments[1]))
-							priority = PRIORITY_NORMAL;
-					}
-					int count = triggerUpdatesFromIndex((DOCUMENT_DATE_ATTRIBUTE + " = " + Integer.parseInt(arguments[0])), priority);
-					this.reportResult("Issued update events for " + count + " documents.");
+					return;
 				}
-				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the year and priority as the only arguments.");
+				else if ((arguments.length > 2) && (updateParamString.length() == 0)) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the year and priority as the only arguments.");
+					return;
+				}
+				char priority = PRIORITY_LOW;
+				int paramStart = 2;
+				if (arguments.length > 1) {
+					if ("-h".equals(arguments[1]))
+						priority = PRIORITY_HIGH;
+					else if ("-n".equals(arguments[1]))
+						priority = PRIORITY_NORMAL;
+					else if ("-l".equals(arguments[1]))
+						priority = PRIORITY_LOW;
+					else paramStart--;
+				}
+				long params;
+				try {
+					params = ((arguments.length <= paramStart) ? 0 : encodeUpdateParams(Arrays.copyOfRange(arguments, paramStart, arguments.length)));
+				}
+				catch (IllegalArgumentException iae) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "': " + iae.getMessage());
+					return;
+				}
+				int count = triggerUpdatesFromIndex((DOCUMENT_DATE_ATTRIBUTE + " = " + Integer.parseInt(arguments[0])), priority, params);
+				this.reportResult("Issued update events for " + count + " documents.");
 			}
 		};
 		cal.add(ca);
@@ -400,18 +455,26 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 			}
 			public String[] getExplanation() {
 				String[] explanation = {
-						UPDATE_ALL_COMMAND,
-						"Issue update events for the whole document collection."
+						(UPDATE_ALL_COMMAND + updateParamString),
+						("Issue update events for the whole document collection" + ((updateParamString.length() == 1) ? "." : ":"))
 					};
-				return explanation;
+				return mergeArrays(explanation, updateParamExplanations);
 			}
 			public void performActionConsole(String[] arguments) {
-				if (arguments.length != 0)
+				if ((arguments.length != 0) && (updateParamString.length() == 0)) {
 					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
-				else {
-					int count = triggerUpdatesFromIndex("1=1", PRIORITY_LOW);
-					this.reportResult("Issued update events for " + count + " documents.");
+					return;
 				}
+				long params;
+				try {
+					params = encodeUpdateParams(arguments);
+				}
+				catch (IllegalArgumentException iae) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "': " + iae.getMessage());
+					return;
+				}
+				int count = triggerUpdatesFromIndex("1=1", PRIORITY_LOW, params);
+				this.reportResult("Issued update events for " + count + " documents.");
 			}
 		};
 		cal.add(ca);
@@ -426,7 +489,8 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 						UPDATE_DELETE_COMMAND,
 						"Trigger forwarding pending document deletions."
 					};
-				return explanation;
+//				return explanation;
+				return mergeArrays(explanation, updateParamExplanations);
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length != 0)
@@ -584,7 +648,47 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 		return ((ComponentAction[]) cal.toArray(new ComponentAction[cal.size()]));
 	}
 	
-	private int triggerUpdatesFromIndex(String where, char priority) {
+	private String[] mergeArrays(String[] strs1, String[] strs2) {
+		if ((strs1 == null) || (strs1.length == 0))
+			return strs2;
+		else if ((strs2 == null) || (strs2.length == 0))
+			return strs1;
+		String[] strs = new String[strs1.length + strs2.length];
+		System.arraycopy(strs1, 0, strs, 0, strs1.length);
+		System.arraycopy(strs2, 0, strs, strs1.length, strs2.length);
+		return strs;
+	}
+	
+	/**
+	 * Provide an map of names of subclass specific parameters to be included
+	 * in update triggering console actions, the mapped values being the
+	 * associated explanations. This default implementation returns null to
+	 * indicate 'no further parameters', subclasses are welcome to overwrite it
+	 * as needed, but also need to overwrite the
+	 * <code>encodeUpdateParams()</code> method to handle the named parameters.
+	 * @return an array holding the parameters
+	 */
+	protected LinkedHashMap getUpdateParams() {
+		return null;
+	}
+	
+	/**
+	 * Encode a series of custom update parameters in a bit vector. Subclasses
+	 * that use this mechanism have to overwrite the four-argument version of
+	 * the <code>doUpdate()</code>^method to gain access to the encoded
+	 * parameter values on event processing. The runtime length of the argument
+	 * array can vary and is not immediately bound to the length of the array
+	 * returned by the <code>getUpdateParamExplanations()</code> method.
+	 * @param params an array holding the parameter values to encode
+	 * @return a long encoding the parameter values in the argument array
+	 * @throws IllegalArgumentException if any of the parameters values in the
+	 *            argument array are invalid
+	 */
+	protected long encodeUpdateParams(String[] params) throws IllegalArgumentException {
+		return 0;
+	}
+	
+	private int triggerUpdatesFromIndex(String where, char priority, long params) {
 		String docQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE + 
 				" FROM " + DATA_TABLE_NAME + 
 				" WHERE " + where +
@@ -595,7 +699,7 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 		try {
 			sqr = io.executeSelectQuery(docQuery);
 			while (sqr.next()) {
-				this.dataUpdated(sqr.getString(0), false, null, priority);
+				this.dataUpdated(sqr.getString(0), false, null, priority, params);
 				count++;
 			}
 		}
@@ -657,9 +761,13 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 				
 				//	document given (event triggered update) ==> update table entry
 				else {
-					String docDate = ((String) doc.getAttribute(DOCUMENT_DATE_ATTRIBUTE));
-					if (docDate == null)
-						return -1;
+					String docDate = ((String) doc.getAttribute(DOCUMENT_DATE_ATTRIBUTE, "-1"));
+					try {
+						Integer.parseInt(docDate);
+					}
+					catch (RuntimeException re) {
+						docDate = "-1";
+					}
 					docAttributes.setProperty(DOCUMENT_DATE_ATTRIBUTE, docDate);
 					StringBuffer updates = new StringBuffer(" " + DOCUMENT_DATE_ATTRIBUTE + " = " + EasyIO.sqlEscape(docDate));
 					for (int f = 0; f < this.indexFields.length; f++) {
@@ -707,7 +815,7 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 				
 				//	document unavailable, we're done here
 				catch (IOException ioe) {
-					this.logError(this.getExporterName() + ": " + ioe.getMessage() + " while loading document '" + docId + "' from SRS.");
+					this.logError(this.getExporterName() + ": " + ioe.getMessage() + " while loading document '" + docId + "' from binding.");
 					this.logError(ioe);
 					return -1;
 				}
@@ -838,11 +946,20 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 		try {
 			sqr = this.io.executeSelectQuery(loadQuery);
 			if (sqr.next()) {
-				Properties docAttributes = new Properties();
-				docAttributes.setProperty(DOCUMENT_DATE_ATTRIBUTE, sqr.getString(0));
+				Properties dataAttributes = new Properties();
+				try {
+					Properties docAttributes = this.binding.getDocumentAttributes(dataId);
+					if (docAttributes != null)
+						dataAttributes.putAll(docAttributes);
+				}
+				catch (IOException ioe) {
+					this.logError(this.getExporterName() + ": " + ioe.getMessage() + " while loading document attributes.");
+					this.logError(ioe);
+				}
+				dataAttributes.setProperty(DOCUMENT_DATE_ATTRIBUTE, sqr.getString(0));
 				for (int f = 0; f < this.indexFields.length; f++)
-					docAttributes.setProperty(this.indexFields[f].getColumnName(), sqr.getString(f+1));
-				return docAttributes;
+					dataAttributes.setProperty(this.indexFields[f].getColumnName(), sqr.getString(f+1));
+				return dataAttributes;
 			}
 			else return null;
 		}
@@ -925,6 +1042,15 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 		 * @throws IOException
 		 */
 		public abstract boolean isDocumentAvailable(String docId);
+		
+		/**
+		 * Retrieve the attributes of an updated document from the component
+		 * backing the binding
+		 * @param docId the ID of the document to load
+		 * @return the attributes of the document with the specified ID
+		 * @throws IOException
+		 */
+		public abstract Properties getDocumentAttributes(String docId) throws IOException;
 		
 		/**
 		 * Retrieve an updated document from the component backing the binding

@@ -42,6 +42,8 @@ import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.dio.connectors.GoldenGateDioEXP;
 import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
 import de.uka.ipd.idaho.goldenGateServer.dio.util.AsynchronousDioAction;
+import de.uka.ipd.idaho.goldenGateServer.dta.DataObjectTransitAuthority;
+import de.uka.ipd.idaho.goldenGateServer.dta.DataObjectTransitAuthority.TransitDeniedException;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSRS;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
@@ -118,7 +120,10 @@ public class GoldenGateDioSrsConnector extends GoldenGateEXP implements Literatu
 				if (diffAction.isRunning())
 					throw new RuntimeException("A collection diff is running, cannot update at the same time.");
 			}
-			protected void update(StringTupel docData) throws IOException {
+			protected String getActionName() {
+				return (getLetterCode() + "." + super.getActionCommand());
+			}
+			protected void update(StringTupel docData, String[] arguments) throws IOException {
 				
 				//	get required document attributes
 				String docId = docData.getValue(DOCUMENT_ID_ATTRIBUTE);
@@ -138,13 +143,14 @@ public class GoldenGateDioSrsConnector extends GoldenGateEXP implements Literatu
 				this.dataPath,
 				"DioSrsCollectionDiffLog"
 			) {
-			
 			protected void checkRunnable() {
 				if (updateAction.isRunning())
 					throw new RuntimeException("A collection update is running, cannot diff at the same time.");
 			}
-			
-			protected void update(StringTupel docData) throws IOException {
+			protected String getActionName() {
+				return (getLetterCode() + "." + super.getActionCommand());
+			}
+			protected void update(StringTupel docData, String[] arguments) throws IOException {
 				
 				//	get document ID
 				String docId = docData.getValue(DOCUMENT_ID_ATTRIBUTE);
@@ -242,6 +248,18 @@ public class GoldenGateDioSrsConnector extends GoldenGateEXP implements Literatu
 	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP#doUpdate(java.lang.String, java.lang.String, java.util.Properties, long)
 	 */
 	protected void doUpdate(String dataId, String user, Properties dataAttributes, long params) throws IOException {
+		if (this.srs.getDocumentCount(dataId) == 0) try {
+			DataObjectTransitAuthority.checkTransit(dataId, null, this.dio.getLetterCode(), this.srs.getLetterCode());
+		}
+		catch (TransitDeniedException tde) {
+			DataObjectTransitAuthority.notifyDataObjectTransitFailed(
+					GoldenGateDioSrsConnector.class.getName(),
+					dataId, dataAttributes.getProperty(DOCUMENT_NAME_ATTRIBUTE, dataId),
+					this.dio.getLetterCode(), this.srs.getLetterCode(),
+					tde);
+			throw tde;
+		}
+		
 		QueriableAnnotation doc = this.dio.getDocument(dataId);
 		this.srs.storeDocument(doc, new EventLogger() {
 			public void writeLog(String logEntry) {
@@ -249,6 +267,11 @@ public class GoldenGateDioSrsConnector extends GoldenGateEXP implements Literatu
 					logInfo(logEntry);
 			}
 		});
+		
+		DataObjectTransitAuthority.notifyDataObjectTransitSuccessful(
+				GoldenGateDioSrsConnector.class.getName(),
+				dataId, dataAttributes.getProperty(DOCUMENT_NAME_ATTRIBUTE, dataId),
+				this.dio.getLetterCode(), this.srs.getLetterCode());
 	}
 	
 	/* (non-Javadoc)

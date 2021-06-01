@@ -29,6 +29,7 @@ package de.uka.ipd.idaho.goldenGateServer.srs;
 
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.Properties;
 import java.util.Vector;
 
@@ -37,7 +38,6 @@ import java.util.Vector;
  *
  */
 public class Query {
-	
 	private Properties variables = new Properties();
 	private String indexNameMask = null;
 	
@@ -54,6 +54,7 @@ public class Query {
 	 */
 	public void setValue(String name, String value) {
 		this.variables.setProperty(name, value);
+		this.queryString = null;
 	}
 	
 	/** add a variable to this Query which is dedicated for some custom indexer
@@ -75,7 +76,7 @@ public class Query {
 	
 	/** retrieve the value of a query variable
 	 * @param	name	the name of the variable to retrieve (will be prefixed with Indexer ID mask if set)
-	 * @return the value of the variable with the specified name, of null, if there is no such variable
+	 * @return the value of the variable with the specified name, or null, if there is no such variable
 	 */
 	public String getValue(String name) {
 		return this.getValue(name, null);
@@ -84,19 +85,35 @@ public class Query {
 	/** retrieve the value of a query variable
 	 * @param	name	the name of the variable to retrieve (will be prefixed with index name mask if set)
 	 * @param	def		the value to return if the variable with the specified name does not exist
-	 * @return the value of the variable with the specified name, of def, if there is no such variable
+	 * @return the value of the variable with the specified name, or def, if there is no such variable
 	 */
 	public String getValue(String name, String def) {
-		if (this.indexNameMask != null) name = (this.indexNameMask + "." + name);
+		if (this.indexNameMask != null)
+			name = (this.indexNameMask + "." + name);
 		return this.variables.getProperty(name, def);
 	}
 	
+	/** retrieve the number of variables in the query, or under the currently masked index name
+	 * @return the number if variables
+	 */
+	public int size() {
+		if (this.indexNameMask == null)
+			return this.variables.size();
+		int size = 0;
+		for (Iterator nit = this.variables.keySet().iterator(); nit.hasNext();) {
+			String name = ((String) nit.next());
+			if (name.startsWith(this.indexNameMask + "."))
+				size++; 
+		}
+		return size;
+	}
 	
 	/**	add a partial result to the query contained in this Envelope
 	 * @param	partialResult	the partial result to be added
 	 */
 	public void addPartialResult(QueryResult partialResult) {
-		if (partialResult != null) this.partialResults.add(partialResult);
+		if (partialResult != null)
+			this.partialResults.add(partialResult);
 	}
 	
 	/**	@return	the partial results of the query contained in this query
@@ -122,13 +139,17 @@ public class Query {
 	 * @see java.lang.Object#toString()
 	 */
 	public String toString() {
-		ArrayList vnl = new ArrayList(this.variables.keySet());
-		StringBuffer sb = new StringBuffer();
-		for (int n = 0; n < vnl.size(); n++) {
-			if (sb.length() != 0)
-				sb.append("&");
-			sb.append(vnl.get(n) + "=" + this.variables.getProperty(vnl.get(n).toString()));
+		if (this.queryString == null) {
+			ArrayList vnl = new ArrayList(this.variables.keySet());
+			StringBuffer sb = new StringBuffer();
+			for (int n = 0; n < vnl.size(); n++) {
+				if (sb.length() != 0)
+					sb.append("&");
+				sb.append(vnl.get(n) + "=" + this.variables.getProperty(vnl.get(n).toString()));
+			}
+			this.queryString = sb.toString();
 		}
-		return sb.toString();
+		return this.queryString;
 	}
+	private String queryString = null;
 }

@@ -1329,7 +1329,7 @@ public class DefaultSearchPortalLayout extends SearchPortalLayout {
 		tr.storeToken("<tr>", 0);
 		tr.storeToken("<td align=\"left\" colspan=\"" + colSpan + "\">", 0);
 		tr.storeToken("<p style=\"" + this.docContentTextStyle + "\">", 0);
-
+		
 		if (XML_RESULT_DISPLAY_MODE.equals(this.resultDisplayMode))
 			this.includeDocumentBodyXML(document.document, tr);
 		else if (BOXED_RESULT_DISPLAY_MODE.equals(this.resultDisplayMode))

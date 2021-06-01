@@ -28,10 +28,9 @@
 package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.TreeSet;
 
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.AnnotationUtils;
@@ -42,7 +41,6 @@ import de.uka.ipd.idaho.gamta.Token;
 import de.uka.ipd.idaho.gamta.TokenSequence;
 import de.uka.ipd.idaho.gamta.TokenSequenceUtils;
 import de.uka.ipd.idaho.gamta.Tokenizer;
-import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
  * A single element in the result of an index search, i.e. an individual index
@@ -67,8 +65,7 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	/** the document number this index entry refers to */
 	public final long docNr;
 	
-	private List subResults = null;
-	
+	private ArrayList subResults = null;
 	private IndexResultElement parent = null;
 	
 	/** Constructor
@@ -92,7 +89,6 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	private String produceIdString() {
 		StringBuffer idString = new StringBuffer(this.getValue());
 		String[] attributeNames = this.getAttributeNames();
-		Arrays.sort(attributeNames);
 		for (int a = 0; a < attributeNames.length; a++) {
 			idString.append(" ");
 			Object attributeValue = this.getAttribute(attributeNames[a]);
@@ -105,8 +101,8 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	/* (non-Javadoc)
 	 * @see java.lang.Object#equals(java.lang.Object)
 	 */
-	public boolean equals(Object o) {
-		return this.compareTo(o) == 0;
+	public boolean equals(Object obj) {
+		return (this.compareTo(obj) == 0);
 	}
 	
 	/* (non-Javadoc)
@@ -117,7 +113,7 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	}
 	
 	/**
-	 * produce a String key for sorting index result elements in lexicographical
+	 * Produce a String key for sorting index result elements in lexicographical
 	 * order
 	 * @param attributeNames the name of the attributes to use for the sort key,
 	 *            in the order to use them in
@@ -141,14 +137,14 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	private String[] sortStringFields = null;
 	
 	/**
-	 * add a subordinate index result of this index result element, i.e. a list
+	 * Add a subordinate index result of this index result element, i.e. a list
 	 * of elements subordinate to this one, or null, if there is no subordinate
 	 * result
 	 * @param subResult the subordinate result to add
 	 */
 	public void addSubResult(IndexResult subResult) {
 		if (this.subResults == null)
-			this.subResults = new LinkedList();
+			this.subResults = new ArrayList(4);
 		this.subResults.add(subResult);
 	}
 	
@@ -161,10 +157,9 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 		if (this.subResults == null)
 			return new IndexResult[0];
 		IndexResult[] subIrs = new IndexResult[this.subResults.size()];
-		int subIrIndex = 0;
-		for (Iterator srit = this.subResults.iterator(); srit.hasNext();) {
-			final IndexResult subIr = ((IndexResult) srit.next());
-			subIrs[subIrIndex++] = new IndexResult(subIr.resultAttributes, subIr.indexName, subIr.indexLabel) {
+		for (int r = 0; r < this.subResults.size(); r++) {
+			final IndexResult subIr = ((IndexResult) this.subResults.get(r));
+			subIrs[r] = new IndexResult(subIr.resultAttributes, subIr.indexName, subIr.indexLabel) {
 				public boolean hasNextElement() {
 					return subIr.hasNextElement();
 				}
@@ -242,8 +237,10 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	 * @see de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed#getAttribute(java.lang.String, java.lang.Object)
 	 */
 	public Object getAttribute(String name, Object def) {
-		if (INDEX_ENTRY_VALUE_ATTRIBUTE.equals(name)) return this.getValue();
-		else if (DOCUMENT_NUMBER_ATTRIBUTE.equals(name)) return ("" + this.docNr);
+		if (INDEX_ENTRY_VALUE_ATTRIBUTE.equals(name))
+			return this.getValue();
+		else if (DOCUMENT_NUMBER_ATTRIBUTE.equals(name))
+			return ("" + this.docNr);
 		else return super.getAttribute(name, def);
 	}
 
@@ -251,18 +248,19 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	 * @see de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed#getAttributeNames()
 	 */
 	public String[] getAttributeNames() {
-		StringVector sv = new StringVector();
-		sv.addElement(DOCUMENT_NUMBER_ATTRIBUTE);
-		sv.addContentIgnoreDuplicates(super.getAttributeNames());
-		return sv.toStringArray();
+		TreeSet ans = new TreeSet(Arrays.asList(super.getAttributeNames()));
+		ans.add(DOCUMENT_NUMBER_ATTRIBUTE);
+		return ((String[]) ans.toArray(new String[ans.size()]));
 	}
 
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed#getAttribute(java.lang.String)
 	 */
 	public Object getAttribute(String name) {
-		if (INDEX_ENTRY_VALUE_ATTRIBUTE.equals(name)) return this.getValue();
-		else if (DOCUMENT_NUMBER_ATTRIBUTE.equals(name)) return ("" + this.docNr);
+		if (INDEX_ENTRY_VALUE_ATTRIBUTE.equals(name))
+			return this.getValue();
+		else if (DOCUMENT_NUMBER_ATTRIBUTE.equals(name))
+			return ("" + this.docNr);
 		else return super.getAttribute(name);
 	}
 
@@ -322,7 +320,7 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 		String value = this.getValue();
 		if (value.length() == 0) {
 			String tag = AnnotationUtils.produceStartTag(this);
-			return (tag.substring(0, (tag.length()-1)) + "/>");
+			return (tag.substring(0, (tag.length() - ">".length())) + "/>");
 		}
 		else return (AnnotationUtils.produceStartTag(this) + AnnotationUtils.escapeForXml(this.getValue()) + AnnotationUtils.produceEndTag(this));
 	}
@@ -456,21 +454,26 @@ public class IndexResultElement extends SrsSearchResultElement implements Annota
 	/* (non-Javadoc)
 	 * @see java.lang.Comparable#compareTo(java.lang.Object)
 	 */
-	public int compareTo(Object o) {
-		if (o == null) return -1;
-		if (o instanceof IndexResultElement) {
-			IndexResultElement ire = ((IndexResultElement) o);
+	public int compareTo(Object obj) {
+		if (obj == this)
+			return 0;
+		if (obj instanceof IndexResultElement) {
+			IndexResultElement ire = ((IndexResultElement) obj);
 			int c = this.getValue().compareTo(ire.getValue());
-			if (c != 0) return c;
-			
-			StringVector attributeNameCollector = new StringVector();
-			attributeNameCollector.addContentIgnoreDuplicates(this.getAttributeNames());
-			attributeNameCollector.addContentIgnoreDuplicates(ire.getAttributeNames());
-			attributeNameCollector.sortLexicographically(false, false);
-			String[] attributeNames = attributeNameCollector.toStringArray();
+			if (c != 0)
+				return c;
+//			StringVector attributeNameCollector = new StringVector();
+//			attributeNameCollector.addContentIgnoreDuplicates(this.getAttributeNames());
+//			attributeNameCollector.addContentIgnoreDuplicates(ire.getAttributeNames());
+//			attributeNameCollector.sortLexicographically(false, false);
+//			String[] attributeNames = attributeNameCollector.toStringArray();
+			TreeSet attributeNameSet = new TreeSet(String.CASE_INSENSITIVE_ORDER);
+			attributeNameSet.addAll(Arrays.asList(this.getAttributeNames()));
+			attributeNameSet.add(Arrays.asList(ire.getAttributeNames()));
+			String[] attributeNames = ((String[]) attributeNameSet.toArray(new String[attributeNameSet.size()]));
 			return this.getSortString(attributeNames).compareTo(ire.getSortString(attributeNames));
 		}
-		return -1;
+		else return -1;
 	}
 
 	/* (non-Javadoc)

@@ -73,6 +73,8 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResult;
  * @author sautter
  */
 public class GoldenGateSrsClient implements GoldenGateSrsConstants {
+	private static final boolean DEBUG_SERVER_CONNECTIONS = false;
+	private static final boolean DEBUG_CACHE = false;
 	
 	private static WeakHashMap cachingInstances = new WeakHashMap();
 	private static CountingSet cacheFolderPaths = new CountingSet(new HashMap());
@@ -113,7 +115,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 					catch (Throwable t) {
 						t.printStackTrace(System.out);
 					}
-					System.out.println("Last update time is " + lastUpdate);
+					if (DEBUG_CACHE)
+						System.out.println("Last update time is " + lastUpdate);
 					
 					//	no documents, or communication error
 					if (lastUpdate == 0)
@@ -121,7 +124,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 					
 					//	no new changes from back-end
 					if (lastUpdate <= lastCacheCleanupUpdateTime) {
-						System.out.println("No changes in back-end since last cleanup");
+						if (DEBUG_CACHE)
+							System.out.println("No changes in back-end since last cleanup");
 						return;
 					}
 					
@@ -156,7 +160,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 				}
 			}
 		}
-		System.out.println("Statistics and search fields cleaned");
+		if (DEBUG_CACHE)
+			System.out.println("Statistics and search fields cleaned");
 		
 		//	invalidate all cache files older than last update
 		ArrayList cacheFolderPathList = new ArrayList(cacheFolderPaths);
@@ -292,7 +297,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 		//	create file & check timestamp
 		File cacheFile = new File(this.cacheFolder, (command + "." + cacheEntryId + ".cached"));
 		if (cacheFile.exists()) try {
-			System.out.println("GoldenGateSrsClient: cache hit");
+			if (DEBUG_CACHE)
+				System.out.println("GoldenGateSrsClient: cache hit");
 			return new BufferedReader(new InputStreamReader(new FileInputStream(cacheFile), "UTF-8"));
 		}
 		catch (IOException ioe) {
@@ -347,7 +353,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 					super.close();
 					cachingFile.setLastModified(cacheTimestamp);
 					cachingFile.renameTo(cacheFile);
-					System.out.println("SRS Cache Writer closed, cache file is " + cachingFile.getName());
+					if (DEBUG_CACHE)
+						System.out.println("SRS Cache Writer closed, cache file is " + cachingFile.getName());
 				}
 			};
 		}
@@ -426,7 +433,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 			if (this.con != null) {
 				this.con.close();
 				this.con = null;
-				System.out.println("SRS connection closed explicitly");
+				if (DEBUG_SERVER_CONNECTIONS)
+					System.out.println("SRS connection closed explicitly");
 			}
 		}
 		public int read(char[] cbuf, int off, int len) throws IOException {
@@ -438,7 +446,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 				this.data = null;
 				this.con.close();
 				this.con = null;
-				System.out.println("SRS connection closed at end of input");
+				if (DEBUG_SERVER_CONNECTIONS)
+					System.out.println("SRS connection closed at end of input");
 			}
 			catch (Exception e) {
 				System.out.println("Error closing SRS connection " + e.getMessage());
@@ -464,7 +473,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 				this.cache.flush();
 				this.cache.close();
 				this.cache = null;
-				System.out.println("SRS Cache Writer closed explicitly");
+				if (DEBUG_CACHE)
+					System.out.println("SRS Cache Writer closed explicitly");
 			}
 		}
 		public int read(char[] cbuf, int off, int len) throws IOException {
@@ -479,7 +489,8 @@ public class GoldenGateSrsClient implements GoldenGateSrsConstants {
 				this.cache.flush();
 				this.cache.close();
 				this.cache = null;
-				System.out.println("SRS Cache Writer closed at end of input");
+				if (DEBUG_CACHE)
+					System.out.println("SRS Cache Writer closed at end of input");
 			}
 			catch (Exception e) {
 				System.out.println("Error closing SRS Cache Writer " + e.getMessage());

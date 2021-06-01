@@ -46,7 +46,8 @@
 		<available property="ggs.exists" file="../goldengate-server/dist/GgServer.jar"/>
 	</target>
 	<target name="fetch-ggs" depends="check-fetch-ggs" if="${ggs.exists}">
-    	<copy file="../goldengate-server/dist/GgServer.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+		<copy file="../goldengate-server/dist/GgServer.jar" todir="${lib.home}" overwrite="true" verbose="false" />
+		<copy file="../goldengate-server/dist/Components/Bin/GgServerSlaveUtils.jar" todir="${lib.home}" overwrite="true" verbose="false" />
 	</target>
 	
 	<target name="check-fetch-ggswf" unless="ggswf.exists">
@@ -60,6 +61,7 @@
 		<available property="uaa.exists" file="../goldengate-server/dist/Components/GgServerUAA.jar"/>
 	</target>
 	<target name="fetch-uaa" depends="check-fetch-uaa" if="${uaa.exists}">
+    	<copy file="../goldengate-server/dist/Components/GgServerDTA.jar" todir="${lib.home}" overwrite="true" verbose="false" />
     	<copy file="../goldengate-server/dist/Components/GgServerUAA.jar" todir="${lib.home}" overwrite="true" verbose="false" />
 	</target>
 	

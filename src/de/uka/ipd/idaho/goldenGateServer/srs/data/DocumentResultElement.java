@@ -28,9 +28,11 @@
 package de.uka.ipd.idaho.goldenGateServer.srs.data;
 
 
+import java.util.Arrays;
+import java.util.TreeSet;
+
 import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.goldenGateServer.srs.GoldenGateSrsConstants;
-import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
  * A single element in the result of a document search
@@ -76,33 +78,36 @@ public class DocumentResultElement extends IndexResultElement implements GoldenG
 	public boolean hasAttribute(String name) {
 		return (RELEVANCE_ATTRIBUTE.equals(name) || DOCUMENT_ID_ATTRIBUTE.equals(name) || super.hasAttribute(name));
 	}
-
+	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed#getAttribute(java.lang.String, java.lang.Object)
 	 */
 	public Object getAttribute(String name, Object def) {
-		if (RELEVANCE_ATTRIBUTE.equals(name)) return ("" + this.relevance);
-		else if (DOCUMENT_ID_ATTRIBUTE.equals(name)) return ("" + this.documentId);
+		if (RELEVANCE_ATTRIBUTE.equals(name))
+			return ("" + this.relevance);
+		else if (DOCUMENT_ID_ATTRIBUTE.equals(name))
+			return ("" + this.documentId);
 		else return super.getAttribute(name, def);
 	}
-
+	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed#getAttributeNames()
 	 */
 	public String[] getAttributeNames() {
-		StringVector sv = new StringVector();
-		sv.addElement(DOCUMENT_ID_ATTRIBUTE);
-		sv.addElement(RELEVANCE_ATTRIBUTE);
-		sv.addContentIgnoreDuplicates(super.getAttributeNames());
-		return sv.toStringArray();
+		TreeSet ans = new TreeSet(Arrays.asList(super.getAttributeNames()));
+		ans.add(DOCUMENT_ID_ATTRIBUTE);
+		ans.add(RELEVANCE_ATTRIBUTE);
+		return ((String[]) ans.toArray(new String[ans.size()]));
 	}
-
+	
 	/* (non-Javadoc)
 	 * @see de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed#getAttribute(java.lang.String)
 	 */
 	public Object getAttribute(String name) {
-		if (RELEVANCE_ATTRIBUTE.equals(name)) return ("" + this.relevance);
-		else if (DOCUMENT_ID_ATTRIBUTE.equals(name)) return ("" + this.documentId);
+		if (RELEVANCE_ATTRIBUTE.equals(name))
+			return ("" + this.relevance);
+		else if (DOCUMENT_ID_ATTRIBUTE.equals(name))
+			return ("" + this.documentId);
 		else return super.getAttribute(name);
 	}
 }

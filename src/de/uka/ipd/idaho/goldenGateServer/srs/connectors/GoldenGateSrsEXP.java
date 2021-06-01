@@ -29,6 +29,7 @@ package de.uka.ipd.idaho.goldenGateServer.srs.connectors;
 
 import java.io.IOException;
 import java.util.LinkedList;
+import java.util.Properties;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
@@ -97,6 +98,9 @@ public class GoldenGateSrsEXP extends GoldenGateExpBinding {
 					return ("Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
 				else return null;
 			}
+			protected String getActionName() {
+				return (host.getLetterCode() + "." + super.getActionName());
+			}
 			protected void performAction(String[] arguments) throws Exception {
 				DocumentList mDocList = srs.getDocumentList(null);
 				
@@ -108,20 +112,22 @@ public class GoldenGateSrsEXP extends GoldenGateExpBinding {
 						mDocIdList.addLast(mDocId);
 				}
 				this.enteringMainLoop("Got " + mDocIdList.size() + " master document IDs");
-				int count = 0;
+				int mDocCount = 0;
+				int docCount = 0;
 				
 				while (this.continueAction() && (mDocIdList.size() != 0)) {
 					String mDocId = ((String) mDocIdList.removeFirst());
+					mDocCount++;
 					DocumentList docList = srs.getDocumentList(mDocId);
-					int subCount = 0;
+					int subDocCount = 0;
 					while (this.continueAction() && docList.hasNextElement()) {
 						DocumentListElement dle = docList.getNextDocumentListElement();
 						String docId = ((String) dle.getAttribute(LiteratureConstants.DOCUMENT_ID_ATTRIBUTE));
 						if (docId != null) {
 							host.documentUpdated(docId, null, ((String) dle.getAttribute(GoldenGateSRS.UPDATE_USER_ATTRIBUTE)));
-							count++;
-							subCount++;
-							this.loopRoundComplete("Re-ingested " + subCount + " documents for master document ID '" + mDocId + "', " + count + " documents in total.");
+							docCount++;
+							subDocCount++;
+							this.loopRoundComplete("Re-ingested " + subDocCount + " documents for master document ID '" + mDocId + "', " + docCount + " documents in total for " + mDocCount + " master document.");
 						}
 					}
 				}
@@ -134,6 +140,13 @@ public class GoldenGateSrsEXP extends GoldenGateExpBinding {
 	 */
 	public boolean isDocumentAvailable(String docId) {
 		return this.srs.isDocumentAvailable(docId);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP.GoldenGateExpBinding#getDocumentAttributes(java.lang.String)
+	 */
+	public Properties getDocumentAttributes(String docId) throws IOException {
+		return this.srs.getDocumentAttributes(docId);
 	}
 	
 	/* (non-Javadoc)

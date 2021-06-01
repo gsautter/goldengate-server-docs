@@ -36,7 +36,7 @@ import de.uka.ipd.idaho.goldenGateServer.util.DataObjectUpdateConstants;
  * @author sautter
  */
 public interface DocumentStoreConstants extends DataObjectUpdateConstants, LiteratureConstants {
-	
-	/** the attribute holding the version of a document */
-	public static final String DOCUMENT_VERSION_ATTRIBUTE = "docVersion";
+//	
+//	/** the attribute holding the version of a document */
+//	public static final String DOCUMENT_VERSION_ATTRIBUTE = "docVersion";
 }

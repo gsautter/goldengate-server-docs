@@ -28,19 +28,20 @@
 package de.uka.ipd.idaho.goldenGateServer.dio.connectors;
 
 import java.io.IOException;
+import java.util.Properties;
 
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.constants.LiteratureConstants;
-import de.uka.ipd.idaho.gamta.util.transfer.DocumentListElement;
+import de.uka.ipd.idaho.gamta.util.transfer.DocumentListBuffer;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponent.ComponentActionConsole;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerComponentRegistry;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDioConstants.DioDocumentEvent.DioDocumentEventListener;
-import de.uka.ipd.idaho.goldenGateServer.dio.data.DioDocumentList;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP.GoldenGateExpBinding;
 import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
+import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
 /**
  * GoldenGATE Server Exporter binding for GoldenGATE Document IO Service. It
@@ -50,7 +51,6 @@ import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
  * @author sautter
  */
 public class GoldenGateDioEXP extends GoldenGateExpBinding {
-	
 	private GoldenGateDIO dio;
 	
 	/**
@@ -100,17 +100,26 @@ public class GoldenGateDioEXP extends GoldenGateExpBinding {
 					return ("Invalid arguments for '" + this.getActionCommand() + "', specify no argument.");
 				else return null;
 			}
+			protected String getActionName() {
+				return (host.getLetterCode() + "." + super.getActionName());
+			}
 			protected void performAction(String[] arguments) throws Exception {
-				DioDocumentList docList = dio.getDocumentListFull();
-				this.enteringMainLoop("Got document list");
+//				DioDocumentList docList = dio.getDocumentListFull();
+				DocumentListBuffer dlb = new DocumentListBuffer(dio.getDocumentListFull());
+//				this.enteringMainLoop("Got document list");
+				this.enteringMainLoop("Got list with " + dlb.size() + " documents");
 				int count = 0;
-				while (this.continueAction() && docList.hasNextDocument()) {
-					DocumentListElement dle = docList.getNextDocument();
-					String docId = ((String) dle.getAttribute(LiteratureConstants.DOCUMENT_ID_ATTRIBUTE));
+//				while (this.continueAction() && docList.hasNextDocument()) {
+				for (int d = 0; this.continueAction() && (d < dlb.size()); d++) {
+//					DocumentListElement dle = docList.getNextDocument();
+					StringTupel docData = dlb.get(d);
+//					String docId = ((String) dle.getAttribute(LiteratureConstants.DOCUMENT_ID_ATTRIBUTE));
+					String docId = docData.getValue(LiteratureConstants.DOCUMENT_ID_ATTRIBUTE);
 					if (docId != null) {
-						host.documentUpdated(docId, null, ((String) dle.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE)));
+//						host.documentUpdated(docId, null, ((String) dle.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE)));
+						host.documentUpdated(docId, null, docData.getValue(GoldenGateDIO.UPDATE_USER_ATTRIBUTE));
 						count++;
-						this.loopRoundComplete("Re-ingested document ID '" + docId + "', " + count + " documents in total.");
+						this.loopRoundComplete("Re-ingested document ID '" + docId + "', " + count + " of " + dlb.size() + " documents in total.");
 					}
 				}
 			}
@@ -122,6 +131,13 @@ public class GoldenGateDioEXP extends GoldenGateExpBinding {
 	 */
 	public boolean isDocumentAvailable(String docId) {
 		return this.dio.isDocumentAvailable(docId);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP.GoldenGateExpBinding#getDocumentAttributes(java.lang.String)
+	 */
+	public Properties getDocumentAttributes(String docId) throws IOException {
+		return this.dio.getDocumentAttributes(docId);
 	}
 	
 	/* (non-Javadoc)

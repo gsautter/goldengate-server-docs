@@ -58,7 +58,6 @@ import java.util.regex.PatternSyntaxException;
 import de.uka.ipd.idaho.easyIO.EasyIO;
 import de.uka.ipd.idaho.easyIO.IoProvider;
 import de.uka.ipd.idaho.easyIO.SqlQueryResult;
-import de.uka.ipd.idaho.easyIO.settings.Settings;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.Attributed;
@@ -200,6 +199,26 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			}
 		});
 		
+		//	load custom type and attribute filters for checksum
+		String checksumIgnoreTypes = this.configuration.getSetting("checksumIgnoreTypes", "");
+		if (checksumIgnoreTypes.length() != 0) {
+			final ChecksumFilterSet cfs = new ChecksumFilterSet(checksumIgnoreTypes);
+			this.checksumDigest.addTypeFilter(new TypeFilter() {
+				public boolean filterType(String annotationType) {
+					return cfs.contains(annotationType);
+				}
+			});
+		}
+		String checksumIgnoreAttributes = this.configuration.getSetting("checksumIgnoreAttributes", "");
+		if (checksumIgnoreAttributes.length() != 0) {
+			final ChecksumFilterSet cfs = new ChecksumFilterSet(checksumIgnoreAttributes);
+			this.checksumDigest.addAttributeFilter(new AttributeFilter() {
+				public boolean filterAttribute(String attributeName) {
+					return cfs.contains(attributeName);
+				}
+			});
+		}
+		
 		//	get document storage folder
 		String docFolderName = this.configuration.getSetting("documentFolderName", "Documents");
 		while (docFolderName.startsWith("./"))
@@ -207,7 +226,6 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		File docFolder = (((docFolderName.indexOf(":\\") == -1) && (docFolderName.indexOf(":/") == -1) && !docFolderName.startsWith("/")) ? new File(this.dataPath, docFolderName) : new File(docFolderName));
 		
 		// initialize document store
-//		this.dst = new DocumentStore(docFolder, this.configuration.getSetting("documentEncoding"));
 		this.dst = new DocumentStore("DioDocuments", docFolder, this.configuration.getSetting("documentEncoding"), this);
 		
 		// get and check database connection
@@ -361,14 +379,14 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			this.documentListSizeThreshold = Integer.parseInt(this.configuration.getSetting("documentListSizeThreshold", "0"));
 		} catch (NumberFormatException nfe) {}
 		
-		
-		// start folder watchers
-		Settings inputFoldersSettings = this.configuration.getSubset(INPUT_FOLDER_SUBSET_PREFIX);
-		for (int i = 0; i < inputFoldersSettings.size(); i++) {
-			Settings inputFolderSettings = inputFoldersSettings.getSubset("" + i);
-			String inputFolderName = inputFolderSettings.getSetting(INPUT_FOLDER_SETTING);
-			if (inputFolderName != null) this.watchFolder(inputFolderName);
-		}
+//		
+//		// start folder watchers
+//		Settings inputFoldersSettings = this.configuration.getSubset(INPUT_FOLDER_SUBSET_PREFIX);
+//		for (int i = 0; i < inputFoldersSettings.size(); i++) {
+//			Settings inputFolderSettings = inputFoldersSettings.getSubset("" + i);
+//			String inputFolderName = inputFolderSettings.getSetting(INPUT_FOLDER_SETTING);
+//			if (inputFolderName != null) this.watchFolder(inputFolderName);
+//		}
 		
 		//	trigger database table checks
 		final String fTableStateQuery = tableStateQuery;
@@ -712,17 +730,17 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 * @see de.goldenGateScf.AbstractServerComponent#exitComponent()
 	 */
 	protected void exitComponent() {
-		
-		//	shut down input folder watchers
-		Settings inputFoldersSettings = this.configuration.getSubset(INPUT_FOLDER_SUBSET_PREFIX);
-		for (int i = 0; i < this.inputFolderWatchers.size(); i++) {
-			InputFolderWatcher ifw = ((InputFolderWatcher) this.inputFolderWatchers.get(i));
-			ifw.shutdown();
-
-			Settings inputFolderSettings = inputFoldersSettings.getSubset("" + i);
-			inputFolderSettings.setSetting(INPUT_FOLDER_SETTING, ifw.folderName);
-		}
-		this.inputFolderWatchers.clear();
+//		
+//		//	shut down input folder watchers
+//		Settings inputFoldersSettings = this.configuration.getSubset(INPUT_FOLDER_SUBSET_PREFIX);
+//		for (int i = 0; i < this.inputFolderWatchers.size(); i++) {
+//			InputFolderWatcher ifw = ((InputFolderWatcher) this.inputFolderWatchers.get(i));
+//			ifw.shutdown();
+//
+//			Settings inputFolderSettings = inputFoldersSettings.getSubset("" + i);
+//			inputFolderSettings.setSetting(INPUT_FOLDER_SETTING, ifw.folderName);
+//		}
+//		this.inputFolderWatchers.clear();
 		
 		//	disconnect from database
 		this.io.close();
@@ -732,14 +750,16 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	}
 	
 	private static final String SHOW_VERSION_HISTORY_COMMAND = "showVersions";
-	private static final String INPUT_FOLDER_SUBSET_PREFIX = "INPUT_FOLDERS";
-	private static final String INPUT_FOLDER_SETTING = "FOLDER";
-	private static final String LIST_WATCHED_FOLDERS_COMMAND = "watched";
-	private static final String WATCH_FOLDER_COMMAND = "watch";
-	private static final String STOP_WATCH_FOLDER_COMMAND = "stopwatch";
+	private static final String REVERT_DOCUMENT_COMMAND = "revertDoc";
+	private static final String CHECKOUT_STATE_COMMAND = "checkoutState";
+	private static final String RELEASE_DOCUMENT_COMMAND = "releaseDoc";
+//	private static final String INPUT_FOLDER_SUBSET_PREFIX = "INPUT_FOLDERS";
+//	private static final String INPUT_FOLDER_SETTING = "FOLDER";
+//	private static final String LIST_WATCHED_FOLDERS_COMMAND = "watched";
+//	private static final String WATCH_FOLDER_COMMAND = "watch";
+//	private static final String STOP_WATCH_FOLDER_COMMAND = "stopwatch";
 	private static final String IMPORT_FILE_COMMAND = "import";
 	private static final String ISSUE_EVENT_COMMAND = "issueEvent";
-	private static final String REVERT_DOCUMENT_COMMAND = "revertDoc";
 	
 	/*
 	 * (non-Javadoc)
@@ -844,6 +864,66 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		};
 		cal.add(ca);
 		
+		//	show the checkout state of some document
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return CHECKOUT_STATE_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						CHECKOUT_STATE_COMMAND + " <documentId>",
+						"Show the checkout status of a document:",
+						"- <documentId>: The ID of the document to check"
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length == 1) {
+					String checkoutUser = getCheckoutUser(arguments[0]);
+					if (checkoutUser == null)
+						this.reportError("Invalid document ID '" + arguments[0] + "'.");
+					else if ("".equals(checkoutUser))
+						this.reportResult("Document '" + arguments[0] + "' is not checked out by anyone.");
+					else this.reportResult("Document '" + arguments[0] + "' is currently checked out by '" + checkoutUser + "'.");
+				}
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID as the only argument.");
+			}
+		};
+		cal.add(ca);
+		
+		//	clear the checkout state some document
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return RELEASE_DOCUMENT_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						RELEASE_DOCUMENT_COMMAND + " <documentId> <checkoutUser>",
+						"Clear the checkout status of a document:",
+						"- <documentId>: The ID of the document to release",
+						"- <checkoutUser>: The user currently holding the lock on the document with the argument ID",
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length == 2) {
+					String checkoutUser = getCheckoutUser(arguments[0]);
+					if (checkoutUser == null)
+						this.reportError("Invalid document ID '" + arguments[0] + "'.");
+					else if ("".equals(checkoutUser))
+						this.reportError("Document '" + arguments[0] + "' is not checked out by anyone.");
+					else if (!checkoutUser.equals(arguments[1]))
+						this.reportError("Document '" + arguments[0] + "' is not checked out by '" + arguments[1] + "'.");
+					else {
+						releaseDocument(arguments[1], arguments[0]);
+						this.reportResult("Document '" + arguments[0] + "' released successfully.");
+					}
+				}
+				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the document ID and checkout user as the only argument.");
+			}
+		};
+		cal.add(ca);
+		
 		// list documents
 		ca = new ComponentActionNetwork() {
 			public String getActionCommand() {
@@ -893,56 +973,56 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			}
 		};
 		cal.add(ca);
-
-		// list documents
-		ca = new ComponentActionNetwork() {
-			public String getActionCommand() {
-				return GET_DOCUMENT_LIST_SHARED;
-			}
-			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
-				
-				// check authentication
-				String sessionId = input.readLine();
-				if (!uaa.isValidSession(sessionId) && !DOCUMENT_SERVLET_SESSION_ID.equals(sessionId)) {
-					output.write("Invalid session (" + sessionId + ")");
-					output.newLine();
-					logError("Request for invalid session - " + sessionId);
-					return;
-				}
-				
-				//	read filter string
-				String filterString = input.readLine();
-				Properties filter;
-				if (filterString.length() == 0)
-					filter = null;
-				else {
-					String[] filters = filterString.split("\\&");
-					filter = new Properties();
-					for (int f = 0; f < filters.length; f++) {
-						String[] pair = filters[f].split("\\=");
-						if (pair.length == 2) {
-							String name = pair[0].trim();
-							String value = URLDecoder.decode(pair[1].trim(), ENCODING).trim();
-							
-							String existingValue = filter.getProperty(name);
-							if (existingValue != null)
-								value = existingValue + "\n" + value;
-							
-							filter.setProperty(name, value);
-						}
-					}
-				}
-				
-				DioDocumentList docList = getDocumentList((DOCUMENT_SERVLET_SESSION_ID.equals(sessionId) ? DOCUMENT_SERVLET_SESSION_ID : uaa.getUserNameForSession(sessionId)), false, filter);
-				
-				output.write(GET_DOCUMENT_LIST_SHARED);
-				output.newLine();
-				
-				docList.writeData(output);
-				output.newLine();
-			}
-		};
-		cal.add(ca);
+//
+//		// list documents
+//		ca = new ComponentActionNetwork() {
+//			public String getActionCommand() {
+//				return GET_DOCUMENT_LIST_SHARED;
+//			}
+//			public void performActionNetwork(BufferedReader input, BufferedWriter output) throws IOException {
+//				
+//				// check authentication
+//				String sessionId = input.readLine();
+//				if (!uaa.isValidSession(sessionId) && !DOCUMENT_SERVLET_SESSION_ID.equals(sessionId)) {
+//					output.write("Invalid session (" + sessionId + ")");
+//					output.newLine();
+//					logError("Request for invalid session - " + sessionId);
+//					return;
+//				}
+//				
+//				//	read filter string
+//				String filterString = input.readLine();
+//				Properties filter;
+//				if (filterString.length() == 0)
+//					filter = null;
+//				else {
+//					String[] filters = filterString.split("\\&");
+//					filter = new Properties();
+//					for (int f = 0; f < filters.length; f++) {
+//						String[] pair = filters[f].split("\\=");
+//						if (pair.length == 2) {
+//							String name = pair[0].trim();
+//							String value = URLDecoder.decode(pair[1].trim(), ENCODING).trim();
+//							
+//							String existingValue = filter.getProperty(name);
+//							if (existingValue != null)
+//								value = existingValue + "\n" + value;
+//							
+//							filter.setProperty(name, value);
+//						}
+//					}
+//				}
+//				
+//				DioDocumentList docList = getDocumentList((DOCUMENT_SERVLET_SESSION_ID.equals(sessionId) ? DOCUMENT_SERVLET_SESSION_ID : uaa.getUserNameForSession(sessionId)), false, filter);
+//				
+//				output.write(GET_DOCUMENT_LIST_SHARED);
+//				output.newLine();
+//				
+//				docList.writeData(output);
+//				output.newLine();
+//			}
+//		};
+//		cal.add(ca);
 		
 		// deliver document update protocol
 		ca = new ComponentActionNetwork() {
@@ -1500,79 +1580,79 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			}
 		};
 		cal.add(ca);
-
-		// list watched input folders
-		ca = new ComponentActionConsole() {
-			public String getActionCommand() {
-				return LIST_WATCHED_FOLDERS_COMMAND;
-			}
-			public String[] getExplanation() {
-				String[] explanation = { LIST_WATCHED_FOLDERS_COMMAND, "List the folders this GoldenGATE DIO is watching for new documents." };
-				return explanation;
-			}
-			public void performActionConsole(String[] arguments) {
-				if (arguments.length == 0) {
-					this.reportResult("GoldenGATE DIO is currently watching the following folders for new documents:");
-					for (int i = 0; i < inputFolderWatchers.size(); i++) {
-						InputFolderWatcher ifw = ((InputFolderWatcher) inputFolderWatchers.get(i));
-						this.reportResult("- " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ")");
-					}
-				}
-				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
-			}
-		};
-		cal.add(ca);
-
-		// watch a new folder for input documents
-		ca = new ComponentActionConsole() {
-			public String getActionCommand() {
-				return WATCH_FOLDER_COMMAND;
-			}
-			public String[] getExplanation() {
-				String[] explanation = { WATCH_FOLDER_COMMAND + " <folderName>", "Watch a folder for new documents to be added to this GoldenGATE DIO's storage:",
-						"- <folderName>: the folder to watch, either relative to the DIO's data path, or absolute." };
-				return explanation;
-			}
-			public void performActionConsole(String[] arguments) {
-				if (arguments.length == 1) {
-					String error = watchFolder(arguments[0]);
-					if (error == null)
-						this.reportResult("Now watching folder " + arguments[0]);
-					else this.reportError(error);
-				}
-				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to watch only.");
-			}
-		};
-		cal.add(ca);
-
-		// stop watching a folder for input documents
-		ca = new ComponentActionConsole() {
-			public String getActionCommand() {
-				return STOP_WATCH_FOLDER_COMMAND;
-			}
-			public String[] getExplanation() {
-				String[] explanation = {STOP_WATCH_FOLDER_COMMAND + " <folderName>", 
-						"Stop watching a folder for new documents to be added to this GoldenGATE DIO's storage space:",
-						"- <folderName> : the folder to stop watching, as listen in " + LIST_WATCHED_FOLDERS_COMMAND };
-				return explanation;
-			}
-			public void performActionConsole(String[] arguments) {
-				if (arguments.length == 1) {
-					for (int i = 0; i < inputFolderWatchers.size(); i++) {
-						InputFolderWatcher ifw = ((InputFolderWatcher) inputFolderWatchers.get(i));
-						if (ifw.folderName.equals(arguments[0])) {
-							ifw.shutdown();
-							inputFolderWatchers.remove(i);
-							this.reportResult("Stopped watching folder " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ").");
-							return;
-						}
-					}
-					this.reportError("Never watched folder " + arguments[0] + ", cannot stop doing so.");
-				}
-				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to stop watching only.");
-			}
-		};
-		cal.add(ca);
+//
+//		// list watched input folders
+//		ca = new ComponentActionConsole() {
+//			public String getActionCommand() {
+//				return LIST_WATCHED_FOLDERS_COMMAND;
+//			}
+//			public String[] getExplanation() {
+//				String[] explanation = { LIST_WATCHED_FOLDERS_COMMAND, "List the folders this GoldenGATE DIO is watching for new documents." };
+//				return explanation;
+//			}
+//			public void performActionConsole(String[] arguments) {
+//				if (arguments.length == 0) {
+//					this.reportResult("GoldenGATE DIO is currently watching the following folders for new documents:");
+//					for (int i = 0; i < inputFolderWatchers.size(); i++) {
+//						InputFolderWatcher ifw = ((InputFolderWatcher) inputFolderWatchers.get(i));
+//						this.reportResult("- " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ")");
+//					}
+//				}
+//				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+//			}
+//		};
+//		cal.add(ca);
+//
+//		// watch a new folder for input documents
+//		ca = new ComponentActionConsole() {
+//			public String getActionCommand() {
+//				return WATCH_FOLDER_COMMAND;
+//			}
+//			public String[] getExplanation() {
+//				String[] explanation = { WATCH_FOLDER_COMMAND + " <folderName>", "Watch a folder for new documents to be added to this GoldenGATE DIO's storage:",
+//						"- <folderName>: the folder to watch, either relative to the DIO's data path, or absolute." };
+//				return explanation;
+//			}
+//			public void performActionConsole(String[] arguments) {
+//				if (arguments.length == 1) {
+//					String error = watchFolder(arguments[0]);
+//					if (error == null)
+//						this.reportResult("Now watching folder " + arguments[0]);
+//					else this.reportError(error);
+//				}
+//				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to watch only.");
+//			}
+//		};
+//		cal.add(ca);
+//
+//		// stop watching a folder for input documents
+//		ca = new ComponentActionConsole() {
+//			public String getActionCommand() {
+//				return STOP_WATCH_FOLDER_COMMAND;
+//			}
+//			public String[] getExplanation() {
+//				String[] explanation = {STOP_WATCH_FOLDER_COMMAND + " <folderName>", 
+//						"Stop watching a folder for new documents to be added to this GoldenGATE DIO's storage space:",
+//						"- <folderName> : the folder to stop watching, as listen in " + LIST_WATCHED_FOLDERS_COMMAND };
+//				return explanation;
+//			}
+//			public void performActionConsole(String[] arguments) {
+//				if (arguments.length == 1) {
+//					for (int i = 0; i < inputFolderWatchers.size(); i++) {
+//						InputFolderWatcher ifw = ((InputFolderWatcher) inputFolderWatchers.get(i));
+//						if (ifw.folderName.equals(arguments[0])) {
+//							ifw.shutdown();
+//							inputFolderWatchers.remove(i);
+//							this.reportResult("Stopped watching folder " + ifw.folderName + " (" + ifw.folderToWatch.getAbsolutePath() + ").");
+//							return;
+//						}
+//					}
+//					this.reportError("Never watched folder " + arguments[0] + ", cannot stop doing so.");
+//				}
+//				else this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the folder to stop watching only.");
+//			}
+//		};
+//		cal.add(ca);
 
 		// import a specific document
 		ca = new ComponentActionConsole() {
@@ -1653,7 +1733,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 				String updateUser = sqr.getString(1);
 				long updateTime = sqr.getLong(2);
 				int docVersion = dst.getVersion(docId);
-				GoldenGateServerEventService.notify(new DioDocumentEvent(updateUser, docId, null, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
+				GoldenGateServerEventService.notify(new DioDocumentEvent(updateUser, updateUser, docId, null, docVersion, GoldenGateDIO.class.getName(), updateTime, new EventLogger() {
 					public void writeLog(String logEntry) {}
 				}));
 				count++;
@@ -1701,95 +1781,95 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			this.add(this.isDeletion ? DELETION_COMPLETE : UPDATE_COMPLETE);
 		}
 	}
-
-	private ArrayList inputFolderWatchers = new ArrayList();
-
-	private String watchFolder(String folderName) {
-		if (folderName != null) {
-
-			File folder;
-			if (folderName.startsWith("./") || folderName.startsWith(".\\")) folder = new File(this.dataPath, folderName.substring(2));
-			else folder = new File(folderName);
-
-			if (folder.exists()) {
-				
-				for (int i = 0; i < this.inputFolderWatchers.size(); i++) {
-					InputFolderWatcher ifw = ((InputFolderWatcher) this.inputFolderWatchers.get(i));
-					if (ifw.folderToWatch.getAbsolutePath().equals(folder.getAbsolutePath())) return ("Already watching folder " + folderName + " (" + folder.getAbsolutePath() + ")");
-				}
-
-				InputFolderWatcher ifw = new InputFolderWatcher(folder, folderName);
-				ifw.start();
-				this.inputFolderWatchers.add(ifw);
-
-				return null;
-			}
-			else return "Cannot watch non-existing folder.";
-		}
-		else return "Cannot watch null folder.";
-	}
-
-	// thread periodically checking input folders for new documents
-	private class InputFolderWatcher extends Thread {
-		private Object stopper = new Object();
-		private boolean shutdown = false;
-		private String folderName;
-		private File folderToWatch;
-		private File doneFolder;
-		
-		private InputFolderWatcher(File folder, String folderName) {
-			this.folderToWatch = folder;
-			this.folderName = folderName;
-
-			this.doneFolder = new File(this.folderToWatch, "Done");
-			this.doneFolder.mkdir();
-		}
-
-		public void run() {
-			while (!this.shutdown)
-				try {
-					synchronized (this.stopper) {
-						try {
-							this.stopper.wait(60000);
-						} catch (InterruptedException ie) {}
-					}
-
-					if (!this.shutdown) {
-						File[] files = this.folderToWatch.listFiles();
-						for (int f = 0; f < files.length; f++) {
-							if (files[f].isFile() && files[f].canRead()) try {
-								if (files[f].canWrite()) { // process file only if renaming possible
-									DocumentRoot doc = SgmlDocumentReader.readDocument(files[f]);
-									String folderUserName = this.folderToWatch.getName();
-									
-									if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE))
-										doc.setAttribute(CHECKIN_USER_ATTRIBUTE, folderUserName);
-									doc.setAttribute(UPDATE_USER_ATTRIBUTE, folderUserName);
-									doc.setAttribute(DOCUMENT_NAME_ATTRIBUTE, files[f].getName());
-									
-									uploadDocument(folderUserName, doc, null);
-									
-									files[f].renameTo(new File(this.doneFolder, (files[f].getName())));
-								}
-							}
-							catch (IOException ioe) {
-								logError("Error creating document from '" + files[f].toString() + "' - " + ioe.getMessage());
-							}
-						}
-					}
-				}
-				catch (Exception e) {
-					logError("Error checking input folder '" + this.folderToWatch.toString() + "' - " + e.getMessage());
-				}
-		}
-
-		private void shutdown() {
-			this.shutdown = true;
-			synchronized (this.stopper) {
-				this.stopper.notifyAll();
-			}
-		}
-	}
+//
+//	private ArrayList inputFolderWatchers = new ArrayList();
+//
+//	private String watchFolder(String folderName) {
+//		if (folderName != null) {
+//
+//			File folder;
+//			if (folderName.startsWith("./") || folderName.startsWith(".\\")) folder = new File(this.dataPath, folderName.substring(2));
+//			else folder = new File(folderName);
+//
+//			if (folder.exists()) {
+//				
+//				for (int i = 0; i < this.inputFolderWatchers.size(); i++) {
+//					InputFolderWatcher ifw = ((InputFolderWatcher) this.inputFolderWatchers.get(i));
+//					if (ifw.folderToWatch.getAbsolutePath().equals(folder.getAbsolutePath())) return ("Already watching folder " + folderName + " (" + folder.getAbsolutePath() + ")");
+//				}
+//
+//				InputFolderWatcher ifw = new InputFolderWatcher(folder, folderName);
+//				ifw.start();
+//				this.inputFolderWatchers.add(ifw);
+//
+//				return null;
+//			}
+//			else return "Cannot watch non-existing folder.";
+//		}
+//		else return "Cannot watch null folder.";
+//	}
+//
+//	// thread periodically checking input folders for new documents
+//	private class InputFolderWatcher extends Thread {
+//		private Object stopper = new Object();
+//		private boolean shutdown = false;
+//		private String folderName;
+//		private File folderToWatch;
+//		private File doneFolder;
+//		
+//		private InputFolderWatcher(File folder, String folderName) {
+//			this.folderToWatch = folder;
+//			this.folderName = folderName;
+//
+//			this.doneFolder = new File(this.folderToWatch, "Done");
+//			this.doneFolder.mkdir();
+//		}
+//
+//		public void run() {
+//			while (!this.shutdown)
+//				try {
+//					synchronized (this.stopper) {
+//						try {
+//							this.stopper.wait(60000);
+//						} catch (InterruptedException ie) {}
+//					}
+//
+//					if (!this.shutdown) {
+//						File[] files = this.folderToWatch.listFiles();
+//						for (int f = 0; f < files.length; f++) {
+//							if (files[f].isFile() && files[f].canRead()) try {
+//								if (files[f].canWrite()) { // process file only if renaming possible
+//									DocumentRoot doc = SgmlDocumentReader.readDocument(files[f]);
+//									String folderUserName = this.folderToWatch.getName();
+//									
+//									if (!doc.hasAttribute(CHECKIN_USER_ATTRIBUTE))
+//										doc.setAttribute(CHECKIN_USER_ATTRIBUTE, folderUserName);
+//									doc.setAttribute(UPDATE_USER_ATTRIBUTE, folderUserName);
+//									doc.setAttribute(DOCUMENT_NAME_ATTRIBUTE, files[f].getName());
+//									
+//									uploadDocument(folderUserName, doc, null);
+//									
+//									files[f].renameTo(new File(this.doneFolder, (files[f].getName())));
+//								}
+//							}
+//							catch (IOException ioe) {
+//								logError("Error creating document from '" + files[f].toString() + "' - " + ioe.getMessage());
+//							}
+//						}
+//					}
+//				}
+//				catch (Exception e) {
+//					logError("Error checking input folder '" + this.folderToWatch.toString() + "' - " + e.getMessage());
+//				}
+//		}
+//
+//		private void shutdown() {
+//			this.shutdown = true;
+//			synchronized (this.stopper) {
+//				this.stopper.notifyAll();
+//			}
+//		}
+//	}
 
 	/**
 	 * Add a document event listener to this GoldenGATE DIO so it receives
@@ -1880,6 +1960,40 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		this.checksumDigest.removeAttributeFilter(af);
 	}
 	
+	private static class ChecksumFilterSet {
+		private HashSet strings;
+		private ArrayList prefixes;
+		ChecksumFilterSet(String dataString) {
+			String[] data = dataString.split("\\s+");
+			for (int d = 0; d < data.length; d++) {
+				if (data[d].endsWith("*"))
+					this.addPrefix(data[d].substring(0, (data[d].length() - "*".length())));
+				else this.addString(data[d]);
+			}
+		}
+		void addString(String string) {
+			if (this.strings == null)
+				this.strings = new HashSet();
+			this.strings.add(string);
+		}
+		void addPrefix(String prefix) {
+			if (this.prefixes == null)
+				this.prefixes = new ArrayList();
+			this.prefixes.add(prefix);
+		}
+		boolean contains(String str) {
+			if ((this.strings != null) && this.strings.contains(str))
+				return true;
+			if ((this.prefixes == null) || (str == null))
+				return false;
+			for (int p = 0; p < this.prefixes.size(); p++) {
+				if (str.startsWith((String) this.prefixes.get(p)))
+					return true;
+			}
+			return false;
+		}
+	}
+	
 	private String getChecksum(QueriableAnnotation document) {
 		long start = System.currentTimeMillis();
 		String checksum;
@@ -1934,13 +2048,13 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		int version = this.doUploadDocument(userName, doc, docId, logger, externalIdentifierMode, time);
 		
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger) {
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger) {
 			public void notificationComplete() {
 				if (logger instanceof UpdateProtocol)
 					((UpdateProtocol) logger).close();
 			}
 		});
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time, null));
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), time));
 		
 		return version;
 	}
@@ -2223,7 +2337,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		
 		if (version == -1) // don't issue an event without any actual change
 			this.logInfo("Document unchanged");
-		else GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger) {
+		else GoldenGateServerEventService.notify(new DioDocumentEvent(userName, authUserName, docId, doc, version, GoldenGateDIO.class.getName(), time, logger) {
 			public void notificationComplete() {
 				if (logger instanceof UpdateProtocol)
 					((UpdateProtocol) logger).close();
@@ -2398,7 +2512,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		// write new values
 		String updateQuery = ("UPDATE " + DOCUMENT_TABLE_NAME + 
 				" SET " + assignments.concatStrings(", ") + 
-				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + docId + "'" +
+				" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'" +
 					" AND " + DOCUMENT_ID_HASH_NAME + " = " + docId.hashCode() + "" +
 				";");
 
@@ -2581,13 +2695,16 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 
 	/**
 	 * Check if a document with a given ID exists and is free for checkout and
-	 * update.
-	 * @param documentId the ID of the document to check
+	 * update. A document is also editable for a user who already holds the
+	 * checkout lock.
+	 * @param docId the ID of the document to check
+	 * @param userName the user name intending to edit the document
 	 * @return true if the document with the specified ID exists and is free
 	 *            for editing
 	 */
-	public boolean isDocumentEditable(String documentId) {
-		return "".equals(this.getCheckoutUser(documentId));
+	public boolean isDocumentEditable(String documentId, String userName) {
+		String checkoutUser = this.getCheckoutUser(documentId);
+		return ("".equals(checkoutUser) || ((userName != null) && userName.equals(checkoutUser)));
 	}
 	
 	/**
@@ -2821,7 +2938,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	public DocumentRoot checkoutDocument(String userName, String docId) throws IOException {
 		return this.checkoutDocument(userName, docId, 0);
 	}
-
+	
 	/**
 	 * Check out a document from DIO. The document will be protected from
 	 * editing by other users until it is released through the releaseDocument()
@@ -2841,7 +2958,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 			dr.close();
 		}
 	}
-
+	
 	/**
 	 * Check out a document from DIO as a character stream. In situations where
 	 * a document is not required in its deserialized form, e.g. if it is
@@ -2857,7 +2974,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	public DocumentReader checkoutDocumentAsStream(String userName, String docId) throws IOException {
 		return this.checkoutDocumentAsStream(userName, docId, 0);
 	}
-
+	
 	/**
 	 * Check out a document from DIO as a character stream. In situations where
 	 * a document is not required in its deserialized form, e.g. if it is
@@ -2874,7 +2991,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	public DocumentReader checkoutDocumentAsStream(String userName, String docId, int version) throws IOException {
 		long checkoutTime = System.currentTimeMillis();
 		DocumentReader dr = this.doCheckoutDocumentAsStream(userName, docId, version, checkoutTime);
-		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime, null));
+		GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, DioDocumentEvent.CHECKOUT_TYPE, GoldenGateDIO.class.getName(), checkoutTime));
 		return dr;
 	}
 	private synchronized DocumentReader doCheckoutDocumentAsStream(String userName, String docId, int version, long checkoutTime) throws IOException {
@@ -2955,7 +3072,7 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 	 */
 	public void releaseDocument(String userName, String docId) {
 		if (this.doReleaseDocument(userName, docId))
-			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, null, -1, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), System.currentTimeMillis(), null));
+			GoldenGateServerEventService.notify(new DioDocumentEvent(userName, docId, DioDocumentEvent.RELEASE_TYPE, GoldenGateDIO.class.getName(), System.currentTimeMillis()));
 	}
 	private synchronized boolean doReleaseDocument(String userName, String docId) {
 		String checkoutUser = this.getCheckoutUser(docId);
@@ -3224,14 +3341,14 @@ public class GoldenGateDIO extends AbstractGoldenGateServerComponent implements 
 		};
 
 	/**
-	 * Retrieve a list of meta data for the document available through this DIO.
-	 * The list includes the document ID, document name, checkin user, checkin
+	 * Retrieve a list of meta data for the documents available through this
+	 * DIO. The list includes the document ID, name, checkin user, checkin
 	 * time, last update user, last update time, and most recent version. The
 	 * list includes all available documents, regardless of their checkout
 	 * state. That means all of the documents on the list can be retrieved from
 	 * the getDocument() method for read access, but none is guaranteed to be
 	 * available for checkout and editing.
-	 * @return a list of meta data for the document available through this DIO
+	 * @return a list of meta data for the documents available through this DIO
 	 */
 	public DioDocumentList getDocumentListFull() {
 		

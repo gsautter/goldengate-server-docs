@@ -52,12 +52,9 @@ import de.uka.ipd.idaho.goldenGateServer.srs.data.SrsSearchResultElement;
  */
 public abstract class BufferedResult {
 	
-	/**
-	 * the attribute names for the result, in the order the attribute values
-	 * should be displayed (copied from the backing result)
-	 */
+	/** the attribute names for the result, in the order the attribute values should be displayed (copied from the backing result) */
 	public final String[] resultAttributes;
-
+	
 	private SrsSearchResult data;
 	private ArrayList elements = new ArrayList();
 	
@@ -108,20 +105,12 @@ public abstract class BufferedResult {
 	}
 	
 	synchronized boolean hasNextElement(int index) {
-		
-		//	extend buffer to requested element if possible
 		this.extendBuffer(index);
-		
-		//	do we have sufficient elements in the buffer now?
 		return (index < this.elements.size());
 	}
 	
 	synchronized SrsSearchResultElement getNextElement(int index) {
-		
-		//	extend buffer to requested element if possible
 		this.extendBuffer(index);
-		
-		//	do we have sufficient elements in the buffer now?
 		return ((index < this.elements.size()) ? ((SrsSearchResultElement) this.elements.get(index)) : null);
 	}
 	
