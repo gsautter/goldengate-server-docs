@@ -165,9 +165,9 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 	//	TODO use StringUtils here
 	private static Properties charNormalizationMappings = new Properties();
 	static {
-		charNormalizationMappings.setProperty("ß","ss");
-		charNormalizationMappings.setProperty("–","-");
-		charNormalizationMappings.setProperty("—","-");
+		charNormalizationMappings.setProperty("ÃŸ","ss");
+		charNormalizationMappings.setProperty("Â–","-");
+		charNormalizationMappings.setProperty("Â—","-");
 		charNormalizationMappings.setProperty("\u2010","-");
 		charNormalizationMappings.setProperty("\u2011","-");
 		charNormalizationMappings.setProperty("\u2012","-");
