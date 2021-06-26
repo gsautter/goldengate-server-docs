@@ -28,7 +28,7 @@
 	<target name="compileSvr" description="Compile GoldenGATE Server backend Java sources">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
     		<include name="**/goldenGateServer/ats/*.java" />
     		<include name="**/goldenGateServer/ats/client/*.java" />
@@ -62,7 +62,7 @@
 	<target name="compileClt" depends="check-gg" if="${gg.exists}" description="Compile GoldenGATE Editor plugin Java sources">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
 	    	
     		<include name="**/goldenGateServer/dio/GoldenGateDioConstants.java" />
@@ -80,7 +80,7 @@
 	<target name="compileWeb" description="Compile GoldenGATE Server web front-end Java sources">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
 	    	
     		<include name="**/goldenGateServer/dcs/GoldenGateDcsConstants*.java" />
@@ -110,7 +110,7 @@
 	<target name="compileDgPacker" description="Compile document gateway packer tool">
 		
 	    <!-- Compile Java classes as necessary -->
-	    <javac destdir="${build.home}/classes" includeantruntime="false" target="1.5" debug="true" debuglevel="lines,vars,source">
+	    <javac destdir="${build.home}/classes" includeantruntime="false" debug="true" debuglevel="lines,vars,source">
 	    	<src path="${src.home}" />
   	 		<include name="**/goldenGateServer/dio/utilities/*.java" />
 	    	
