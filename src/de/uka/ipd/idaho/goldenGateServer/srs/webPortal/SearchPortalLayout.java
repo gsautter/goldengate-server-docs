@@ -59,100 +59,66 @@ public abstract class SearchPortalLayout implements SearchPortalConstants {
 	 * to cause characters having HTML entity representations not understood by
 	 * browsers to be mapped to themselves
 	 */
-	public static final Properties HTML_CHAR_MAPPING = new Properties();
+	public static final Properties HTML_CHAR_MAPPING = new Properties() {
+		public synchronized boolean containsKey(Object key) {
+			if ((key instanceof CharSequence) && (((CharSequence) key).length() == 1) && Character.isLetter(((CharSequence) key).charAt(0)))
+				return true;
+			else return super.containsKey(key);
+		}
+		public String getProperty(String key, String defaultValue) {
+			if ((key instanceof CharSequence) && (((CharSequence) key).length() == 1) && Character.isLetter(((CharSequence) key).charAt(0)))
+				return key;
+			else return super.getProperty(key, defaultValue);
+		}
+	};
 	static {
-		HTML_CHAR_MAPPING.setProperty("À", "À");
-		HTML_CHAR_MAPPING.setProperty("Á", "Á");
-		HTML_CHAR_MAPPING.setProperty("Â", "Â");
-		HTML_CHAR_MAPPING.setProperty("Ã", "Ã");
-		HTML_CHAR_MAPPING.setProperty("Ä", "Ä");
-		HTML_CHAR_MAPPING.setProperty("Å", "Å");
-		HTML_CHAR_MAPPING.setProperty("Æ", "Æ");
-		HTML_CHAR_MAPPING.setProperty("à", "à");
-		HTML_CHAR_MAPPING.setProperty("á", "á");
-		HTML_CHAR_MAPPING.setProperty("â", "â");
-		HTML_CHAR_MAPPING.setProperty("ã", "ã");
-		HTML_CHAR_MAPPING.setProperty("ä", "ä");
-		HTML_CHAR_MAPPING.setProperty("å", "å");
-		HTML_CHAR_MAPPING.setProperty("æ", "æ");
 		
-		HTML_CHAR_MAPPING.setProperty("Ç", "Ç");
-		HTML_CHAR_MAPPING.setProperty("ç", "ç");
+		//	hyphens and dashes
+		HTML_CHAR_MAPPING.setProperty("\u00AD","-");
+		HTML_CHAR_MAPPING.setProperty("\u2010","-");
+		HTML_CHAR_MAPPING.setProperty("\u2011","-");
+		HTML_CHAR_MAPPING.setProperty("\u2012","-");
+		HTML_CHAR_MAPPING.setProperty("\u2013","-");
+		HTML_CHAR_MAPPING.setProperty("\u2014","-");
+		HTML_CHAR_MAPPING.setProperty("\u2015","-");
+		HTML_CHAR_MAPPING.setProperty("\u2212","-");
 		
-		HTML_CHAR_MAPPING.setProperty("È", "È");
-		HTML_CHAR_MAPPING.setProperty("É", "É");
-		HTML_CHAR_MAPPING.setProperty("Ê", "Ê");
-		HTML_CHAR_MAPPING.setProperty("Ë", "Ë");
-		HTML_CHAR_MAPPING.setProperty("è", "è");
-		HTML_CHAR_MAPPING.setProperty("é", "é");
-		HTML_CHAR_MAPPING.setProperty("ê", "ê");
-		HTML_CHAR_MAPPING.setProperty("ë", "ë");
-		
-		HTML_CHAR_MAPPING.setProperty("Ì", "Ì");
-		HTML_CHAR_MAPPING.setProperty("Í", "Í");
-		HTML_CHAR_MAPPING.setProperty("Î", "Î");
-		HTML_CHAR_MAPPING.setProperty("Ï", "Ï");
-		HTML_CHAR_MAPPING.setProperty("ì", "ì");
-		HTML_CHAR_MAPPING.setProperty("í", "í");
-		HTML_CHAR_MAPPING.setProperty("î", "î");
-		HTML_CHAR_MAPPING.setProperty("ï", "ï");
-		
-		HTML_CHAR_MAPPING.setProperty("Ñ", "Ñ");
-		HTML_CHAR_MAPPING.setProperty("ñ", "ñ");
-		
-		HTML_CHAR_MAPPING.setProperty("Ò", "Ò");
-		HTML_CHAR_MAPPING.setProperty("Ó", "Ó");
-		HTML_CHAR_MAPPING.setProperty("Ô", "Ô");
-		HTML_CHAR_MAPPING.setProperty("Õ", "Õ");
-		HTML_CHAR_MAPPING.setProperty("Ö", "Ö");
-		HTML_CHAR_MAPPING.setProperty("", "");
-		HTML_CHAR_MAPPING.setProperty("Ø", "Ø");
-		HTML_CHAR_MAPPING.setProperty("ò", "ò");
-		HTML_CHAR_MAPPING.setProperty("ó", "ó");
-		HTML_CHAR_MAPPING.setProperty("ô", "ô");
-		HTML_CHAR_MAPPING.setProperty("õ", "õ");
-		HTML_CHAR_MAPPING.setProperty("ö", "ö");
-		HTML_CHAR_MAPPING.setProperty("", "");
-		HTML_CHAR_MAPPING.setProperty("ø", "ø");
-		
-		HTML_CHAR_MAPPING.setProperty("Ù", "Ù");
-		HTML_CHAR_MAPPING.setProperty("Ú", "Ú");
-		HTML_CHAR_MAPPING.setProperty("Û", "Û");
-		HTML_CHAR_MAPPING.setProperty("Ü", "Ü");
-		HTML_CHAR_MAPPING.setProperty("ù", "ù");
-		HTML_CHAR_MAPPING.setProperty("ú", "ú");
-		HTML_CHAR_MAPPING.setProperty("û", "û");
-		HTML_CHAR_MAPPING.setProperty("ü", "ü");
-		
-		HTML_CHAR_MAPPING.setProperty("Ý", "Ý");
-		HTML_CHAR_MAPPING.setProperty("ý", "ý");
-		HTML_CHAR_MAPPING.setProperty("ÿ", "ÿ");
-		
-		HTML_CHAR_MAPPING.setProperty("ß", "ß");
-		
-		HTML_CHAR_MAPPING.setProperty("", "");
-		
-		HTML_CHAR_MAPPING.setProperty("", "-");
-		HTML_CHAR_MAPPING.setProperty("", "-");
-		
+		//	single quotes
 		HTML_CHAR_MAPPING.setProperty("'", "'");
-		HTML_CHAR_MAPPING.setProperty("", "'");
-		HTML_CHAR_MAPPING.setProperty("", "'");
-		HTML_CHAR_MAPPING.setProperty("", "'");
+		HTML_CHAR_MAPPING.setProperty("\u0060", "'");
+		HTML_CHAR_MAPPING.setProperty("\u00B4", "'");
+		HTML_CHAR_MAPPING.setProperty("\u02B9", "'");
+		HTML_CHAR_MAPPING.setProperty("\u02BB", "'");
+		HTML_CHAR_MAPPING.setProperty("\u02BC", "'");
+		HTML_CHAR_MAPPING.setProperty("\u02BD", "'");
+		HTML_CHAR_MAPPING.setProperty("\u02CA", "'");
+		HTML_CHAR_MAPPING.setProperty("\u02CB", "'");
+		HTML_CHAR_MAPPING.setProperty("\u2018", "'");
+		HTML_CHAR_MAPPING.setProperty("\u2019", "'");
+		HTML_CHAR_MAPPING.setProperty("\u201A", "'");
+		HTML_CHAR_MAPPING.setProperty("\u201B", "'");
+		HTML_CHAR_MAPPING.setProperty("\u2032", "'");
+		HTML_CHAR_MAPPING.setProperty("\u2035", "'");
 		
-		HTML_CHAR_MAPPING.setProperty("", "&quot;");
-		HTML_CHAR_MAPPING.setProperty("", "&quot;");
-		HTML_CHAR_MAPPING.setProperty("", "&quot;");
-		HTML_CHAR_MAPPING.setProperty("", "&quot;");
-		HTML_CHAR_MAPPING.setProperty("", "&quot;");
+		//	double quotes
+		HTML_CHAR_MAPPING.setProperty("\u00AB", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u00BB", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u02BA", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u02DD", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u02EE", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u02F5", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u02F6", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u201C", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u201D", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u201E", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u201F", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u2033", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u2036", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u301D", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u301E", "&quot;");
+		HTML_CHAR_MAPPING.setProperty("\u301F", "&quot;");
 		
-		HTML_CHAR_MAPPING.setProperty("", "");
-		HTML_CHAR_MAPPING.setProperty("", "");
-		
-		HTML_CHAR_MAPPING.setProperty("", "");
-		
-		HTML_CHAR_MAPPING.setProperty("", "");
-		HTML_CHAR_MAPPING.setProperty("", "");
+		//	equals sign
 		HTML_CHAR_MAPPING.setProperty("=", "=");
 	}
 	

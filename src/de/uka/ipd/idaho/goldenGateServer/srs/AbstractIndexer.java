@@ -162,19 +162,9 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 			sb.append(charNormalizationMappings.getProperty(string.substring(c, (c+1)), StringUtils.getNormalForm(string.charAt(c))));
 		return sb.toString();
 	}
-	//	TODO use StringUtils here
 	private static Properties charNormalizationMappings = new Properties();
 	static {
-		charNormalizationMappings.setProperty("ß","ss");
-		charNormalizationMappings.setProperty("","-");
-		charNormalizationMappings.setProperty("","-");
-		charNormalizationMappings.setProperty("\u2010","-");
-		charNormalizationMappings.setProperty("\u2011","-");
-		charNormalizationMappings.setProperty("\u2012","-");
-		charNormalizationMappings.setProperty("\u2013","-");
-		charNormalizationMappings.setProperty("\u2014","-");
-		charNormalizationMappings.setProperty("\u2015","-");
-		charNormalizationMappings.setProperty("\u2212","-");
+		charNormalizationMappings.setProperty("\u00DF","ss");
 	}
 	
 	/**
