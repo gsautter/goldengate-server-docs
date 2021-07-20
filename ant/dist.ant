@@ -545,7 +545,10 @@
 		</jar>
 	</target>
 	
-	<target name="dgpackerjar">
+	<target name="check-ggesrc" unless="ggesrc.exists">
+		<available property="ggesrc.exists" file="../goldengate-editor/src"/>
+	</target>
+	<target name="dgpackerjar" depends="check-ggesrc" if="${ggesrc.exists}">
 		<delete file="${jar.dgpacker}"/>
 		<jar destfile="${jar.dgpacker}" manifest="${file.home}/MANIFEST.dgpacker.MF">
 			<fileset dir="${build.home}/classes" includes="**/DocumentGatewayPacker.class"/>

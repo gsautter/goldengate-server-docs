@@ -108,10 +108,10 @@
 	</target>
 	
 	<!-- Compile packer utility for document gateway -->
-	<target name="check-ggsrc" unless="ggsrc.exists">
-		<available property="ggsrc.exists" file="../goldengate-editor/src"/>
+	<target name="check-ggesrc" unless="ggesrc.exists">
+		<available property="ggesrc.exists" file="../goldengate-editor/src"/>
 	</target>
-	<target name="compileDgPacker" depends="check-ggsrc" if="${ggsrc.exists}" description="Compile document gateway packer tool">
+	<target name="compileDgPacker" depends="check-ggesrc" if="${ggesrc.exists}" description="Compile document gateway packer tool">
 		
 	    <!-- Compile Java classes as necessary -->
 	    <javac destdir="${build.home}/classes" includeantruntime="false" debug="true" debuglevel="lines,vars,source">
