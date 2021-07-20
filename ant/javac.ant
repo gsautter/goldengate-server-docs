@@ -39,7 +39,6 @@
     		<include name="**/goldenGateServer/dio/data/*.java" />
     		<include name="**/goldenGateServer/dio/util/*.java" />
     		<include name="**/goldenGateServer/dpr/*.java" />
-    		<include name="**/goldenGateServer/dpr/slave/*.java" />
     		<include name="**/goldenGateServer/drs/*.java" />
     		<include name="**/goldenGateServer/dst/*.java" />
     		<include name="**/goldenGateServer/eXist/*.java" />
@@ -71,6 +70,8 @@
     		<include name="**/goldenGateServer/dio/client/batch/*.java" />
     		<include name="**/goldenGateServer/dio/client/documentGateway/*.java" />
     		<include name="**/goldenGateServer/dio/data/*.java" />
+	    	
+    		<include name="**/goldenGateServer/dpr/slave/*.java" />
 	    	
 	        <classpath refid="compile.classpath" />
 	    </javac>
@@ -107,7 +108,10 @@
 	</target>
 	
 	<!-- Compile packer utility for document gateway -->
-	<target name="compileDgPacker" description="Compile document gateway packer tool">
+	<target name="check-ggsrc" unless="ggsrc.exists">
+		<available property="ggsrc.exists" file="../goldengate-editor/src"/>
+	</target>
+	<target name="compileDgPacker" depends="check-ggsrc" if="${ggsrc.exists}" description="Compile document gateway packer tool">
 		
 	    <!-- Compile Java classes as necessary -->
 	    <javac destdir="${build.home}/classes" includeantruntime="false" debug="true" debuglevel="lines,vars,source">
