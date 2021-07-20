@@ -501,7 +501,7 @@
 	<target name="docgatewayzip" depends="check-ggstuff,diodocgatewayjar">
 		<delete file="${app.docgateway}" />
 		<zip destfile="${app.docgateway}">
-			<fileset dir="${file.home}/docgateway" />
+			<!-- currently empty, extists for future extension fileset dir="${file.home}/docgateway" / -->
 			<fileset dir="${dist.home}/DocGateway" includes="GgServerDocumentGateway.jar" />
 			<fileset dir="${lib.home}" includes="AuthManagerPlugin.jar" />
 			<fileset dir="${lib.home}" includes="EasyIO.jar" />
