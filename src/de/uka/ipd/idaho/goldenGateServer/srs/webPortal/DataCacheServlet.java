@@ -218,7 +218,8 @@ public class DataCacheServlet extends AbstractSrsWebPortalServlet implements Sea
 		
 		//	initialize cache root
 		String cacheRoot = this.getSetting("cacheFolder");
-		this.cacheRoot = ((cacheRoot == null) ? new File(new File(this.webInfFolder, "caches"), "srsDataCache") : new File(cacheRoot));
+//		this.cacheRoot = ((cacheRoot == null) ? new File(new File(this.webInfFolder, "caches"), "srsDataCache") : new File(cacheRoot));
+		this.cacheRoot = ((cacheRoot == null) ? new File(this.cacheRootFolder, "srsDataCache") : new File(cacheRoot));
 		if (!this.cacheRoot.exists())
 			this.cacheRoot.mkdirs();
 		

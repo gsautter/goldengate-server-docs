@@ -38,7 +38,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -52,6 +51,7 @@ import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.util.gPath.GPathVariableResolver;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
+import de.uka.ipd.idaho.goldenGateServer.util.LruCache;
 import de.uka.ipd.idaho.stringUtils.StringVector;
 import de.uka.ipd.idaho.stringUtils.csvHandler.StringTupel;
 
@@ -218,6 +218,14 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 					this.io.indexColumn(statsTableDefs[t].getTableName(), fgFields[f].columnName);
 			}
 		}
+		
+		//	create soft referencing cache, using number of table cells as weight of entries
+		this.cache = new LruCache((this.tableNamePrefix + "StatsCache"), 256, 0x00010000, 0, Integer.MAX_VALUE, Integer.MAX_VALUE) {
+			protected int getWeight(Object value) {
+				DcStatistics stats = ((DcStatistics) value);
+				return (stats.getFieldCount() * stats.size());
+			}
+		};
 	}
 	
 	private Map virtualIdFieldCache = Collections.synchronizedMap(new LinkedHashMap());
@@ -234,6 +242,8 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 		this.virtualIdFieldCache.put(fieldGroup.name, idField); // need to cache null as well
 		return idField;
 	}
+	
+	private LruCache cache;
 	
 	/**
 	 * Update the data belonging to a specific document in the statistics
@@ -670,19 +680,21 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 		//	assemble aggregate predicates
 		for (Iterator ffit = aggregatePredicates.keySet().iterator(); ffit.hasNext();) {
 			String fieldName = ((String) ffit.next());
-			if ("DocCount".equalsIgnoreCase(fieldName)) {
-				String predicateString = aggregatePredicates.getProperty(fieldName);
-				if ((predicateString == null) || (predicateString.trim().length() == 0))
-					continue;
-				Predicate predicate = parsePredicate(predicateString, true);
-				if (predicate.isEmpty()) {
-					System.out.println(this.statName + ": empty predicate for DocCount");
-					System.out.println("  input string was " + predicateString);
-					continue;
-				}
-				havingString.append(" AND " + predicate.getSql("count(DISTINCT " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE + ")"));
-				continue;
-			}
+//			if ("DocCount".equalsIgnoreCase(fieldName)) {
+//				String predicateString = aggregatePredicates.getProperty(fieldName);
+//				if ((predicateString == null) || (predicateString.trim().length() == 0))
+//					continue;
+//				Predicate predicate = parsePredicate(predicateString, true);
+//				if (predicate.isEmpty()) {
+//					System.out.println(this.statName + ": empty predicate for DocCount");
+//					System.out.println("  input string was " + predicateString);
+//					continue;
+//				}
+//				havingString.append(" AND " + predicate.getSql("count(DISTINCT " + this.fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE + ")"));
+//				continue;
+//			}
+			if ("DocCount".equalsIgnoreCase(fieldName))
+				continue; // need to add this below when we have all tables
 			StatField field = ((StatField) this.fieldsByFullName.get(fieldName));
 			if ((field == null) || StatField.BOOLEAN_TYPE.equals(field.dataType))
 				continue;
@@ -743,6 +755,17 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 			tableString.appendTableForField(leftField);
 			tableString.appendTableForField(rightField);
 		}
+		if (aggregatePredicates.containsKey("DocCount")) {
+			String predicateString = aggregatePredicates.getProperty("DocCount");
+			if ((predicateString != null) && (predicateString.trim().length() != 0)) {
+				Predicate predicate = parsePredicate(predicateString, true);
+				if (predicate.isEmpty()) {
+					System.out.println(this.statName + ": empty predicate for DocCount");
+					System.out.println("  input string was " + predicateString);
+				}
+				else havingString.append(" AND " + predicate.getSql("count(DISTINCT " + this.fieldGroupsToTableAliases.getProperty(tableString.getLeadFieldGroup().name) + "." + DOCUMENT_ID_ATTRIBUTE + ")"));
+			}
+		}
 		
 		/* produce cache key TODO increase hit rate by exploiting commutative properties
 		 * - HEX hash of output field string (includes aggregates)
@@ -786,13 +809,29 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 			limitClause = "";
 		}
 		
+		//	get remaining query parts TODO test this, in the wild
+		String joinWhereClause = tableString.getJoinWhereString();
+		String predicateWhereClause = whereString.toString();
+		String whereClause;
+		if ("1=1".equals(joinWhereClause) && "1=1".equals(predicateWhereClause))
+			whereClause = "";
+		else if ("1=1".equals(joinWhereClause))
+			whereClause = (" WHERE " + predicateWhereClause);
+		else if ("1=1".equals(predicateWhereClause))
+			whereClause = (" WHERE " + joinWhereClause);
+		else whereClause = (" WHERE " + predicateWhereClause + " AND " + joinWhereClause);
+		String predicateHavingClause = havingString.toString();
+		String havingClause = ("1=1".equals(predicateHavingClause) ? "" : (" HAVING " + havingString.toString()));
+		
 		//	assemble query
 		String query = "SELECT " + topClause + outputFieldString.toString() +
 				" FROM " + tableString.toString() +
-				" WHERE " + whereString.toString() +
-				" AND " + tableString.getJoinWhereString() +
+//				" WHERE " + whereString.toString() +
+//				" AND " + tableString.getJoinWhereString() +
+				whereClause +
 				groupFieldString.toString() +
-				" HAVING " + havingString.toString() +
+//				("1=1".equals(havingString.toString()) ? "" : (" HAVING " + havingString.toString())) +
+				havingClause +
 				orderFieldString.toString() +
 				limitClause +
 				";";
@@ -800,6 +839,7 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 		
 		//	produce statistics
 		SqlQueryResult sqr = null;
+		long time = System.currentTimeMillis();
 		try {
 			
 			//	we're testing the query parser ...
@@ -831,13 +871,14 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 			return stats;
 		}
 		catch (SQLException sqle) {
-			System.out.println("DocumentCollectionStatistics: exception generating statistics: " + sqle.getMessage());
+			System.out.println(this.statName + ": exception generating statistics: " + sqle.getMessage());
 			System.out.println("  Query was: " + query);
 			return null;
 		}
 		finally {
 			if (sqr != null)
 				sqr.close();
+			System.out.println(this.statName + ": stats query processed in " + (System.currentTimeMillis() - time) + "ms: " + query);
 		}
 	}
 	
@@ -846,94 +887,157 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 	}
 	
 	private class FieldListBuffer {
-		private StringBuffer sb = null;
-		private HashSet fields = new HashSet();
+		private LinkedHashMap fieldsToFunctions = new LinkedHashMap();
 		private String fieldListPrefix;
+		private String toString = null;
 		FieldListBuffer(String fieldListPrefix) {
 			this.fieldListPrefix = fieldListPrefix;
-			if (this.fieldListPrefix == null)
-				this.sb = new StringBuffer("count(DISTINCT " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE + ") AS DocCount");
 		}
 		boolean append(StatField field) {
 			return this.append(field, null);
 		}
 		boolean append(StatField field, String aggregateOrOrder) {
-			if (!this.fields.add(field.fullName))
+			if (this.fieldsToFunctions.containsKey(field))
 				return false;
-			
-			//	make sure of separator
-			if (this.sb == null)
-				this.sb = new StringBuffer();
-			else this.sb.append(", ");
-			
-			//	SELECT clause
-			if (this.fieldListPrefix == null) {
-				if (aggregateOrOrder == null)
-					this.sb.append(getQualifiedFieldName(field));
-				else if ("count-distinct".equals(aggregateOrOrder))
-					this.sb.append("count(DISTINCT " + getQualifiedFieldName(field) + ")");
-				else this.sb.append(aggregateOrOrder + "(" + getQualifiedFieldName(field) + ")");
-				this.sb.append(" AS " + field.statColName);
-			}
-			
-			//	GROUP BY clause
-			else if (" GROUP BY ".equals(this.fieldListPrefix))
-				this.sb.append(getQualifiedFieldName(field));
-			
-			//	ORDER BY clause
-			else this.sb.append(field.statColName + ((aggregateOrOrder == null) ? "" : aggregateOrOrder));
-			
-			//	indicate we did something
+			this.fieldsToFunctions.put(field, aggregateOrOrder);
+			this.toString = null;
 			return true;
 		}
 		boolean containsField(StatField field) {
-			return this.fields.contains(field.fullName);
+			return this.fieldsToFunctions.containsKey(field);
+		}
+		private void ensureQueryData() {
+			if (this.toString != null)
+				return;
+			StringBuffer ts = null;
+			
+			//	find lead field group to add doc
+			if (this.fieldListPrefix == null) {
+				StatFieldGroup leadFieldGroup = null;
+				for (Iterator sfit = this.fieldsToFunctions.keySet().iterator(); sfit.hasNext();) {
+					StatField field = ((StatField) sfit.next());
+					if (field.group.virtualTableName == null) {
+						leadFieldGroup = field.group;
+						break;
+					}
+				}
+				if (leadFieldGroup == null)
+					leadFieldGroup = docFieldGroup;
+				ts = new StringBuffer("count(DISTINCT " + fieldGroupsToTableAliases.getProperty(leadFieldGroup.name) + "." + DOCUMENT_ID_ATTRIBUTE + ") AS DocCount");
+			}
+			
+			//	add actual fields
+			for (Iterator sfit = this.fieldsToFunctions.keySet().iterator(); sfit.hasNext();) {
+				StatField field = ((StatField) sfit.next());
+				String aggregateOrOrder = ((String) this.fieldsToFunctions.get(field));
+				
+				//	make sure of separator
+				if (ts == null)
+					ts = new StringBuffer(this.fieldListPrefix);
+				else ts.append(", ");
+				
+				//	SELECT clause
+				if (this.fieldListPrefix == null) {
+					if (aggregateOrOrder == null)
+						ts.append(getQualifiedFieldName(field));
+					else if ("count-distinct".equals(aggregateOrOrder))
+						ts.append("count(DISTINCT " + getQualifiedFieldName(field) + ")");
+					else ts.append(aggregateOrOrder + "(" + getQualifiedFieldName(field) + ")");
+					ts.append(" AS " + field.statColName);
+				}
+				
+				//	GROUP BY clause
+				else if (" GROUP BY ".equals(this.fieldListPrefix))
+					ts.append(getQualifiedFieldName(field));
+				
+				//	ORDER BY clause
+				else ts.append(field.statColName + ((aggregateOrOrder == null) ? "" : aggregateOrOrder));
+			}
+			this.toString = ((ts == null) ? "" : ts.toString());
 		}
 		public String toString() {
-			return ((this.sb == null) ? "" : (((this.fieldListPrefix == null) ? "" : this.fieldListPrefix) + this.sb.toString()));
+			this.ensureQueryData();
+			return this.toString;
 		}
 		int getFieldListHash() {
-			return ((this.sb == null) ? 0 : this.sb.toString().hashCode());
+			return this.toString().hashCode();
 		}
 	}
 	
 	private class TableListBuffer {
-		private StringBuffer sb;
-		private HashSet tables = new HashSet();
-		private StringBuffer joinWhere = new StringBuffer("1=1");
-		TableListBuffer() {
-			this.sb = new StringBuffer(fieldGroupsToTables.getProperty("doc") + " " + fieldGroupsToTableAliases.getProperty("doc"));
-			this.tables.add("doc");
-		}
+		private LinkedHashSet fieldGroups = new LinkedHashSet();
+		private StatFieldGroup leadFieldGroup = null;
+		private String tableString = null;
+		private String tableJoiner = null;
+		TableListBuffer() {}
 		void appendTableForField(StatField field) {
 			this.appendTableForFieldGroup(field.group);
 		}
 		void appendTableForFieldGroup(StatFieldGroup fieldGroup) {
-			if (!this.tables.add(fieldGroup.name))
+			if (!this.fieldGroups.add(fieldGroup))
 				return;
-			this.sb.append(", " + fieldGroupsToTables.getProperty(fieldGroup.name) + " " + fieldGroupsToTableAliases.getProperty(fieldGroup.name));
-			if (fieldGroup.virtualTableName == null) {
-				this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
-				this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
+			this.tableString = null;
+			this.tableJoiner = null;
+			if (fieldGroup.virtualTableName == null)
+				return;
+			if (fieldGroup.refIdFieldName == null)
+				return;
+			StatField refIdField = ((StatField) fieldsByFullName.get(fieldGroup.refIdFieldName));
+			this.appendTableForField(refIdField);
+		}
+		private void ensureQueryData() {
+			if ((this.tableString != null) && (this.tableJoiner != null) && (this.leadFieldGroup != null))
+				return;
+			boolean virtualTables = false;
+			this.leadFieldGroup = null;
+			for (Iterator sfgit = this.fieldGroups.iterator(); sfgit.hasNext();) {
+				StatFieldGroup sfg = ((StatFieldGroup) sfgit.next());
+				if (sfg.virtualTableName == null) {
+					if (this.leadFieldGroup == null)
+						this.leadFieldGroup = sfg;
+				}
+				else virtualTables = true;
 			}
-			else /* ID hash not necessarily available in virtual table */ {
-				StatField idField = findVirtualIdField(fieldGroup);
-				if (fieldGroup.refIdFieldName == null)
-					this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + ((idField == null) ? DOCUMENT_ID_ATTRIBUTE : idField.columnName) + " = " + fieldGroupsToTableAliases.getProperty("doc") + "." + DOCUMENT_ID_ATTRIBUTE);
-				else {
-					StatField refIdField = ((StatField) fieldsByFullName.get(fieldGroup.refIdFieldName));
-					this.appendTableForField(refIdField);
-					this.joinWhere.append(" AND " + fieldGroupsToTableAliases.getProperty(fieldGroup.name) + "." + ((idField == null) ? DOCUMENT_ID_ATTRIBUTE : idField.columnName) + " = " + fieldGroupsToTableAliases.getProperty(refIdField.group.name) + "." + refIdField.columnName);
+			if (virtualTables || (this.leadFieldGroup == null))
+				this.leadFieldGroup = docFieldGroup;
+			//	TODO try using 'INNER JOIN'
+			StringBuffer ts = new StringBuffer(fieldGroupsToTables.getProperty(this.leadFieldGroup.name) + " " + fieldGroupsToTableAliases.getProperty(this.leadFieldGroup.name));
+			StringBuffer tj = new StringBuffer("1=1");
+			for (Iterator sfgit = this.fieldGroups.iterator(); sfgit.hasNext();) {
+				StatFieldGroup sfg = ((StatFieldGroup) sfgit.next());
+				if (sfg == this.leadFieldGroup)
+					continue; // used for initializing above
+				ts.append(", " + fieldGroupsToTables.getProperty(sfg.name) + " " + fieldGroupsToTableAliases.getProperty(sfg.name));
+				if (sfg.virtualTableName == null) {
+					tj.append(" AND " + fieldGroupsToTableAliases.getProperty(sfg.name) + "." + DOCUMENT_ID_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty(this.leadFieldGroup.name) + "." + DOCUMENT_ID_ATTRIBUTE);
+					tj.append(" AND " + fieldGroupsToTableAliases.getProperty(sfg.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE + " = " + fieldGroupsToTableAliases.getProperty(this.leadFieldGroup.name) + "." + DOCUMENT_ID_HASH_ATTRIBUTE);
+				}
+				else /* ID hash not necessarily available in virtual table */ {
+					StatField idField = findVirtualIdField(sfg);
+					if (sfg.refIdFieldName == null)
+						tj.append(" AND " + fieldGroupsToTableAliases.getProperty(sfg.name) + "." + ((idField == null) ? DOCUMENT_ID_ATTRIBUTE : idField.columnName) + " = " + fieldGroupsToTableAliases.getProperty(this.leadFieldGroup.name) + "." + DOCUMENT_ID_ATTRIBUTE);
+					else {
+						StatField refIdField = ((StatField) fieldsByFullName.get(sfg.refIdFieldName));
+						tj.append(" AND " + fieldGroupsToTableAliases.getProperty(sfg.name) + "." + ((idField == null) ? DOCUMENT_ID_ATTRIBUTE : idField.columnName) + " = " + fieldGroupsToTableAliases.getProperty(refIdField.group.name) + "." + refIdField.columnName);
+					}
 				}
 			}
+			this.tableString = ts.toString();
+			this.tableJoiner = tj.toString();
+		}
+		StatFieldGroup getLeadFieldGroup() {
+			this.ensureQueryData();
+			return this.leadFieldGroup;
 		}
 		public String toString() {
-			return this.sb.toString();
+			this.ensureQueryData();
+			return this.tableString;
 		}
 		String getJoinWhereString() {
+			this.ensureQueryData();
 			StringBuffer sfgJoinWhere = new StringBuffer();
-			for (Iterator sfgnit = this.tables.iterator(); sfgnit.hasNext();) {
-				StatFieldGroup sfg = ((StatFieldGroup) fieldGroupsByName.get(sfgnit.next()));
+			for (Iterator sfgit = this.fieldGroups.iterator(); sfgit.hasNext();) {
+				StatFieldGroup sfg = ((StatFieldGroup) sfgit.next());
 				StatFieldGroupJoin[] sfgjs = sfg.getJoins();
 				if (sfgjs.length == 0)
 					continue;
@@ -944,22 +1048,14 @@ public class GoldenGateDcsStatEngine implements GoldenGateDcsConstants {
 					StatField jsf = ((StatField) fieldsByFullName.get(sfgjs[j].joinFieldName));
 					if (jsf == null)
 						continue; // some configuration error
-					if (!this.tables.contains(jsf.group.name))
+					if ((this.leadFieldGroup != jsf.group) && !this.fieldGroups.contains(jsf.group))
 						continue; // other table not in query
 					sfgJoinWhere.append(" AND " + getQualifiedFieldName(sf) + " = " + getQualifiedFieldName(jsf));
 				}
 			}
-			return (this.joinWhere.toString() + sfgJoinWhere.toString());
+			return (this.tableJoiner + sfgJoinWhere.toString());
 		}
 	}
-	
-	private static final int initCacheSize = 128;
-	private static final int maxCacheSize = 256;
-	private Map cache = Collections.synchronizedMap(new LinkedHashMap(initCacheSize, 0.9f, true) {
-		protected boolean removeEldestEntry(Entry eldest) {
-			return (this.size() > maxCacheSize);
-		}
-	});
 	
 	private static class Predicate {
 		private LinkedList positives;

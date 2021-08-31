@@ -35,16 +35,19 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
+import java.io.Writer;
 import java.net.URLDecoder;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -57,18 +60,17 @@ import de.uka.ipd.idaho.easyIO.IoProvider;
 import de.uka.ipd.idaho.easyIO.SqlQueryResult;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.Annotation;
+import de.uka.ipd.idaho.gamta.AnnotationUtils;
 import de.uka.ipd.idaho.gamta.AttributeUtils;
-import de.uka.ipd.idaho.gamta.Attributed;
 import de.uka.ipd.idaho.gamta.DocumentRoot;
 import de.uka.ipd.idaho.gamta.Gamta;
-import de.uka.ipd.idaho.gamta.MutableAnnotation;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.gamta.Token;
-import de.uka.ipd.idaho.gamta.defaultImplementation.AbstractAttributed;
 import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest;
 import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest.AttributeFilter;
 import de.uka.ipd.idaho.gamta.util.AnnotationChecksumDigest.TypeFilter;
 import de.uka.ipd.idaho.gamta.util.AnnotationFilter;
+import de.uka.ipd.idaho.gamta.util.CountingSet;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader;
 import de.uka.ipd.idaho.gamta.util.GamtaClassLoader.ComponentInitializer;
 import de.uka.ipd.idaho.gamta.util.GenericGamtaXML;
@@ -95,6 +97,7 @@ import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousConsoleAction;
 import de.uka.ipd.idaho.goldenGateServer.util.IdentifierKeyedDataObjectStore;
 import de.uka.ipd.idaho.goldenGateServer.util.IdentifierKeyedDataObjectStore.DataObjectInputStream;
 import de.uka.ipd.idaho.goldenGateServer.util.IdentifierKeyedDataObjectStore.DataObjectNotFoundException;
+import de.uka.ipd.idaho.goldenGateServer.util.IdentifierKeyedDataObjectStore.DataObjectOutputStream;
 import de.uka.ipd.idaho.htmlXmlUtil.Parser;
 import de.uka.ipd.idaho.htmlXmlUtil.TokenReceiver;
 import de.uka.ipd.idaho.htmlXmlUtil.TreeNodeAttributeSet;
@@ -119,6 +122,10 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private IndexerServiceThread indexerService = null;
 	private AsynchronousWorkQueue indexerServiceMonitor = null;
 	private IdentifierKeyedDataObjectStore indexDataStore;
+	private CountingSet queriedIndexerFields = new CountingSet(new TreeMap(String.CASE_INSENSITIVE_ORDER));
+	private Set sQueriedIndexerFields = Collections.synchronizedSet(this.queriedIndexerFields);
+	private long indexersQueriedSince = System.currentTimeMillis(); // simply remember startup time
+	private long indexersQueriedLastLogged = System.currentTimeMillis(); // simply remember startup time
 	
 	private StorageFilter[] filters = new StorageFilter[0];
 	private DocumentSplitter[] splitters = new DocumentSplitter[0];
@@ -147,6 +154,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private AnnotationChecksumDigest checksumDigest;
 	
 	private DocumentStore dst;
+	private IdentifierKeyedDataObjectStore dstCache; // TODO put latest version here, on cpool
 	private long dstLastModified = -1;
 	
 	private HashMap documentListExtensions = new LinkedHashMap();
@@ -198,7 +206,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			throw new RuntimeException("GoldenGATE SRS cannot work without database access.");
 		
 		//	index document table
-		this.io.indexColumn(DOCUMENT_TABLE_NAME, Indexer.DOC_NUMBER_COLUMN_NAME);
+		this.io.indexColumn(DOCUMENT_TABLE_NAME, DOC_NUMBER_COLUMN_NAME);
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, DOCUMENT_ID_ATTRIBUTE);
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, DOCUMENT_UUID_ATTRIBUTE);
 		this.io.indexColumn(DOCUMENT_TABLE_NAME, DOCUMENT_UUID_HASH_COLUMN_NAME);
@@ -253,6 +261,18 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	initialize document store
 		this.dst = new DocumentStore("SrsDocuments", docFolder, this.configuration.getSetting("documentEncoding"), this);
 		System.out.println("  - got document store");
+		
+		//	get document storage folder
+		String docCacheFolderName = this.configuration.getSetting("documentCacheFolderName");
+		if (docCacheFolderName != null) {
+			while (docCacheFolderName.startsWith("./"))
+				docCacheFolderName = docCacheFolderName.substring("./".length());
+			File docCacheFolder = (((docCacheFolderName.indexOf(":\\") == -1) && (docCacheFolderName.indexOf(":/") == -1) && !docCacheFolderName.startsWith("/")) ? new File(this.dataPath, docCacheFolderName) : new File(docCacheFolderName));
+			
+			//	initialize document store
+			this.dstCache = new IdentifierKeyedDataObjectStore("SrsDocumentCache", docCacheFolder, ".xml", false, this);
+			System.out.println("  - got document cache");
+		}
 		
 		
 		//	load, initialize and sort plugins
@@ -375,7 +395,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		
 		//	create re-index action
-		this.reindexAction = new AsynchronousConsoleAction("reIndex", "Re-index the document collection managed by this GoldenGATE SRS", "index", this.dataPath, "SrsIndexUpdateLog") {
+		this.reIndexAction = new AsynchronousConsoleAction(REINDEX_COMMAND, "Re-index the document collection managed by this GoldenGATE SRS", "index", this.dataPath, "SrsIndexUpdateLog") {
 			protected String[] getArgumentNames() {
 				String[] argumentNames = {"indexerName"};
 				return argumentNames;
@@ -404,6 +424,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				if (arguments.length == 0) {
 					for (int i = 0; i < GoldenGateSRS.this.indexers.length; i++)
 						reIndexNameSet.add(GoldenGateSRS.this.indexers[i].getIndexName());
+					reIndexNameSet.add("doc");
 				}
 				else {
 					String [] reIndexNames = arguments[0].split("\\,");
@@ -419,52 +440,48 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				this.log("  - index update service stopped");
 				
 				//	process collection
-				String query = "SELECT " + DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + 
-						" FROM " + DOCUMENT_TABLE_NAME +
-						" ORDER BY " + DOC_NUMBER_COLUMN_NAME + 
-						";";
-				
-				SqlQueryResult sqr = null;
+				DocumentNumberResolver docNumberResolver = getDocumentNumberResolver();
+				Indexer[] indexers = GoldenGateSRS.this.indexers;
 				try {
-					
-					//	read document list
-					sqr = io.executeSelectQuery(query, true);
-					
-					//	get collection statistics for status info 
-					CollectionStatistics stat = getStatistics();
-					this.enteringMainLoop("0 of " + stat.docCount + " documents done");
+					this.enteringMainLoop("0 of " + docNumberResolver.size() + " documents done");
 					
 					//	process documents
 					int updateDocCount = 0;
-					while (sqr.next()) {
+					for (int d = 0; d < docNumberResolver.size(); d++) {
 						
-						//	read doc ID
-						String docId = sqr.getString(1);
+						//	read document number and ID
+						long docNr = docNumberResolver.documentNumberAt(d);
+						String docId = docNumberResolver.documentIdAt(d);
+						this.log("  - processing document " + docNr);
 						try {
-							//	read data
-							long docNr = sqr.getLong(0);
-							this.log("  - processing document " + docNr);
-							
-							MutableAnnotation doc = dst.loadDocument(docId);
-							this.log("    - document loaded");
+							QueriableAnnotation doc = null;
 							
 							//	run document through indexers
 							IndexData indexData = getIndexData(docNr, docId);
-							for (int i = 0; i < GoldenGateSRS.this.indexers.length; i++) {
-								if (reIndexNameSet.contains(GoldenGateSRS.this.indexers[i].getIndexName())) {
-									Indexer indexer = GoldenGateSRS.this.indexers[i];
-									this.log("    - doing indexer " + indexer.getClass().getName());
-									
-									indexer.deleteDocument(docNr);
-									this.log("      - document un-indexed");
-									
-									IndexResult ir = indexer.index(doc, docNr);
-									this.log("      - document re-indexed");
-									
-									if ((ir == null) || !ir.hasNextElement())
-										indexData.removeIndexResult(indexer.getIndexName());
-									else indexData.addIndexResult(ir);
+							for (int i = 0; i < indexers.length; i++) {
+								if (!reIndexNameSet.contains(indexers[i].getIndexName()))
+									continue;
+								if (doc == null) {
+									doc = getDocument(docId);
+									this.log("    - document loaded");
 								}
+								this.log("    - doing indexer " + indexers[i].getClass().getName());
+								
+//								indexers[i].deleteDocument(docNr);
+//								this.log("      - document un-indexed");
+//								IndexResult ir = indexers[i].index(doc, docNr);
+//								this.log("      - document re-indexed");
+								IndexResult ir = indexers[i].reIndex(doc, docNr);
+								this.log("      - document re-indexed");
+								
+								if ((ir == null) || !ir.hasNextElement())
+									indexData.removeIndexResult(indexers[i].getIndexName());
+								else indexData.addIndexResult(ir);
+							}
+							if (reIndexNameSet.contains("doc")) {
+								Properties docAttributes = getDocumentAttributes(docId);
+								if (docAttributes != null)
+									setIndexDataDocAttributes(indexData, docAttributes);
 							}
 							this.log("    - document done");
 							storeIndexData(indexData);
@@ -477,12 +494,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						}
 						
 						//	update status info
-						this.loopRoundComplete((++updateDocCount) + " of " + stat.docCount + " documents done");
+						this.loopRoundComplete((++updateDocCount) + " of " + docNumberResolver.size() + " documents done");
 					}
-				}
-				catch (SQLException sqle) {
-					this.log("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while re-indexing document collection.");
-					this.log("  Query was " + query);
 				}
 				finally {
 					synchronized (indexerActionQueue) {
@@ -497,8 +510,302 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 		};
 		
+		//	create index check action
+		this.checkIndexAction = new AsynchronousConsoleAction(CHECK_INDEX_COMMAND, "Check cached index data for the document collection managed by this GoldenGATE SRS", "index", this.dataPath, "SrsIndexCheckLog") {
+			protected String[] getArgumentNames() {
+				String[] argumentNames = {"checkMode"};
+				return argumentNames;
+			}
+			protected String[] getArgumentExplanation(String argument) {
+				if ("checkMode".equals(argument)) {
+					String[] explanation = {
+							"The check mode, 'checkEmpty' to check for general presence of sub results, 'checkAll' to check each individual sub result, 'repairEmpty' to trigger re-indexing in absence of all sub results, 'repairAll' to trigger re-indexing for all individual missing sub results (optional parameter, defaults to 'shallow' if omitted)"
+						};
+					return explanation;
+				}
+				else return super.getArgumentExplanation(argument);
+			}
+			protected String checkArguments(String[] arguments) {
+				if (arguments.length < 2)
+					return null;
+				else return ("Specify no arguments, or at most the check mode.");
+			}
+			protected String getActionName() {
+				return (getLetterCode() + "." + super.getActionName());
+			}
+			protected void performAction(String[] arguments) throws Exception {
+				
+				//	get mode
+				boolean shallowMode;
+				boolean cacheOnlyMode;
+				if (arguments.length == 0) {
+					shallowMode = true;
+					cacheOnlyMode = true;
+				}
+				else if ("checkAll".equals(arguments[0])) {
+					shallowMode = false;
+					cacheOnlyMode = true;
+				}
+				else if ("repairEmpty".equals(arguments[0])) {
+					shallowMode = true;
+					cacheOnlyMode = false;
+				}
+				else if ("repairAll".equals(arguments[0])) {
+					shallowMode = false;
+					cacheOnlyMode = false;
+				}
+				else {
+					shallowMode = true;
+					cacheOnlyMode = true;
+				}
+				
+				//	start log
+				this.log("GoldenGateSRS: start checking cached index data of document collection ...");
+				
+				//	process collection
+				DocumentNumberResolver docNumberResolver = getDocumentNumberResolver();
+				this.enteringMainLoop("0 of " + docNumberResolver.size() + " documents done");
+				
+				//	process documents
+				int updateDocCount = 0;
+				Indexer[] indexers = GoldenGateSRS.this.indexers;
+				for (int d = 0; d < docNumberResolver.size(); d++) {
+					long docNr = docNumberResolver.documentNumberAt(d);
+					String docId = docNumberResolver.documentIdAt(d);
+					this.log("  - processing document " + docNr + " (" + docId + ")");
+					try {
+						this.checkIndexData(docNr, docId, indexers, shallowMode, cacheOnlyMode);
+						this.log("    - document done");
+					}
+					catch (Exception e) {
+						this.log(("GoldenGateSRS: " + e.getClass().getName() + " (" + e.getMessage() + ") while re-indexing document " + docId), e);
+					}
+					catch (Error e) {
+						this.log(("GoldenGateSRS: " + e.getClass().getName() + " (" + e.getMessage() + ") while re-indexing document " + docId), new Exception(e));
+					}
+					
+					//	update status info
+					this.loopRoundComplete((++updateDocCount) + " of " + docNumberResolver.size() + " documents done");
+				}
+			}
+			private void checkIndexData(final long docNr, final String docId, Indexer[] indexers, boolean shallowMode, boolean cacheOnlyMode) {
+				
+				//	get existing index data (also makes sure document attributes are present)
+				IndexData indexData = getIndexData(docNr, null);
+				
+				//	no index data at all, create it
+				if (indexData == null) {
+					indexData = createIndexData(docNr);
+					if (cacheOnlyMode) {
+						this.log("    - index data created");
+						return;
+					}
+				}
+				
+				//	check presence of sub results
+				IndexResult[] irs = indexData.getIndexResults();
+				if (shallowMode && (irs.length != 0)) {
+					this.log("    - index entries present");
+					return;
+				}
+				
+				//	check individual sub results, and add missing ones
+				Query query = null;
+				boolean indexDataModified = false;
+				boolean reIndexingScheduled = false;
+				final QueriableAnnotation[] reIndexDoc = {null};
+				final IOException[] reIndexDocIoe = {null};
+				final IndexData[] reIndexData = {null};
+				for (int i = 0; i < indexers.length; i++) {
+					final Indexer indexer = indexers[i];
+					this.log("    - doing indexer " + indexer.getClass().getName());
+					
+					//	get sub result
+					IndexResult ir = indexData.getIndexResult(indexer.getIndexName());
+					if (ir != null) {
+						this.log("      - index entries present");
+						continue;
+					}
+					
+					//	create sub result if missing
+					if (query == null)
+						query = new Query();
+					ir = indexers[i].getIndexEntries(query, docNr, true);
+					if ((ir != null) && ir.hasNextElement()) {
+						indexData.addIndexResult(ir);
+						indexDataModified = true;
+						this.log("      - index entries added");
+					}
+					else if (cacheOnlyMode)
+						this.log("      - no index entries found");
+					else {
+						enqueueIndexerAction(new IndexerAction(IndexerAction.RE_INDEX_NAME, indexer) {
+							void performAction() {
+								if (reIndexDocIoe[0] == null) try {
+									if (reIndexDoc[0] == null)
+										reIndexDoc[0] = getDocument(docId);
+									if (reIndexData[0] == null)
+										reIndexData[0] = getIndexData(docNr, docId);
+//									this.indexer.deleteDocument(docNr);
+//									IndexResult ir = this.indexer.index(reIndexDoc[0], docNr);
+									IndexResult ir = this.indexer.reIndex(reIndexDoc[0], docNr);
+									if ((ir == null) || !ir.hasNextElement())
+										reIndexData[0].removeIndexResult(this.indexer.getIndexName());
+									else reIndexData[0].addIndexResult(ir);
+								}
+								catch (IOException ioe) {
+									logError("GoldenGateSRS: error re-indexing document '" + docId + "': " + ioe.getMessage());
+									logError(ioe);
+									reIndexDocIoe[0] = ioe;
+								}
+							}
+						});
+						reIndexingScheduled = true;
+						this.log("      - no index entries found, re-indexing scheduled");
+					}
+				}
+				
+				//	check document attributes
+				Properties docAttributes = getDocumentAttributes(docId);
+				if ((docAttributes != null) && setIndexDataDocAttributes(indexData, docAttributes))
+					indexDataModified = true;
+				
+				//	store index data if modified
+				if (indexDataModified) {
+					storeIndexData(indexData);
+					this.log("    - index data stored");
+				}
+				else this.log("    - index data unchanged");
+				
+				//	any re-indexing to trigger?
+				if (!reIndexingScheduled)
+					return;
+				
+				//	check document data as well
+				enqueueIndexerAction(new IndexerAction(IndexerAction.RE_INDEX_NAME) {
+					void performAction() {
+						if (reIndexDocIoe[0] != null)
+							return;
+						if (reIndexData[0] == null)
+							reIndexData[0] = getIndexData(docNr, docId);
+						Properties docAttributes = getDocumentAttributes(docId);
+						if (docAttributes != null)
+							setIndexDataDocAttributes(reIndexData[0], docAttributes);
+					}
+				});
+				enqueueIndexerAction(new IndexerAction(IndexerAction.CACHE_INDEX_NAME) {
+					void performAction() {
+						if ((reIndexDocIoe[0] == null) && (reIndexData[0] != null))
+							storeIndexData(reIndexData[0]);
+					}
+				});
+			}
+		};
+		
 		//	make sure to load modification time
 		this.getLastModified();
+		
+		//	initialize document identifier resolvers (in dedicated thread to speed up startup, but blocking search requests via lock)
+		Thread docIdResolverBuilder = new Thread() {
+			public void run() {
+				synchronized (this) {
+					this.notify();
+				}
+				synchronized (docIdentifierResolverLock) {
+					initDocumentIdentifierResolvers();
+				}
+			}
+		};
+		synchronized (docIdResolverBuilder) {
+			docIdResolverBuilder.start();
+			try {
+				docIdResolverBuilder.wait();
+			} catch (InterruptedException ie) {}
+		}
+	}
+	
+	private void initDocumentIdentifierResolvers() {
+		DocumentNumberResolver docNumberResolver = new DocumentNumberResolver();
+		TreeMap docUuidsToNrs = new TreeMap(signAwareHexStringOrder);
+		TreeMap masterDocIdsToNrs = new TreeMap(signAwareHexStringOrder);
+		String query = "SELECT " + DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + ", " + DOCUMENT_UUID_ATTRIBUTE + ", " + MASTER_DOCUMENT_ID_ATTRIBUTE + 
+				" FROM " + DOCUMENT_TABLE_NAME +
+				" ORDER BY " + DOC_NUMBER_COLUMN_NAME + 
+				";";
+		SqlQueryResult sqr = null;
+		try {
+			System.out.println("GoldenGateSRS: initializing document identifier mappings.");
+			long start = System.currentTimeMillis();
+			sqr = io.executeSelectQuery(query, true);
+			System.out.println(" - data loaded after " + (System.currentTimeMillis() - start) + "ms");
+			while (sqr.next()) {
+				long docNr = sqr.getLong(0);
+				String docId = sqr.getString(1);
+				docNumberResolver.mapDocumentNumber(docNr, docId);
+				String docUuid = sqr.getString(2);
+				if (docUuid != null) {
+					docUuid = docUuid.trim();
+					if (docUuid.length() != 0)
+						docUuidsToNrs.put(docUuid, new Long(docNr));
+				}
+				String masterDocId = sqr.getString(3);
+				Object docNrsObj = masterDocIdsToNrs.get(masterDocId);
+				if (docNrsObj == null)
+					masterDocIdsToNrs.put(masterDocId, new Long(docNr));
+				else if (docNrsObj instanceof ArrayList)
+					((ArrayList) docNrsObj).add(new Long(docNr));
+				else if (docNrsObj instanceof Long) {
+					ArrayList docNrs = new ArrayList(4);
+					docNrs.add(docNrsObj);
+					docNrs.add(new Long(docNr));
+					masterDocIdsToNrs.put(masterDocId, docNrs);
+				}
+			}
+			this.docNumberResolver = docNumberResolver.cloneToSize();
+			System.out.println(" - document number resolver finished after " + (System.currentTimeMillis() - start) + "ms");
+			
+			DocumentUuidResolver docUuidResolver = new DocumentUuidResolver();
+			for (Iterator duit = docUuidsToNrs.keySet().iterator(); duit.hasNext();) {
+				String docUuid = ((String) duit.next());
+				Long docNr = ((Long) docUuidsToNrs.get(docUuid));
+				docUuidResolver.mapDocumentUuid(docUuid, docNr);
+			}
+			System.out.println(" - document UUID resolver populated after " + (System.currentTimeMillis() - start) + "ms");
+			this.docUuidResolver = docUuidResolver.cloneToSize();
+			docUuidsToNrs.clear(); // helps garbage collection
+			System.out.println(" - document UUID resolver finished after " + (System.currentTimeMillis() - start) + "ms");
+			
+			MasterDocumentIdMapper masterDocIdMapper = new MasterDocumentIdMapper();
+			for (Iterator ndidit = masterDocIdsToNrs.keySet().iterator(); ndidit.hasNext();) {
+				String masterDocId = ((String) ndidit.next());
+				Object docNrsObj = masterDocIdsToNrs.get(masterDocId);
+				long[] docNrs;
+				if (docNrsObj instanceof Long) {
+					docNrs = new long[1];
+					docNrs[0] = ((Long) docNrsObj).longValue();
+				}
+				else if (docNrsObj instanceof ArrayList) {
+					ArrayList docNrsList = ((ArrayList) docNrsObj);
+					docNrs = new long[docNrsList.size()];
+					for (int d = 0; d < docNrsList.size(); d++)
+						docNrs[d] = ((Long) docNrsList.get(d)).longValue();
+				}
+				else continue;
+				masterDocIdMapper.mapMasterDocumentId(masterDocId, docNrs);
+			}
+			System.out.println(" - master document ID mapper populated after " + (System.currentTimeMillis() - start) + "ms");
+			this.masterDocIdMapper = masterDocIdMapper.cloneToSize();
+			masterDocIdsToNrs.clear(); // helps garbage collection
+			System.out.println(" - master document ID mapper finished after " + (System.currentTimeMillis() - start) + "ms");
+		}
+		catch (SQLException sqle) {
+			System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while initializing document identifier mappings.");
+			System.out.println("  Query was " + query);
+		}
+		finally {
+			if (sqr != null)
+				sqr.close();
+		}
 	}
 	
 	/* (non-Javadoc)
@@ -518,6 +825,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		
 		this.indexDataStore.shutdown();
 		System.out.println("  - index data store shut down");
+		
+		if (this.dstCache != null) {
+			this.dstCache.shutdown();
+			System.out.println("  - document cache shut down");
+		}
 		
 		for (int f = 0; f < this.filters.length; f++)
 			this.filters[f].exit();
@@ -544,6 +856,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	}
 	
 	private static final String LIST_INDEXERS_COMMAND = "indexers";
+	private static final String LIST_QUERIED_INDEXERS_FIELDS_COMMAND = "queried";
 	private static final String LIST_FILTERS_COMMAND = "filters";
 	private static final String LIST_SPLITTERS_COMMAND = "splitters";
 	private static final String LIST_UUID_FETCHERS_COMMAND = "uuidFetchers";
@@ -551,11 +864,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final String SET_ACTIVITY_LOG_TIMEOUT_COMMAND = "setAlt";
 	
 	private static final String REINDEX_COMMAND = "reIndex";
+	private static final String CHECK_INDEX_COMMAND = "checkIndex";
+	private static final String REINDEX_COMMAND_DOCUMENT = "reIndexDoc";
 	private static final String INDEXER_STATS_COMMAND = "indexerStats";
 	
 	private static final String ISSUE_EVENTS_COMMAND = "issueEvents";
 	
-	private AsynchronousConsoleAction reindexAction;
+	private AsynchronousConsoleAction reIndexAction;
+	private AsynchronousConsoleAction checkIndexAction;
 	
 	/* (non-Javadoc)
 	 * @see de.goldenGateScf.ServerComponent#getActions()
@@ -613,6 +929,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				//	make data go
 				output.flush();
+				logActivity("GgSRS: document search done\r\n    query: " + query);
 			}
 		};
 		cal.add(ca);
@@ -641,6 +958,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				//	make data go
 				output.flush();
+				logActivity("GgSRS: document detail search done\r\n    query: " + query);
 			}
 		};
 		cal.add(ca);
@@ -672,6 +990,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				//	send data
 				output.flush();
+				logActivity("GgSRS: document data search done\r\n    query: " + query);
 			}
 		};
 		cal.add(ca);
@@ -702,6 +1021,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				//	make the data go
 				output.flush();
+				logActivity("GgSRS: document ID search done\r\n    query: " + query);
 			}
 		};
 		cal.add(ca);
@@ -733,6 +1053,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				
 				//	send data
 				output.flush();
+				logActivity("GgSRS: index search done\r\n    query: " + query);
 			}
 		};
 		cal.add(ca);
@@ -853,6 +1174,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					result.writeXml(output);
 					output.newLine();
 				}
+				logActivity("GgSRS: thesaurus search done\r\n    query: " + query);
 			}
 		};
 		cal.add(ca);
@@ -957,6 +1279,34 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		};
 		cal.add(ca);
 		
+		//	list queried indexer fields
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return LIST_QUERIED_INDEXERS_FIELDS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						LIST_QUERIED_INDEXERS_FIELDS_COMMAND,
+						"List the fields queried in the installed indexers."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				long queriedTime = (System.currentTimeMillis() - indexersQueriedSince);
+				long queriedHours = ((queriedTime + ((1000 * 60 * 60) / 2)) / (1000 * 60 * 60));
+				this.reportResult("These " + queriedIndexerFields.elementCount() + " indexer fields were queried in the past " + queriedHours + " hours (" + queriedTime + "ms):");
+				for (Iterator qfnit = queriedIndexerFields.iterator(); qfnit.hasNext();) {
+					String queriedFieldName = ((String) qfnit.next());
+					this.reportResult(" - '" + queriedFieldName + "': " + queriedIndexerFields.getCount(queriedFieldName) + " timed");
+				}
+			}
+		};
+		cal.add(ca);
+		
 		//	list this.filters
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
@@ -1057,13 +1407,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	issue update events
 		ca = new ComponentActionConsole() {
 			public String getActionCommand() {
-				return REINDEX_COMMAND;
+				return REINDEX_COMMAND_DOCUMENT;
 			}
 			public String[] getExplanation() {
 				String[] explanation = {
-						REINDEX_COMMAND + " <masterDocId> <indexerName>",
+						REINDEX_COMMAND_DOCUMENT + " <masterDocOrDocId> <indexerName>",
 						"Re-index all documents from a specific master document:",
-						"- <masterDocId>: the ID of the master document to re-index",
+						"- <masterDocOrDocId>: the ID of the master document or single document to re-index",
 						"- <indexerName>: the name of the indexer to re-index the document with (optional)",
 					};
 				return explanation;
@@ -1071,7 +1421,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			public void performActionConsole(String[] arguments) {
 				if ((arguments.length < 1) || (arguments.length > 2))
 					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify the master document ID and indexer name as the only arguments.");
-				else reIndex(arguments[0], ((arguments.length == 1) ? null : arguments[1]));
+				else reIndexMasterDoc(arguments[0], ((arguments.length == 1) ? null : arguments[1]), this);
 			}
 		};
 		cal.add(ca);
@@ -1100,6 +1450,92 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 		};
 		cal.add(ca);
+		
+		//	trigger generation of XML cached index results
+		if (this.dstCache != null) {
+			ca = new ComponentActionConsole() {
+				public String getActionCommand() {
+					return "cacheDocuments";
+				}
+				public String[] getExplanation() {
+					String[] explanation = {
+							"cacheDocuments" + " <masterDocId>",
+							"Cache the latest version of all documents from a specific master document:",
+							"- <masterDocId>: the ID of the master document to cache the documents for",
+						};
+					return explanation;
+				}
+				public void performActionConsole(String[] arguments) {
+					if (arguments.length > 1) {
+						this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify at most the master document ID as the only argument.");
+						return;
+					}
+					final String masterDocId = ((arguments.length == 0) ? null : arguments[0]);
+					Thread scheduler = new Thread() {
+						public void run() {
+							scheduleCacheDocuments(masterDocId);
+						}
+					};
+					scheduler.start();
+				}
+				void scheduleCacheDocuments(String masterDocId) {
+					LinkedHashSet docNrs = new LinkedHashSet();
+					String docNrsToDocIDsQuery = "SELECT " + Indexer.DOC_NUMBER_COLUMN_NAME + 
+						" FROM " + DOCUMENT_TABLE_NAME + 
+						" WHERE " + ((masterDocId == null) ? "1=1" : (MASTER_DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(masterDocId) + "'")) +
+						";";
+					SqlQueryResult sqr = null;
+					try {
+						sqr = io.executeSelectQuery(docNrsToDocIDsQuery);
+						while (sqr.next()) {
+							String docNr = sqr.getString(0);
+							docNrs.add(docNr);
+						}
+					}
+					catch (SQLException sqle) {
+						logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading document IDs.");
+						logError("Query was " + docNrsToDocIDsQuery);
+					}
+					finally {
+						if (sqr != null)
+							sqr.close();
+					}
+					this.reportResult("Got " + docNrs.size() + " document numbers");
+					int scheduleDocCount = 0;
+					DocumentNumberResolver dnr = getDocumentNumberResolver();
+					for (Iterator dnrit = docNrs.iterator(); dnrit.hasNext();) {
+						final String docNrStr = ((String) dnrit.next());
+						final long docNr = Long.parseLong(docNrStr);
+						final String docId = dnr.getDocumentId(docNr);
+						if (dstCache.isDataObjectAvailable(docId))
+							continue;
+						enqueueIndexerAction(new IndexerAction(IndexerAction.CACHE_INDEX_NAME) {
+							void performAction() {
+								if (dstCache.isDataObjectAvailable(docId))
+									return;
+								try {
+									DocumentReader dr = dst.loadDocumentAsStream(docId);
+									DataObjectOutputStream docCacheOut = dstCache.getOutputStream(docId);
+									Writer out = new OutputStreamWriter(docCacheOut, "UTF-8");
+									char[] buffer = new char[1024];
+									for (int r; (r = dr.read(buffer, 0, buffer.length)) != -1;)
+										out.write(buffer, 0, r);
+									out.flush();
+									out.close();
+									dr.close();
+								}
+								catch (IOException ioe) {
+									ioe.printStackTrace();
+								}
+							}
+						});
+						scheduleDocCount++;
+					}
+					this.reportResult("Scheduled caching " + scheduleDocCount + " of " + docNrs.size() + " documents");
+				}
+			};
+			cal.add(ca);
+		}
 //		
 //		//	trigger generation of XML cached index results
 //		ca = new ComponentActionConsole() {
@@ -1143,7 +1579,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 //					}
 //				}
 //				catch (SQLException sqle) {
-//					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
+//					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading document IDs.");
 //					logError("Query was " + docNrsToDocIDsQuery);
 //				}
 //				finally {
@@ -1162,12 +1598,139 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 //						void performAction() {
 //							if (isIndexDataCached(docNr))
 //								return;
-//							createIndexData(docNr, docId);
+//							createIndexData(docNr);
 //						}
 //					});
 //					scheduleDocCount++;
 //				}
 //				this.reportResult("Scheduled caching index results for " + scheduleDocCount + " of " + docNrsToDocIDs.size() + " documents");
+//			}
+//		};
+//		cal.add(ca);
+//		
+//		//	trigger generation of XML cached index results
+//		ca = new ComponentActionConsole() {
+//			public String getActionCommand() {
+//				return "checkDocIds";
+//			}
+//			public String[] getExplanation() {
+//				String[] explanation = {
+//						"checkDocIds" + " <mode>",
+//						"Check document IDs:",
+//						"- <mode>: set to '-c' for cleanup",
+//						"- <userName>: name of user whose records to delete (only relevant for cleanup)",
+//					};
+//				return explanation;
+//			}
+//			public void performActionConsole(String[] arguments) {
+//				if (arguments.length > 2) {
+//					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify at most the mode and filter user name as the only arguments.");
+//					return;
+//				}
+//				final boolean cleanup = ((arguments.length != 0) && "-c".equals(arguments[0]));
+//				final String cleanupUser = ((arguments.length == 2) ? arguments[1] : null);
+//				Thread checker = new Thread() {
+//					public void run() {
+//						checkDocIds(cleanup, cleanupUser);
+//					}
+//				};
+//				checker.start();
+//			}
+//			private void checkDocIds(boolean cleanup, String cleanupUser) {
+//				DocumentNumberResolver dnr = getDocumentNumberResolver();
+//				int validCount = 0;
+//				int invalidCount = 0;
+//				ArrayList invalidData = new ArrayList();
+//				ArrayList removeDocNrs = new ArrayList();
+//				for (int d = 0; d < dnr.size(); d++) {
+//					String docId = dnr.documentIdAt(d);
+//					if (dst.isDocumentAvailable(docId))
+//						validCount++;
+//					else {
+//						invalidCount++;
+//						this.logError("Found invalid document ID (" + invalidCount + "): " + docId);
+//						invalidData.add(docId);
+//						long docNr = dnr.documentNumberAt(d);
+//						if (cleanup && this.handleInvalidDocId(docId, docNr, cleanupUser))
+//							removeDocNrs.add(new Long(docNr));
+//					}
+//					if (((validCount + invalidCount) % 1000) == 0)
+//						this.logResult("Checked " + (validCount + invalidCount) + " document IDs, found " + validCount + " valid ones and " + invalidCount + " invalid ones");
+//				}
+//				if (invalidCount == 0) {
+//					this.logResult("Found " + invalidCount + " invalid document IDs, " + validCount + " valid ones");
+//					return;
+//				}
+//				this.logError("Found " + invalidCount + " invalid document IDs, " + validCount + " valid ones");
+//				
+//				long[] removed = new long[removeDocNrs.size()];
+//				for (int r = 0; r < removeDocNrs.size(); r++)
+//					removed[r] = ((Long) removeDocNrs.get(r)).longValue();
+//				dnr = getDocumentNumberResolver();
+//				synchronized (docNumberResolverLock) {
+//					docNumberResolver = dnr.cloneForChanges(new HashSet(), removed);
+//				}
+//			}
+//			private boolean handleInvalidDocId(final String docId, final long docNr, String cleanupUser) {
+//				StringBuffer query = new StringBuffer("SELECT ");
+//				for (int f = 0; f < documentListQueryFields.length; f++) {
+//					if (f != 0)
+//						query.append(", ");
+//					query.append(documentListQueryFields[f]);
+//				}
+//				query.append(" FROM " + DOCUMENT_TABLE_NAME);
+//				query.append(" WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "'");
+//				query.append(";");
+//				SqlQueryResult sqr = null;
+//				boolean trouble = (cleanupUser != null);
+//				try {
+//					sqr = io.executeSelectQuery(query.toString());
+//					while (sqr.next()) {
+//						StringBuffer invalidDocIdData = new StringBuffer();
+//						for (int f = 0; f < documentListQueryFields.length; f++) {
+//							if (f != 0)
+//								invalidDocIdData.append(" | ");
+//							invalidDocIdData.append(sqr.getString(f));
+//							if ((cleanupUser != null) && CHECKIN_USER_ATTRIBUTE.equals(documentListQueryFields[f]) && cleanupUser.equals(sqr.getString(f)))
+//								trouble = false;
+//						}
+//						if (trouble)
+//							this.logError(invalidDocIdData.toString());
+//					}
+//				}
+//				catch (SQLException sqle) {
+//					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading invalid document ID record.");
+//					logError("Query was " + query.toString());
+//				}
+//				finally {
+//					if (sqr != null)
+//						sqr.close();
+//				}
+//				if (trouble)
+//					return false;
+//				
+//				String deleteQuery = "DELETE FROM " + DOCUMENT_TABLE_NAME + " WHERE " + DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(docId) + "';";
+//				try {
+//					io.executeUpdateQuery(deleteQuery);
+//					this.logError("Deleted records for invalid document ID " + docId);
+//				}
+//				catch (SQLException sqle) {
+//					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while deleting invalid document ID record.");
+//					logError("Query was " + deleteQuery);
+//					return false;
+//				}
+//				for (int i = 0; i < indexers.length; i++)
+//					enqueueIndexerAction(new IndexerAction(IndexerAction.DELETE_NAME, indexers[i]) {
+//						void performAction() {
+//							this.indexer.deleteDocument(docNr);
+//						}
+//					});
+//				enqueueIndexerAction(new IndexerAction(IndexerAction.DELETE_NAME) {
+//					void performAction() {
+//						deleteIndexData(docNr);
+//					}
+//				});
+//				return true;
 //			}
 //		};
 //		cal.add(ca);
@@ -1194,7 +1757,10 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		cal.add(ca);
 		
 		//	re-index collection
-		cal.add(this.reindexAction);
+		cal.add(this.reIndexAction);
+		
+		//	check index data
+		cal.add(this.checkIndexAction);
 		
 		//	get actions from document store (prefixing with "doc" and upper-casing first command letter)
 		ComponentAction[] dstActions = this.dst.getActions();
@@ -1202,6 +1768,16 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			if (dstActions[a] instanceof ComponentActionConsole)
 				cal.add(new ComponentActionConsolePrefixWrapper(((ComponentActionConsole) dstActions[a]), "doc"));
 			else cal.add(dstActions[a]);
+		}
+		
+		//	get actions from document cache (prefixing with "doc" and upper-casing first command letter)
+		if (this.dstCache != null) {
+			ComponentAction[] dstCacheActions = this.dstCache.getActions();
+			for (int a = 0; a < dstCacheActions.length; a++) {
+				if (dstCacheActions[a] instanceof ComponentActionConsole)
+					cal.add(new ComponentActionConsolePrefixWrapper(((ComponentActionConsole) dstCacheActions[a]), "dcc"));
+				else cal.add(dstCacheActions[a]);
+			}
 		}
 		
 		//	get actions from index data store (prefixing with "idx" and upper-casing first command letter)
@@ -1266,69 +1842,90 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		return plugins;
 	}
 	
-	private void reIndex(final String masterDocId, String indexerName) {
-		
-		//	assemble query
-		StringBuffer query = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE);
-		query.append(" FROM " + DOCUMENT_TABLE_NAME);
-		if (masterDocId.matches("[0-9A-F]{32}")) {
-			query.append(" WHERE " + MASTER_DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(masterDocId) + "'");
-			query.append(" AND " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + " = " + masterDocId.hashCode() + "");
-		}
-		else query.append(" WHERE " + MASTER_DOCUMENT_ID_ATTRIBUTE + " LIKE '" + EasyIO.sqlEscape(masterDocId) + "'");
-		query.append(";");
+	private void reIndexMasterDoc(String masterDocId, String indexerName, ComponentActionConsole cac) {
 		
 		//	get document IDs
-		SqlQueryResult sqr = null;
+		MasterDocumentIdMapper masterDocIdMapper = this.getMasterDocumentIdMapper();
+		long[] docNrs = masterDocIdMapper.getDocumentNumbers(masterDocId);
 		int docCount = 0;
 		int indexCount = 0;
-		try {
-			sqr = io.executeSelectQuery(query.toString(), true);
-			while (sqr.next()) {
-				final long docNr = sqr.getLong(0);
-				final String docId = sqr.getString(1);
-				final IndexData indexData = getIndexData(docNr, docId);
-				boolean updateIndexData = false;
-				for (int i = 0; i < this.indexers.length; i++) {
-					if ((indexerName != null) && !indexerName.equals(this.indexers[i].getIndexName()))
-						continue;
-					this.enqueueIndexerAction(new IndexerAction(IndexerAction.RE_INDEX_NAME, this.indexers[i]) {
-						void performAction() {
-							try {
-								QueriableAnnotation doc = dst.loadDocument(docId);
-								this.indexer.deleteDocument(docNr);
-								IndexResult ir = this.indexer.index(doc, docNr);
-								if ((ir == null) || !ir.hasNextElement())
-									indexData.removeIndexResult(indexer.getIndexName());
-								else indexData.addIndexResult(ir);
-							}
-							catch (IOException ioe) {
-								logError("GoldenGateSRS: error re-indexing document '" + docId + "': " + ioe.getMessage());
-								logError(ioe);
-							}
-						}
-					});
-					indexCount++;
-					updateIndexData = true;
-				}
+		
+		//	no documents found, must be document ID proper
+		if ((docNrs == null) && masterDocId.matches("[0-9A-F]{32}")) {
+			indexCount += this.reIndexDoc(masterDocId, indexerName);
+			docCount++;
+		}
+		
+		//	we actually have documents in list to re-index
+		else if (docNrs != null) {
+			cac.reportResult("Got " + docNrs.length + " document IDs.");
+			DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+			for (int d = 0; d < docNrs.length; d++) {
+				String docId = docNumberResolver.getDocumentId(docNrs[d]);
+				if (docId == null)
+					continue;
+				indexCount += this.reIndexDoc(docId, indexerName);
 				docCount++;
-				if (updateIndexData)
-					this.enqueueIndexerAction(new IndexerAction(IndexerAction.CACHE_INDEX_NAME) {
-						void performAction() {
-							storeIndexData(indexData);
-						}
-					});
 			}
 		}
-		catch (SQLException sqle) {
-			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while listing documents.");
-			this.logError("  query was " + query);
+		cac.reportResult("Scheduled re-indexing of for " + docCount + " documents (" + indexCount + " index updates in total).");
+	}
+	
+	private int reIndexDoc(final String docId, String indexerName) {
+		final long docNr = getDocNr(docId);
+		final IndexData indexData = getIndexData(docNr, docId);
+		final QueriableAnnotation[] doc = {null};
+		final IOException[] docIoe = {null};
+		boolean updateIndexData = false;
+		int indexCount = 0;
+		for (int i = 0; i < this.indexers.length; i++) {
+			if ((indexerName != null) && !indexerName.equals(this.indexers[i].getIndexName()))
+				continue;
+			this.enqueueIndexerAction(new IndexerAction(IndexerAction.RE_INDEX_NAME, this.indexers[i]) {
+				void performAction() {
+					if (docIoe[0] == null) try {
+						if (doc[0] == null)
+							doc[0] = getDocument(docId);
+//						this.indexer.deleteDocument(docNr);
+//						IndexResult ir = this.indexer.index(doc[0], docNr);
+						IndexResult ir = this.indexer.reIndex(doc[0], docNr);
+						if ((ir == null) || !ir.hasNextElement())
+							indexData.removeIndexResult(this.indexer.getIndexName());
+						else indexData.addIndexResult(ir);
+					}
+					catch (IOException ioe) {
+						logError("GoldenGateSRS: error re-indexing document '" + docId + "': " + ioe.getMessage());
+						logError(ioe);
+						docIoe[0] = ioe;
+					}
+				}
+			});
+			indexCount++;
+			updateIndexData = true;
 		}
-		finally {
-			if (sqr != null)
-				sqr.close();
+		if ((indexerName == null) || "doc".equals(indexerName)) {
+			this.enqueueIndexerAction(new IndexerAction(IndexerAction.RE_INDEX_NAME) {
+				void performAction() {
+					if (docIoe[0] != null)
+						return;
+					Properties docAttributes = getDocumentAttributes(docId);
+					if (docAttributes != null)
+						setIndexDataDocAttributes(indexData, docAttributes);
+				}
+			});
+			indexCount++;
+			updateIndexData = true;
 		}
-		this.logResult("Scheduled re-indexing of for " + docCount + " documents (" + indexCount + " index updates in total).");
+		if (updateIndexData)
+			this.enqueueIndexerAction(new IndexerAction(IndexerAction.CACHE_INDEX_NAME) {
+				void performAction() {
+					if (docIoe[0] == null)
+						storeIndexData(indexData);
+				}
+			});
+		
+		//	finally ...
+		return indexCount;
 	}
 	
 	private Thread eventIssuer = null;
@@ -1379,9 +1976,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		this.eventIssuer.start();
 	}
 	
-	private CollectionStatistics getStatistics() throws IOException {
-		return this.getStatistics(null);
-	}
+//	private CollectionStatistics getStatistics() throws IOException {
+//		return this.getStatistics(null);
+//	}
 	private CollectionStatistics getStatistics(String sinceString) throws IOException {
 		
 		//	compute 'since' parameter
@@ -1549,6 +2146,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	}
 	
 	private String resolveDocumentId(String docId) {
+		//	TODO use lookup data structures instead
 		
 		//	resolve UUID
 		String resolverQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
@@ -1806,6 +2404,20 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		long start = System.currentTimeMillis();
 		docId = normalizeId(docId);
 		
+		//	try plain ID cache lookup first (fastest option)
+		if ((this.dstCache != null) && (version == 0) && !includeUpdateHistory && this.dstCache.isDataObjectAvailable(docId)) try {
+			DataObjectInputStream docIn = dstCache.getInputStream(docId);
+			DocumentReader dr = new DocumentReader(new InputStreamReader(docIn, "UTF-8"), docIn.getDataObjectSize());
+			dr.setAttribute(DOCUMENT_ID_ATTRIBUTE, docId);
+			dr.setDocumentProperty(DOCUMENT_ID_ATTRIBUTE, docId);
+			dr.setAttribute(DOCUMENT_VERSION_ATTRIBUTE, 0);
+			this.logActivity(" - unresolved cache document reader obtained after " + (System.currentTimeMillis() - start) + " ms");
+			return dr;
+		}
+		
+		//	catch invalid document ID errors, as those can just as well indicate the need for resolving a UUID
+		catch (IOException dnfe) {}
+		
 		//	try plain ID lookup first (way faster)
 		try {
 			DocumentReader dr = this.dst.loadDocumentAsStream(docId, version, includeUpdateHistory);
@@ -1909,11 +2521,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		String exDocQuery = ExistingDocumentData.getExistingDocumentDataQuery(masterDocId);
 		SqlQueryResult sqr = null;
 		HashMap exDocDataById = new HashMap();
+		HashSet removedDocUuids = new HashSet();
 		try {
 			sqr = this.io.executeSelectQuery(exDocQuery);
 			while (sqr.next()) {
 				ExistingDocumentData exDocData = new ExistingDocumentData(sqr);
 				exDocDataById.put(exDocData.docId, exDocData);
+				if ((exDocData.docUuid != null) && (exDocData.docUuid.length() != 0))
+					removedDocUuids.add(exDocData.docUuid);
 			}
 			this.logInfo("   - data for " + exDocDataById.size() + " existing documents read in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		}
@@ -1934,6 +2549,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	store part documents
 		storageStepStart = System.currentTimeMillis();
 		StringVector validIDs = new StringVector();
+		HashSet newDocIDs = new HashSet();
+		ArrayList validDocIds = new ArrayList();
+		HashMap validDocUuidsToNrs = new HashMap();
 		for (int d = 0; d < docs.length; d++) {
 			
 			//	check ID
@@ -1961,21 +2579,83 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			int docStatus = this.updateDocument(docs[d], docId, masterDocId, updateTime, ((ExistingDocumentData) exDocDataById.remove(docId)), logger);
 			
 			//	update statistics
-			if (docStatus == NEW_DOC)
+			if (docStatus == NEW_DOC) {
 				newDocCount++;
+				newDocIDs.add(docId);
+			}
 			else if (docStatus == UPDATE_DOC)
 				updateDocCount++;
+			
+			//	store new UUID
+			String docUuid = ((String) docs[d].getAttribute(DOCUMENT_UUID_ATTRIBUTE));
+			if ((docUuid != null) && (docUuid.trim().length() != 0)) {
+				docUuid = normalizeId(docUuid);
+				removedDocUuids.remove(docUuid);
+				validDocUuidsToNrs.put(docUuid, new Long(getDocNr(docId)));
+			}
+			
+			//	store document ID
+			validDocIds.add(docId);
 			
 			//	how long did this take?
 			this.logInfo("   - part " + (d+1) + " of " + docs.length + " stored in " + (System.currentTimeMillis() - docStorageStart) + " ms");
 		}
 		this.logInfo(" - parts stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
 		
+		//	update document number resolver if required
+		if ((exDocDataById.size() != 0) || (newDocIDs.size() != 0)) {
+			storageStepStart = System.currentTimeMillis();
+			long[] removedDocNrs = new long[exDocDataById.size()];
+			int removeDocNrIndex = 0;
+			for (Iterator didit = exDocDataById.keySet().iterator(); didit.hasNext();) {
+				String docId = ((String) didit.next());
+				ExistingDocumentData edd = ((ExistingDocumentData) exDocDataById.get(docId));
+				removedDocNrs[removeDocNrIndex++] = edd.docNumber;
+			}
+			synchronized (this.docIdentifierResolverLock) {
+				this.docNumberResolver = this.docNumberResolver.cloneForChanges(newDocIDs, removedDocNrs);
+			}
+			this.logInfo(" - document number resolver updated in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		}
+		
+		//	update document UUID resolver if required
+		if ((validDocUuidsToNrs.size() != 0) || (removedDocUuids.size() != 0)) {
+			storageStepStart = System.currentTimeMillis();
+			synchronized (this.docIdentifierResolverLock) {
+				this.docUuidResolver = this.docUuidResolver.cloneForChanges(validDocUuidsToNrs, removedDocUuids);
+			}
+			this.logInfo(" - document UUID resolver updated in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		}
+		
 		//	clean up document table
 		storageStepStart = System.currentTimeMillis();
 		String updateUser = ((String) masterDoc.getAttribute(UPDATE_USER_ATTRIBUTE, masterDoc.getAttribute(CHECKIN_USER_ATTRIBUTE, "Unknown User")));
 		int deleteDocCount = this.cleanupMasterDocument(updateUser, masterDocId, exDocDataById, logger);
 		this.logInfo(" - master document cleanup done in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		
+		//	update master document ID mapper
+		if ((newDocCount != 0) || (deleteDocCount != 0)) {
+			storageStepStart = System.currentTimeMillis();
+			long[] docNrs = new long[validDocIds.size()];
+			for (int d = 0; d < validDocIds.size(); d++) {
+				String docId = ((String) validDocIds.get(d));
+				docNrs[d] = getDocNr(docId);
+			}
+			synchronized (this.docIdentifierResolverLock) {
+				this.masterDocIdMapper = this.masterDocIdMapper.cloneForChanges(masterDocId, docNrs);
+			}
+			this.logInfo(" - master document ID mapper updated in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		}
+		
+		//	enqueue 'finish master document' indexer action
+		if ((newDocCount != 0) || (updateDocCount != 0) || (deleteDocCount != 0))
+			for (int i = 0; i < this.indexers.length; i++) {
+				this.enqueueIndexerAction(new IndexerAction(IndexerAction.FINISH_INDEX_NAME, this.indexers[i]) {
+					void performAction() {
+						this.indexer.masterDocumentFinished();
+					}
+				});
+			}
 		
 		//	write log
 		if (logger != null) {
@@ -2036,7 +2716,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final int KEEP_DOC = 0;
 	private static final int UPDATE_DOC = 1;
 	private static final int NEW_DOC = 2;
-	private int updateDocument(final QueriableAnnotation doc, final String docId, String masterDocId, final long updateTime, ExistingDocumentData exDocData, final EventLogger logger) throws IOException {
+	private int updateDocument(final QueriableAnnotation doc, final String docId, String masterDocId, final long updateTime, final ExistingDocumentData exDocData, final EventLogger logger) throws IOException {
 		long storageStepStart;
 		final long docNr = getDocNr(docId);
 		final int documentStatus;
@@ -2281,14 +2961,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			}
 			
 			//	remove document from indexers, will be re-indexed later
-			for (int i = 0; i < this.indexers.length; i++) {
-				this.enqueueIndexerAction(new IndexerAction(IndexerAction.DELETE_NAME, this.indexers[i]) {
-					void performAction() {
-						this.indexer.deleteDocument(docNr);
-					}
-				});
-			}
-			deleteIndexData(docNr, docId);
+//			for (int i = 0; i < this.indexers.length; i++) {
+//				this.enqueueIndexerAction(new IndexerAction(IndexerAction.DELETE_NAME, this.indexers[i]) {
+//					void performAction() {
+//						this.indexer.deleteDocument(docNr);
+//					}
+//				});
+//			}
+			deleteIndexData(docNr);
 		}
 		
 		//	invalidate collection statistics
@@ -2303,20 +2983,37 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		final int version = this.dst.storeDocument(doc, docId);
 		this.dstLastModified = System.currentTimeMillis();
 		this.logInfo("   - document stored in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		if (this.dstCache != null) {
+			storageStepStart = System.currentTimeMillis();
+			DataObjectOutputStream docCacheOut = this.dstCache.getOutputStream(docId);
+			Writer out = new OutputStreamWriter(docCacheOut, "UTF-8");
+			GenericGamtaXML.storeDocument(doc, out);
+			out.flush();
+			out.close();
+			this.logInfo("   - document cached in " + (System.currentTimeMillis() - storageStepStart) + " ms");
+		}
 		
 		//	run document through indexers asynchronously for better upload performance
 		storageStepStart = System.currentTimeMillis();
 		final IndexData indexData = getIndexData(docNr, docId);
 		for (int i = 0; i < this.indexers.length; i++) {
-			this.enqueueIndexerAction(new IndexerAction(IndexerAction.INDEX_NAME, this.indexers[i]) {
+			this.enqueueIndexerAction(new IndexerAction(((exDocData == null) ? IndexerAction.INDEX_NAME : IndexerAction.RE_INDEX_NAME), this.indexers[i]) {
 				void performAction() {
-					IndexResult ir = this.indexer.index(doc, docNr);
+					IndexResult ir = ((exDocData == null) ? this.indexer.index(doc, docNr) : this.indexer.reIndex(doc, docNr));
 					if ((ir == null) || !ir.hasNextElement())
 						indexData.removeIndexResult(this.indexer.getIndexName());
 					else indexData.addIndexResult(ir);
 				}
 			});
 		}
+		this.enqueueIndexerAction(new IndexerAction(IndexerAction.INDEX_NAME) {
+			void performAction() {
+				for (int a = 0; a < IndexData.documentAttributeNames.length; a++) {
+					String value = defaultDocumentAttribute(IndexData.documentAttributeNames[a], ((String) doc.getAttribute(IndexData.documentAttributeNames[a])));
+					indexData.setDocAttribute(IndexData.documentAttributeNames[a], value);
+				}
+			}
+		});
 		this.enqueueIndexerAction(new IndexerAction(IndexerAction.CACHE_INDEX_NAME) {
 			void performAction() {
 				storeIndexData(indexData);
@@ -2367,12 +3064,14 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 							this.indexer.deleteDocument(edd.docNumber);
 						}
 					});
-				deleteIndexData(edd.docNumber, edd.docId);
+				deleteIndexData(edd.docNumber);
 				
 				//	delete document proper
 				try {
 					this.dst.deleteDocument(docId);
 					this.dstLastModified = System.currentTimeMillis();
+					if (this.dstCache != null)
+						this.dstCache.deleteDataObject(docId);
 				}
 				catch (IOException ioe) {
 					this.logError("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
@@ -2452,11 +3151,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 						}
 					});
 				}
-				deleteIndexData(docNr, docId);
+				deleteIndexData(docNr);
 				
 				try {
 					this.dst.deleteDocument(docId);
 					this.dstLastModified = System.currentTimeMillis();
+					if (this.dstCache != null)
+						this.dstCache.deleteDataObject(docId);
 				}
 				catch (IOException ioe) {
 					this.logError("GoldenGateSRS: " + ioe.getClass().getName() + " (" + ioe.getMessage() + ") while deleting document.");
@@ -2503,8 +3204,10 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static abstract class IndexerAction {
 		static final String INDEX_NAME = "Index";
 		static final String RE_INDEX_NAME = "Index";
+		static final String FINISH_INDEX_NAME = "Finish";
 		static final String CACHE_INDEX_NAME = "CacheIndex";
 		static final String DELETE_NAME = "Delete";
+		static final String CHECK_DOCUMENT = "CheckDocument";
 		final String name;
 		final Indexer indexer;
 		long startTime;
@@ -2668,6 +3371,8 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				this.logWarning("Cached index data loaded Slow (in " + idLoadTime + "ms) for document " + docNr + " (" + idId + "), " + idIn.getDataObjectSize() + " bytes at " + (idIn.getDataObjectSize() / idLoadTime) + " bytes/ms");
 			else if (idLoadTime > 50)
 				this.logWarning("Cached index data loaded slow (in " + idLoadTime + "ms) for document " + docNr + " (" + idId + "), " + idIn.getDataObjectSize() + " bytes at " + (idIn.getDataObjectSize() / idLoadTime) + " bytes/ms");
+			if ((docId == null) /* only if not loading for update ... */ && this.checkIndexDataDocAttributes(id, id.docId))
+				return this.getIndexData(docNr, docId); // need to reload from disk, as storing reads through contained index results
 			return id;
 		}
 		catch (DataObjectNotFoundException donf) {
@@ -2684,6 +3389,35 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			} catch (IOException ioe) {}
 		}
 		return ((docId == null) ? null : new IndexData(docNr, docId));
+	}
+	
+	private boolean checkIndexDataDocAttributes(IndexData indexData, String docId) {
+		if (indexData.hasDocAttributes())
+			return false;
+		Properties docAttributes = this.getDocumentAttributes(docId);
+		if (docAttributes == null)
+			return false;
+		if (this.setIndexDataDocAttributes(indexData, docAttributes)) {
+			this.storeIndexData(indexData);
+			return true;
+		}
+		else return false;
+	}
+	
+	private boolean setIndexDataDocAttributes(IndexData indexData, Properties docAttributes) {
+		boolean indexDataModified = false;
+		for (int a = 0; a < IndexData.documentAttributeNames.length; a++) {
+			String value = docAttributes.getProperty(IndexData.documentAttributeNames[a]);
+			value = defaultDocumentAttribute(IndexData.documentAttributeNames[a], value);
+			if (value == null)
+				continue;
+			value = value.trim();
+			if (value.length() == 0)
+				continue;
+			if (indexData.setDocAttribute(IndexData.documentAttributeNames[a], value))
+				indexDataModified = true;
+		}
+		return indexDataModified;
 	}
 	
 	private IndexData readIndexData(Reader in) throws IOException {
@@ -2706,6 +3440,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 							long docNr = Long.parseLong(idTnas.getAttribute(IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE));
 							String docId = idTnas.getAttribute(DOCUMENT_ID_ATTRIBUTE);
 							indexData[0] = new IndexData(docNr, docId);
+							for (int a = 0; a < IndexData.documentAttributeNames.length; a++) {
+								String value = idTnas.getAttribute(IndexData.documentAttributeNames[a]);
+								if (value != null)
+									indexData[0].setDocAttribute(IndexData.documentAttributeNames[a], value);
+							}
 						}
 					}
 					else if (IndexResult.SUB_RESULTS_NODE_NAME.equals(type)) /* start of sub result list */ {
@@ -2780,30 +3519,15 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		return indexData[0];
 	}
 	
-	IndexData createIndexData(long docNr, String docId) {
-		if (docId == null) {
-			String docNrsToDocIDsQuery = "SELECT " + Indexer.DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + 
-				" FROM " + DOCUMENT_TABLE_NAME + 
-				" WHERE " + Indexer.DOC_NUMBER_COLUMN_NAME + " = " + docNr + 
-				";";
-			SqlQueryResult sqr = null;
-			try {
-				sqr = io.executeSelectQuery(docNrsToDocIDsQuery);
-				if (sqr.next())
-					docId = sqr.getString(1);
-			}
-			catch (SQLException sqle) {
-				logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading document ID.");
-				logError("Query was " + docNrsToDocIDsQuery);
-			}
-			finally {
-				if (sqr != null)
-					sqr.close();
-			}
-		}
+	IndexData createIndexData(long docNr) {
+		DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+		String docId = docNumberResolver.getDocumentId(docNr);
 		if (docId == null)
 			return null;
 		IndexData indexData = new IndexData(docNr, docId);
+		Properties docAttributes = this.getDocumentAttributes(docId);
+		if (docAttributes != null)
+			setIndexDataDocAttributes(indexData, docAttributes);
 		Query query = new Query();
 		for (int i = 0; i < this.indexers.length; i++) {
 			IndexResult ir = this.indexers[i].getIndexEntries(query, docNr, true);
@@ -2811,7 +3535,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				indexData.addIndexResult(ir);
 		}
 		this.storeIndexData(indexData);
-		return this.getIndexData(docNr, null);
+		return this.getIndexData(docNr, docId); // need to reload from disk, as storing reads through contained index results
 	}
 	
 	void storeIndexData(IndexData indexData) {
@@ -2837,7 +3561,13 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		out.write("<" + DocumentRoot.DOCUMENT_TYPE + 
 				" " + IndexResultElement.DOCUMENT_NUMBER_ATTRIBUTE + "=\"" + indexData.docNr + "\"" +
 				" " + DOCUMENT_ID_ATTRIBUTE + "=\"" + indexData.docId + "\"" +
-				">");
+				"");
+		for (int a = 0; a < IndexData.documentAttributeNames.length; a++) {
+			String value = indexData.getDocAttribute(IndexData.documentAttributeNames[a]);
+			if (value != null)
+				out.write(" " + IndexData.documentAttributeNames[a] + "=\"" + AnnotationUtils.escapeForXml(value) + "\"");
+		}
+		out.write(">");
 		out.newLine();
 		
 		//	add sub results
@@ -2870,7 +3600,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		out.newLine();
 	}
 	
-	void deleteIndexData(long docNr, String docId) {
+	void deleteIndexData(long docNr) {
 		String idId = getIndexDataId(docNr);
 		try {
 			/* just fully eradicate it, no version history to preserve, and
@@ -2928,13 +3658,77 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	private static final Grammar grammar = new StandardGrammar();
 	private static final Parser parser = new Parser(grammar);
 	private static class IndexData implements GoldenGateSrsConstants {
+		static final String[] documentAttributeNames = {
+			DOCUMENT_TYPE_ATTRIBUTE,
+			DOCUMENT_UUID_ATTRIBUTE,
+			DOCUMENT_UUID_SOURCE_ATTRIBUTE,
+			MASTER_DOCUMENT_ID_ATTRIBUTE,
+			CHECKIN_USER_ATTRIBUTE,
+			CHECKIN_TIME_ATTRIBUTE,
+			UPDATE_USER_ATTRIBUTE,
+			UPDATE_TIME_ATTRIBUTE,
+			MASTER_DOCUMENT_TITLE_ATTRIBUTE,
+			DOCUMENT_TITLE_ATTRIBUTE,
+			DOCUMENT_AUTHOR_ATTRIBUTE,
+			DOCUMENT_ORIGIN_ATTRIBUTE,
+			DOCUMENT_DATE_ATTRIBUTE,
+			DOCUMENT_SOURCE_LINK_ATTRIBUTE,
+			PAGE_NUMBER_ATTRIBUTE,
+			LAST_PAGE_NUMBER_ATTRIBUTE,
+			MASTER_PAGE_NUMBER_ATTRIBUTE,
+			MASTER_LAST_PAGE_NUMBER_ATTRIBUTE,
+		};
 		final long docNr;
 		final String docId;
+		private Properties docData;
 		private Map indexResultsByName = Collections.synchronizedMap(new LinkedHashMap());
 		IndexData(long docNr, String docId) {
 			this.docNr = docNr;
 			this.docId = docId;
 		}
+		boolean hasDocAttributes() {
+			return (this.docData != null);
+		}
+		String getDocAttribute(String name) {
+			if (DOCUMENT_ID_ATTRIBUTE.equals(name))
+				return this.docId;
+			else if (DOC_NUMBER_COLUMN_NAME.equals(name))
+				return ("" + this.docNr);
+			else if (this.docData == null)
+				return null;
+			else return this.docData.getProperty(name);
+		}
+		boolean setDocAttribute(String name, String value) {
+			if (DOCUMENT_ID_ATTRIBUTE.equals(name))
+				return false;
+			else if (DOC_NUMBER_COLUMN_NAME.equals(name))
+				return false;
+			else if (value == null) {
+				if (this.docData == null)
+					return false;
+				Object oldValue = this.docData.remove(name);
+				if (this.docData.isEmpty())
+					this.docData = null;
+				return (oldValue != null);
+			}
+			else {
+				if (this.docData == null)
+					this.docData = new Properties();
+				Object oldValue = this.docData.setProperty(name, value);
+				return ((oldValue == null) ? true : !oldValue.equals(value));
+			}
+		}
+//		String[] getDocAttributeNames() {
+//			if (this.docData == null)
+//				return new String[0];
+//			String[] dans = new String[this.docData.size()];
+//			int dani = 0;
+//			for (Iterator danit = this.docData.keySet().iterator(); danit.hasNext();) {
+//				String dan = ((String) danit.next());
+//				dans[dani++] = dan;
+//			}
+//			return dans;
+//		}
 		void addIndexResult(IndexResult indexResult) {
 			this.indexResultsByName.put(indexResult.indexName, indexResult);
 		}
@@ -3041,31 +3835,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	 * @throws IOException
 	 */
 	public int getDocumentCount(String masterDocId) throws IOException {
-		StringBuffer query = new StringBuffer("SELECT count(*)");
-		query.append(" FROM " + DOCUMENT_TABLE_NAME);
-		if (masterDocId != null) {
-			masterDocId = normalizeId(masterDocId);
-			query.append(" WHERE " + MASTER_DOCUMENT_ID_HASH_COLUMN_NAME + " = " + masterDocId.hashCode() + "");
-			query.append(" AND " + MASTER_DOCUMENT_ID_ATTRIBUTE + " = '" + EasyIO.sqlEscape(masterDocId) + "'");
-		}
-		query.append(";");
-		
-		SqlQueryResult sqr = null;
-		try {
-			sqr = this.io.executeSelectQuery(query.toString());
-			if (sqr.next())
-				return sqr.getInt(0);
-			else return -1;
-		}
-		catch (SQLException sqle) {
-			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while counting documents.");
-			this.logError("  query was " + query);
-			throw new IOException(sqle.getMessage());
-		}
-		finally {
-			if (sqr != null)
-				sqr.close();
-		}
+		MasterDocumentIdMapper masterDocIdMapper = this.getMasterDocumentIdMapper();
+		if (masterDocId == null)
+			return masterDocIdMapper.getDocumentCount();
+		masterDocId = normalizeId(masterDocId);
+		return masterDocIdMapper.getDocumentCount(masterDocId);
 	}
 	
 	/**
@@ -3181,91 +3955,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	no valid extensions found, we're done
 		if (extensionFields.isEmpty())
 			return docList;
-//		
-//		//	get extension indexers
-//		ArrayList extensionIndexerList = new ArrayList();
-//		for (int i = 0; i < this.indexers.length; i++)
-//			if (extensionIndexNames.contains(this.indexers[i].getIndexName()))
-//				extensionIndexerList.add(this.indexers[i]);
-//		if (extensionIndexerList.isEmpty())
-//			return docList;
-//		final Indexer[] extensionIndexers = ((Indexer[]) extensionIndexerList.toArray(new Indexer[extensionIndexerList.size()]));
-//		final Query extensionIndexerDummy = new Query();
-//		
-//		//	wrap document list to add extension fields
-//		return new DocumentList(docListFields.toStringArray()) {
-//			private LinkedList dleBuffer = new LinkedList();
-//			private int dleBufferSize = 100;
-//			
-//			public boolean hasNextElement() {
-//				this.checkDleBuffer();
-//				return (this.dleBuffer.size() != 0);
-//			}
-//			public SrsSearchResultElement getNextElement() {
-//				return ((this.hasNextElement()) ? ((DocumentListElement) this.dleBuffer.removeFirst()) : null);
-//			}
-//			
-//			private void checkDleBuffer() {
-//				if (this.dleBuffer.size() <= (this.dleBufferSize / 10))
-//					this.fillDleBuffer(this.dleBufferSize - this.dleBuffer.size());
-//			}
-//			private void addToDleBuffer(DocumentListElement dle) {
-//				this.dleBuffer.addLast(dle);
-//			}
-//			
-//			private void fillDleBuffer(int dleCount) {
-//				
-//				//	get main result elements for next chunk
-//				ArrayList dleList = new ArrayList();
-//				while ((dleList.size() < dleCount) && docList.hasNextElement())
-//					dleList.add(docList.getNextDocumentListElement());
-//				
-//				//	collect document numbers and index list entries
-//				long[] dleDocNrs = new long[dleList.size()];
-//				HashMap dlesByDocNr = new HashMap();
-//				for (int d = 0; d < dleList.size(); d++) {
-//					DocumentListElement dle = ((DocumentListElement) dleList.get(d));
-//					Long docNr = new Long((String) dle.getAttribute(DOC_NUMBER_COLUMN_NAME, "-1"));
-//					dleDocNrs[d] = docNr.longValue();
-//					dlesByDocNr.put(docNr, dle);
-//				}
-//				
-//				//	go indexer by indexer
-//				for (int e = 0; e < extensionIndexers.length; e++) {
-//					String extensionIndexName = extensionIndexers[e].getIndexName();
-//					HashSet deDuplicator = new HashSet();
-//					
-//					//	let indexer process query
-//					IndexResult extensionIndexResult = extensionIndexers[e].getIndexEntries(extensionIndexerDummy, dleDocNrs, false);
-//					
-//					//	got a sub result
-//					if (extensionIndexResult != null) {
-//						
-//						//	bucketize index entries, eliminating duplicates along the way
-//						while (extensionIndexResult.hasNextElement()) {
-//							IndexResultElement extensionIre = extensionIndexResult.getNextIndexResultElement();
-//							Long dleKey = new Long(extensionIre.docNr);
-//							if (deDuplicator.add(dleKey)) {
-//								DocumentListElement dle = ((DocumentListElement) dlesByDocNr.get(dleKey));
-//								String[] extensionIreAttributeNames = extensionIre.getAttributeNames();
-//								for (int a = 0; a < extensionIreAttributeNames.length; a++) {
-//									String extensionFieldName = ((String) extensionFields.get(extensionIndexName + "." + extensionIreAttributeNames[a]));
-//									if (extensionFieldName != null)
-//										dle.setAttribute(extensionFieldName, extensionIre.getAttribute(extensionIreAttributeNames[a]));
-//								}
-//							}
-//						}
-//					}
-//				}
-//				
-//				//	clean up
-//				dlesByDocNr.clear();
-//				
-//				//	store elements
-//				for (int d = 0; d < dleList.size(); d++)
-//					this.addToDleBuffer((DocumentListElement) dleList.get(d));
-//			}
-//		};
 		
 		//	wrap document list to add extension fields
 		return new DocumentList(docListFields.toStringArray()) {
@@ -3281,7 +3970,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 					return dle;
 				IndexData indexData = getIndexData(docNr, null);
 				if (indexData == null)
-					indexData = createIndexData(docNr, ((String) dle.getAttribute(DOCUMENT_ID_ATTRIBUTE)));
+					indexData = createIndexData(docNr);
 				IndexResult[] extensionIrs = indexData.getIndexResults();
 				for (int e = 0; e < extensionIrs.length; e++) {
 					if (!extensionIndexNames.contains(extensionIrs[e].indexName))
@@ -3466,6 +4155,11 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		MASTER_LAST_PAGE_NUMBER_ATTRIBUTE
 	};
 	
+	/* TODO Assess if we need to re-introduce result element buffering:
+	 * - reduces switching back and forth between reading from disk and writing response to socket
+	 * - see how performance changes, though ...
+	 */
+	
 	/**
 	 * Search documents. The elements of the returned document result contain
 	 * both the basic document meta data and the documents themselves.
@@ -3511,7 +4205,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		else if (minRelevance < 0) minRelevance = 0;
 		
 		//	do duplicate and relevance based elimination
-		QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
+		final QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
 		
 		//	catch empty result
 		if (relevanceResult.size() == 0) return new DocumentResult() {
@@ -3526,106 +4220,100 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	add search attributes to document annotations?
 		final boolean markSearcheables = (query.getValue(MARK_SEARCHABLES_PARAMETER) != null);
 		
-		//	return result fetching document IDs on the fly (block wise, though, to reduce number of DB queries)
-		final DocumentResult dataDr = new SqlDocumentResult(documentSearchResultAttributes, this.io, relevanceResult, 100) {
-			private HashSet docNumberDeDuplicator = new HashSet();
-			protected void fillDreBuffer(int dreCount) {
-				
-				//	get query result elements for current block
-				StringVector docNumberCollector = new StringVector();
-				ArrayList qreList = new ArrayList();
-				QueryResultElement qre;
-				while ((qreList.size() < dreCount) && ((qre = this.getNextQre()) != null)) {
-					if (this.docNumberDeDuplicator.add(new Long(qre.docNr))) {
-						docNumberCollector.addElement("" + qre.docNr);
-						qreList.add(qre);
-					}
-				}
-				if (docNumberCollector.isEmpty())
-					return;
-				
-				//	obtain document IDs and other data
-				StringBuffer docNrToDocDataQuery = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME);
-				for (int c = 0; c < this.resultAttributes.length; c++) {
-					docNrToDocDataQuery.append(", ");
-					docNrToDocDataQuery.append(this.resultAttributes[c]);
-				}
-				docNrToDocDataQuery.append(" FROM " + DOCUMENT_TABLE_NAME);
-				docNrToDocDataQuery.append(" WHERE " + DOC_NUMBER_COLUMN_NAME + " IN (" + docNumberCollector.concatStrings(", ") + ")");
-				docNrToDocDataQuery.append(";");
-				
-				//	execute query
-				HashMap docNrsToDocData = new HashMap();
-				SqlQueryResult sqr = null;
-				try {
-					sqr = this.io.executeSelectQuery(docNrToDocDataQuery.toString());
-					
-					//	read & store data
-					while (sqr.next()) {
-						String docNr = sqr.getString(0);
-						String[] docData = new String[this.resultAttributes.length];
-						for (int d = 0; d < this.resultAttributes.length; d++) {
-							if (DOCUMENT_UUID_ATTRIBUTE.equals(this.resultAttributes[d]) && (sqr.getString(d+1).length() >= 32)) {
-								String docUuid = sqr.getString(d+1);
-								docData[d] = (docUuid.substring(0, 8) + "-" + docUuid.substring(8, 12) + "-" + docUuid.substring(12, 16) + "-" + docUuid.substring(16, 20) + "-" + docUuid.substring(20));							}
-							else docData[d] = sqr.getString(d+1);
-						}
-						docNrsToDocData.put(docNr, docData);
-					}
-				}
-				catch (SQLException sqle) {
-					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
-					logError("  query was " + docNrToDocDataQuery.toString());
-				}
-				finally {
-					if (sqr != null)
-						sqr.close();
-				}
-				
-				//	generate DREs from QREs and stored data
-				for (int q = 0; q < qreList.size(); q++) {
-					qre = ((QueryResultElement) qreList.get(q));
-					String[] docData = ((String[]) docNrsToDocData.remove("" + qre.docNr));
-					if (docData != null) {
-						DocumentResultElement dre = new DocumentResultElement(qre.docNr, docData[0], qre.relevance, null);
-						for (int a = 0; a < this.resultAttributes.length; a++) {
-							if ((docData[a] != null) && (docData[a].trim().length() != 0))
-								dre.setAttribute(this.resultAttributes[a], docData[a]);
-						}
-						this.addToDreBuffer(dre);
-					}
-				}
-			}
-		};
-		return new DocumentResult() {
+		//	return result fetching documents on the fly
+		final DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+		final ArrayList staleDocNumbers = new ArrayList();
+		DocumentResult dr = new DocumentResult(documentSearchResultAttributes) {
+			private int loaded = 0;
+			private int qreIndex = 0;
+			private DocumentResultElement nextDre;
 			public boolean hasNextElement() {
-				return dataDr.hasNextElement();
+				if (this.nextDre != null)
+					return true;
+				
+				//	produce next element
+				while (this.qreIndex < relevanceResult.size()) {
+					QueryResultElement qre = relevanceResult.getResult(this.qreIndex++);
+					logActivity("  - adding result document " + qre.docNr + " (" + qre.relevance + ")");
+					
+					//	get document ID
+					String docId = docNumberResolver.getDocumentId(qre.docNr);
+					if (docId == null) {
+//						checkStaleDocumentNumber(qre.docNr);
+						staleDocNumbers.add(new Long(qre.docNr));
+						continue;
+					}
+					
+					//	load actual document (try cache first)
+					DocumentRoot doc = null;
+					if ((dstCache != null) && (docVersion == 0) && !includeUpdateHistory && dstCache.isDataObjectAvailable(docId)) try {
+						DataObjectInputStream docIn = dstCache.getInputStream(docId);
+						DocumentReader dr = new DocumentReader(new InputStreamReader(docIn, "UTF-8"), docIn.getDataObjectSize());
+						dr.setAttribute(DOCUMENT_ID_ATTRIBUTE, docId);
+						dr.setAttribute(DOCUMENT_VERSION_ATTRIBUTE, 0);
+						doc = GenericGamtaXML.readDocument(dr);
+						dr.close();
+						logActivity("    - loaded document with " + doc.size() + " tokens from cache");
+					}
+					catch (IOException ioe) {
+						logError("GoldenGateSRS: Error loading document '" + docId + "' from cache (" + ioe.getMessage() + ")");
+						logError(ioe);
+					}
+					if (doc == null) try {
+						doc = dst.loadDocument(docId, docVersion, includeUpdateHistory);
+						logActivity("    - loaded document with " + doc.size() + " tokens");
+					}
+					catch (IOException ioe) {
+						logError("GoldenGateSRS: Error loading document '" + docId + "' (" + ioe.getMessage() + ")");
+						logError(ioe);
+					}
+					if (doc == null)
+						continue;
+					
+					//	mark searchables if required
+					if (markSearcheables) {
+						for (int i = 0; i < indexers.length; i++)
+							indexers[i].markSearchables(doc);
+					}
+					
+					//	wrap new document result element around document
+					DocumentResultElement dre = new DocumentResultElement(qre.docNr, docId, qre.relevance, doc);
+					
+					//	populate result attributes
+					for (int a = 0; a < this.resultAttributes.length; a++) {
+						String value = ((String) doc.getAttribute(this.resultAttributes[a]));
+						if (value == null)
+							continue;
+						value = value.trim();
+						if (value.length() == 0)
+							continue;
+						if (DOCUMENT_UUID_ATTRIBUTE.equals(this.resultAttributes[a]) && (value.indexOf('-') == -1) && (value.length() >= 32)) {
+							value = (value.substring(0, 8) + "-" + value.substring(8, 12) + "-" + value.substring(12, 16) + "-" + value.substring(16, 20) + "-" + value.substring(20));							}
+						dre.setAttribute(this.resultAttributes[a], value);
+					}
+					
+					//	store result element, and remember last relevance for delaying cutoff
+					this.nextDre = dre;
+					this.loaded++;
+					logActivity("    ==> loaded total of " + this.loaded + " documents");
+					break;
+				}
+				
+				//	anything to work with?
+				return (this.nextDre != null);
 			}
 			public SrsSearchResultElement getNextElement() {
-				DocumentResultElement dre = dataDr.getNextDocumentResultElement();
-				
-				//	load actual document
-				DocumentRoot doc;
-				try {
-					doc = dst.loadDocument(dre.documentId, docVersion, includeUpdateHistory);
-				}
-				catch (IOException ioe) {
-					logError("GoldenGateSRS: Error loading document '" + dre.documentId + "' (" + ioe.getMessage() + ")");
-					logError(ioe);
-					doc = Gamta.newDocument(Gamta.newTokenSequence(ioe.getMessage(), null));
-				}
-				
-				//	mark searchables if required
-				if (markSearcheables)
-					for (int i = 0; i < indexers.length; i++)
-						indexers[i].markSearchables(doc);
-				
-				//	wrap new document result element around document
-				DocumentResultElement docDre = new DocumentResultElement(dre.docNr, dre.documentId, dre.relevance, doc);
-				docDre.copyAttributes(dre);
-				return docDre;
+				DocumentResultElement dre = this.nextDre;
+				this.nextDre = null;
+				return dre;
 			}
 		};
+		
+		//	schedule checking stale document numbers
+		this.checkStaleDocumentNumbers(staleDocNumbers);
+		
+		//	finally ...
+		return dr;
 	}
 	
 	/**
@@ -3857,17 +4545,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		final boolean markSearcheables = (query.getValue(MARK_SEARCHABLES_PARAMETER) != null);
 		
 		//	get sub indexers
-//		ArrayList subIndexerList = new ArrayList();
-//		for (int i = 0; i < indexers.length; i++) {
-//			String subIndexName = indexers[i].getIndexName();
-//			
-//			//	are we interested in this index?
-//			if (subIndexNames.contains(subIndexName)) {
-//				subIndexerList.add(this.indexers[i]);
-//				this.logActivity("  - got sub indexer: " + subIndexName);
-//			}
-//		}
-//		final Indexer[] subIndexers = ((Indexer[]) subIndexerList.toArray(new Indexer[subIndexerList.size()]));
 		final HashMap subIndexersByName = new HashMap();
 		for (int i = 0; i < this.indexers.length; i++) {
 			String subIndexName = this.indexers[i].getIndexName();
@@ -3880,6 +4557,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		// add sub results to main result elements block-wise and buffer main
 		// result elements (reduces number of database queries for getting sub
 		// results)
+		final QueryResult docNumberResult = docNrResult;
 		if (rankedResult) {
 			
 			//	read additional parameters
@@ -3890,343 +4568,51 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			} catch (NumberFormatException nfe) {}
 			final int queryResultPivotIndex = qrpi;
 			
-			// compute buffer size (if relevance elimination is over (no sub
-			// results), use large buffer, otherwise, use result pivot as buffer
-			// size (might cause a second lookup, but this is OK))
-			int bufferSize = ((subResultMinSize == 0) ? Math.min(docNrResult.size(), 100) : queryResultPivotIndex);
-//			
-//			//	return result
-//			return new SqlDocumentResult(documentDataSearchResultAttributes, this.io, docNrResult, bufferSize) {
-//				private int loaded = 0;
-//				private int returned = 0;
-//				private double lastRelevance = 0;
-//				private DocumentResultElement nextDre = null;
-//				private void ensureNextElement() {
-//					if (this.nextDre != null)
-//						return;
-//					
-//					if (super.hasNextElement()) {
-//						DocumentResultElement dre = ((DocumentResultElement) super.getNextElement());
-//						
-//						//	omit all documents less relevant than the pivot document
-//						if ((this.returned < queryResultPivotIndex) || (dre.relevance >= this.lastRelevance)) {
-//							
-//							//	remember last relevance for delaying cutoff
-//							this.lastRelevance = dre.relevance;
-//							this.returned++;
-//							
-//							//	store result element
-//							this.nextDre = dre;
-//						}
-//					}
-//				}
-//				
-//				public boolean hasNextElement() {
-//					if (subResultMinSize == 0)
-//						return super.hasNextElement();
-//					this.ensureNextElement();
-//					return (this.nextDre != null);
-//				}
-//				
-//				public SrsSearchResultElement getNextElement() {
-//					if (subResultMinSize == 0)
-//						return super.getNextElement();
-//					DocumentResultElement dre = (this.hasNextElement() ? this.nextDre : null);
-//					this.nextDre = null;
-//					return dre;
-//				}
-//				
-//				protected void fillDreBuffer(int dreCount) {
-//					logActivity("SqlDocumentResult: filling buffer with at most " + dreCount + " elements, returned " + this.returned + " thus far.");
-//					int dreAdded = 0;
-//					
-//					//	get query result elements for next chunk
-//					ArrayList qreList = new ArrayList();
-//					while ((qreList.size() < dreCount) && this.hasNextQre())
-//						qreList.add(this.getNextQre());
-//					
-//					//	get document numbers
-//					StringVector docNumberCollector = new StringVector();
-//					long[] docNumbers = new long[qreList.size()];
-//					for (int r = 0; r < qreList.size(); r++) {
-//						QueryResultElement qre = ((QueryResultElement) qreList.get(r));
-//						docNumberCollector.addElement("" + qre.docNr);
-//						docNumbers[r] = qre.docNr;
-//					}
-//					if (docNumberCollector.isEmpty()) {
-//						logActivity(" - no further documents");
-//						return;
-//					}
-//					logActivity(" - got " + docNumberCollector.size() + " further document numbers");
-//					
-//					//	get document data
-//					StringBuffer docNrToDocDataQuery = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME);
-//					for (int c = 0; c < this.resultAttributes.length; c++) {
-//						docNrToDocDataQuery.append(", ");
-//						docNrToDocDataQuery.append(this.resultAttributes[c]);
-//					}
-//					docNrToDocDataQuery.append(" FROM " + DOCUMENT_TABLE_NAME);
-//					docNrToDocDataQuery.append(" WHERE " + DOC_NUMBER_COLUMN_NAME + " IN (" + docNumberCollector.concatStrings(", ") + ")");
-//					docNrToDocDataQuery.append(";");
-//					
-//					//	do database lookup
-//					HashMap docNrsToDocData = new HashMap();
-//					SqlQueryResult sqr = null;
-//					try {
-//						logActivity("  - NR to doc data query is " + docNrToDocDataQuery.toString());
-//						sqr = io.executeSelectQuery(docNrToDocDataQuery.toString());
-//						
-//						//	read & store data
-//						while (sqr.next()) {
-//							String docNr = sqr.getString(0);
-//							String[] docData = new String[this.resultAttributes.length];
-//							for (int d = 0; d < this.resultAttributes.length; d++) {
-//								if (DOCUMENT_UUID_ATTRIBUTE.equals(this.resultAttributes[d]) && (sqr.getString(d+1).length() >= 32)) {
-//									String docUuid = sqr.getString(d+1);
-//									docData[d] = (docUuid.substring(0, 8) + "-" + docUuid.substring(8, 12) + "-" + docUuid.substring(12, 16) + "-" + docUuid.substring(16, 20) + "-" + docUuid.substring(20));
-//								}
-//								else docData[d] = sqr.getString(d+1);
-//							}
-//							docNrsToDocData.put(docNr, docData);
-//							this.loaded++;
-//						}
-//					}
-//					catch (SQLException sqle) {
-//						logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
-//						logError("  query was " + docNrToDocDataQuery.toString());
-//					}
-//					finally {
-//						if (sqr != null)
-//							sqr.close();
-//					}
-//					logActivity("  - got " + docNrsToDocData.size() + " doc data sets, for total of " + this.loaded);
-//					
-//					//	collect sub results
-//					final ArrayList subResultNames = new ArrayList();
-//					final HashMap subResultLabels = new HashMap();
-//					final HashMap subResultAttributes = new HashMap();
-//					final HashMap subResultBuckets = new HashMap();
-//					
-//					//	go indexer by indexer
-//					for (int s = 0; s < subIndexers.length; s++) {
-//						String subIndexName = subIndexers[s].getIndexName();
-//						
-//						//	let indexer process query
-//						query.setIndexNameMask(subIndexName); // TODO_ if more than one indexer is concerned in search, allow specifying this, so fuzzy matching results get their entries as well
-//						final IndexResult subIndexResult = subIndexers[s].getIndexEntries(query, docNumbers, false);
-//						query.setIndexNameMask(null);
-//						
-//						//	got a sub result
-//						if (subIndexResult != null) {
-//							logActivity("  - got sub result from " + subIndexName);
-//							
-//							//	store index meta data
-//							subResultNames.add(subIndexResult.indexName);
-//							subResultLabels.put(subIndexResult.indexName, subIndexResult.indexLabel);
-//							subResultAttributes.put(subIndexResult.indexName, subIndexResult.resultAttributes);
-//							
-//							//	bucketize index entries, eliminating duplicates along the way
-//							while (subIndexResult.hasNextElement()) {
-//								IndexResultElement subIre = subIndexResult.getNextIndexResultElement();
-//								if (markSearcheables)
-//									subIndexers[s].addSearchAttributes(subIre);
-//								String subIreKey = (subIre.docNr + "." + subIndexResult.indexName);
-//								TreeSet subIreSet = ((TreeSet) subResultBuckets.get(subIreKey));
-//								if (subIreSet == null) {
-//									subIreSet = new TreeSet(subIndexResult.getSortOrder());
-//									subResultBuckets.put(subIreKey, subIreSet);
-//								}
-//								if (!subIreSet.contains(subIre)) // do not replace any elements (first one wins)
-//									subIreSet.add(subIre);
-//							}
-//						}
-//					}
-//					
-//					//	generate DREs from QREs and stored data
-//					for (int i = 0; i < qreList.size(); i++) {
-//						QueryResultElement qre = ((QueryResultElement) qreList.get(i));
-//						logActivity("  - adding result document " + qre.docNr + " (" + qre.relevance + ")");
-//						
-//						String[] docData = ((String[]) docNrsToDocData.remove("" + qre.docNr));
-//						if (docData != null) {
-//							DocumentResultElement dre = new DocumentResultElement(qre.docNr, docData[0], qre.relevance, null);
-//							for (int a = 0; a < this.resultAttributes.length; a++) {
-//								if ((docData[a] != null) && (docData[a].trim().length() != 0))
-//									dre.setAttribute(this.resultAttributes[a], docData[a]);
-//							}
-//							
-//							//	get sub results
-//							int subResultSize = 0;
-//							for (int s = 0; s < subResultNames.size(); s++) {
-//								String subIndexName = ((String) subResultNames.get(s));
-//								String subResultKey = (dre.docNr + "." + subIndexName);
-//								TreeSet subResultData = ((TreeSet) subResultBuckets.get(subResultKey));
-//								
-//								//	got sub result for current element
-//								if (subResultData != null) {
-//									subResultSize += subResultData.size();
-//									final ArrayList subResultElements = new ArrayList(subResultData);
-//									dre.addSubResult(new IndexResult(((String[]) subResultAttributes.get(subIndexName)), subIndexName, ((String) subResultLabels.get(subIndexName))) {
-//										int sreIndex = 0;
-//										public boolean hasNextElement() {
-//											return (this.sreIndex < subResultElements.size());
-//										}
-//										public SrsSearchResultElement getNextElement() {
-//											return ((SrsSearchResultElement) subResultElements.get(this.sreIndex++));
-//										}
-//									});	
-//								}
-//							}
-//							
-//							//	do we have sufficient sub results?
-//							if (subResultSize >= subResultMinSize) {
-//								this.addToDreBuffer(dre);
-//								dreAdded++;
-//							}
-//						}
-//					}
-//					logActivity("  - added " + dreAdded + " result documents");
-//					
-//					//	clean up
-//					docNrsToDocData.clear();
-//					subResultNames.clear();
-//					subResultLabels.clear();
-//					subResultAttributes.clear();
-//					subResultBuckets.clear();
-//					
-//					//	did we add sufficient new elements to the buffer?
-//					//	in case not, are there more elements left in the backing result?
-//					if (dreAdded < (dreCount / 2) && this.hasNextQre())
-//						
-//						//	need more elements, and more available, process another block of elements from backing result
-//						this.fillDreBuffer(dreCount);
-//				}
-//			};
-			
 			//	return result
-			return new SqlDocumentResult(documentDataSearchResultAttributes, this.io, docNrResult, bufferSize) {
+			final ArrayList staleDocNumbers = new ArrayList();
+			DocumentResult dr = new DocumentResult(documentDataSearchResultAttributes) {
 				private int loaded = 0;
 				private int returned = 0;
 				private double lastRelevance = 0;
-				private DocumentResultElement nextDre = null;
-				private void ensureNextElement() {
+				private int qreIndex = 0;
+				private DocumentResultElement nextDre;
+				public boolean hasNextElement() {
 					if (this.nextDre != null)
-						return;
+						return true;
 					
-					if (super.hasNextElement()) {
-						DocumentResultElement dre = ((DocumentResultElement) super.getNextElement());
+					//	produce next element
+					while (this.qreIndex < docNumberResult.size()) {
+						QueryResultElement qre = docNumberResult.getResult(this.qreIndex++);
+						logActivity("  - adding data for result document " + qre.docNr + " (" + qre.relevance + ")");
 						
 						//	omit all documents less relevant than the pivot document
-						if ((this.returned < queryResultPivotIndex) || (dre.relevance >= this.lastRelevance)) {
-							
-							//	remember last relevance for delaying cutoff
-							this.lastRelevance = dre.relevance;
-							this.returned++;
-							
-							//	store result element
-							this.nextDre = dre;
-						}
-					}
-				}
-				public boolean hasNextElement() {
-					if (subResultMinSize == 0)
-						return super.hasNextElement();
-					this.ensureNextElement();
-					return (this.nextDre != null);
-				}
-				public SrsSearchResultElement getNextElement() {
-					if (subResultMinSize == 0)
-						return super.getNextElement();
-					DocumentResultElement dre = (this.hasNextElement() ? this.nextDre : null);
-					this.nextDre = null;
-					return dre;
-				}
-				protected void fillDreBuffer(int dreCount) {
-					if (!this.hasNextQre())
-						return;
-					logActivity("SqlDocumentResult: filling buffer with at most " + dreCount + " elements, returned " + this.returned + " thus far.");
-					int dreAdded = 0;
-					
-					//	get query result elements for next chunk
-					ArrayList qreList = new ArrayList();
-					StringVector docNumberCollector = new StringVector();
-					while ((qreList.size() < dreCount) && this.hasNextQre()) {
-						QueryResultElement qre = ((QueryResultElement) this.getNextQre());
-						qreList.add(qre);
-						docNumberCollector.addElement("" + qre.docNr);
-					}
-					if (docNumberCollector.isEmpty()) {
-						logActivity(" - no further documents");
-						return;
-					}
-					logActivity(" - got " + docNumberCollector.size() + " further document numbers");
-					
-					//	get document data
-					StringBuffer docNrToDocDataQuery = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME);
-					for (int c = 0; c < this.resultAttributes.length; c++) {
-						docNrToDocDataQuery.append(", ");
-						docNrToDocDataQuery.append(this.resultAttributes[c]);
-					}
-					docNrToDocDataQuery.append(" FROM " + DOCUMENT_TABLE_NAME);
-					docNrToDocDataQuery.append(" WHERE " + DOC_NUMBER_COLUMN_NAME + " IN (" + docNumberCollector.concatStrings(", ") + ")");
-					docNrToDocDataQuery.append(";");
-					
-					//	do database lookup
-					HashMap docNrsToDocData = new HashMap();
-					SqlQueryResult sqr = null;
-					try {
-						logActivity("  - NR to doc data query is " + docNrToDocDataQuery.toString());
-						sqr = io.executeSelectQuery(docNrToDocDataQuery.toString());
-						
-						//	read & store data
-						while (sqr.next()) {
-							String docNr = sqr.getString(0);
-							String[] docData = new String[this.resultAttributes.length];
-							for (int d = 0; d < this.resultAttributes.length; d++) {
-								if (DOCUMENT_UUID_ATTRIBUTE.equals(this.resultAttributes[d]) && (sqr.getString(d+1).length() >= 32)) {
-									String docUuid = sqr.getString(d+1);
-									docData[d] = (docUuid.substring(0, 8) + "-" + docUuid.substring(8, 12) + "-" + docUuid.substring(12, 16) + "-" + docUuid.substring(16, 20) + "-" + docUuid.substring(20));
-								}
-								else docData[d] = sqr.getString(d+1);
-							}
-							docNrsToDocData.put(docNr, docData);
-							this.loaded++;
-						}
-					}
-					catch (SQLException sqle) {
-						logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
-						logError("  query was " + docNrToDocDataQuery.toString());
-					}
-					finally {
-						if (sqr != null)
-							sqr.close();
-					}
-					logActivity("  - got " + docNrsToDocData.size() + " doc data sets, for total of " + this.loaded);
-					
-					//	generate DREs from QREs and stored data
-					for (int i = 0; i < qreList.size(); i++) {
-						QueryResultElement qre = ((QueryResultElement) qreList.get(i));
-						logActivity("  - adding result document " + qre.docNr + " (" + qre.relevance + ")");
-						
-						String[] docData = ((String[]) docNrsToDocData.remove("" + qre.docNr));
-						if (docData == null)
-							continue;
-						DocumentResultElement dre = new DocumentResultElement(qre.docNr, docData[0], qre.relevance, null);
-						for (int a = 0; a < this.resultAttributes.length; a++) {
-							if ((docData[a] != null) && (docData[a].trim().length() != 0))
-								dre.setAttribute(this.resultAttributes[a], docData[a]);
-						}
+						if ((queryResultPivotIndex <= this.returned) && (qre.relevance < this.lastRelevance))
+							break;
 						
 						//	get cached sub results
 						IndexData indexData = getIndexData(qre.docNr, null);
 						if (indexData == null)
-							indexData = createIndexData(dre.docNr, dre.documentId);
+							indexData = createIndexData(qre.docNr);
 						if (indexData == null) {
-							if (subResultMinSize <= 0) {
-								this.addToDreBuffer(dre);
-								dreAdded++;
-							}
+//							checkStaleDocumentNumber(qre.docNr);
+							staleDocNumbers.add(new Long(qre.docNr));
 							continue;
+						}
+						
+						//	create result element
+						DocumentResultElement dre = new DocumentResultElement(qre.docNr, indexData.docId, qre.relevance, null);
+						
+						//	add result attributes from index data
+						for (int a = 0; a < this.resultAttributes.length; a++) {
+							String value = indexData.getDocAttribute(this.resultAttributes[a]);
+							if (value == null)
+								continue;
+							value = value.trim();
+							if (value.length() == 0)
+								continue;
+							if (DOCUMENT_UUID_ATTRIBUTE.equals(this.resultAttributes[a]) && (value.indexOf('-') == -1) && (value.length() >= 32)) {
+								value = (value.substring(0, 8) + "-" + value.substring(8, 12) + "-" + value.substring(12, 16) + "-" + value.substring(16, 20) + "-" + value.substring(20));							}
+							dre.setAttribute(this.resultAttributes[a], value);
 						}
 						
 						//	add sub results
@@ -4264,278 +4650,147 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 							});	
 						}
 						
-						//	do we have sufficient sub results?
-						if (subResultSize >= subResultMinSize) {
-							this.addToDreBuffer(dre);
-							dreAdded++;
-						}
+						//	do we have enough sub results?
+						if (subResultSize < subResultMinSize)
+							continue;
+						
+						//	store result element, and remember last relevance for delaying cutoff
+						this.nextDre = dre;
+						this.lastRelevance = dre.relevance;
+						this.loaded++;
+						logActivity("    ==> loaded total of " + this.loaded + " documents");
+						break;
 					}
-					logActivity("  - added " + dreAdded + " result documents");
 					
-					//	did we add a sufficient number of new elements to the buffer?
-					//	in case not, are there more elements left in the backing result?
-					if (dreAdded < (dreCount / 2) && this.hasNextQre())
-						this.fillDreBuffer(dreCount);
+					//	anything to work with?
+					return (this.nextDre != null);
+				}
+				public SrsSearchResultElement getNextElement() {
+					DocumentResultElement dre = this.nextDre;
+					this.nextDre = null;
+					this.returned++;
+					return dre;
 				}
 			};
+			
+			//	schedule checking stale document numbers
+			this.checkStaleDocumentNumbers(staleDocNumbers);
+			
+			//	finally ...
+			return dr;
 		}
 		
 		//	unranked (index) result, need to order elements by author name, publication date, and title
 		else {
-			
-			//	get document numbers
-			StringVector docNumberCollector = new StringVector();
-			for (int r = 0; r < docNrResult.size(); r++)
-				docNumberCollector.addElement("" + docNrResult.getResult(r).docNr);
-			if (docNumberCollector.isEmpty())return new IndexResult(documentIndexSearchResultAttributes, DocumentRoot.DOCUMENT_TYPE, "Document Index") {
+			final ArrayList staleDocNumbers = new ArrayList();
+			IndexResult ir = new IndexResult(documentIndexSearchResultAttributes, DocumentRoot.DOCUMENT_TYPE, "Document Index") {
+				private int loaded = 0;
+				private int qreIndex = 0;
+				private SrsSearchResultElement nextIre;
 				public boolean hasNextElement() {
-					return false;
-				}
-				public SrsSearchResultElement getNextElement() {
-					return null;
-				}
-			};
-			
-			//	get document data
-			StringBuffer docNrToDocDataQuery = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME);
-			for (int c = 0; c < documentIndexSearchResultAttributes.length; c++) {
-				docNrToDocDataQuery.append(", ");
-				docNrToDocDataQuery.append(documentIndexSearchResultAttributes[c]);
-			}
-			docNrToDocDataQuery.append(" FROM " + DOCUMENT_TABLE_NAME);
-			docNrToDocDataQuery.append(" WHERE " + DOC_NUMBER_COLUMN_NAME + " IN (" + docNumberCollector.concatStrings(", ") + ")");
-			docNrToDocDataQuery.append(" ORDER BY ");
-			for (int c = 0; c < documentIndexSearchResultAttributes.length; c++) {
-				if (c != 0) docNrToDocDataQuery.append(", ");
-				docNrToDocDataQuery.append(documentIndexSearchResultAttributes[c]);
-			}
-			docNrToDocDataQuery.append(";");
-			
-			//	do database lookup
-			SqlQueryResult sqr = null;
-			try {
-				sqr = io.executeSelectQuery(docNrToDocDataQuery.toString());
-				final SqlResultDataSource sds = new SqlResultDataSource(sqr);
-				
-				//	build basic index result for document data
-				IndexResult baseResult = new IndexResult(documentIndexSearchResultAttributes, DocumentRoot.DOCUMENT_TYPE, "Document Index") {
-					public boolean hasNextElement() {
-						return sds.hasNextElement();
-					}
-					public SrsSearchResultElement getNextElement() {
-						String[] elementData = sds.getNextElementData();
-						if (elementData == null) return null;
+					if (this.nextIre != null)
+						return true;
+					
+					//	produce next element
+					while (this.qreIndex < docNumberResult.size()) {
+						QueryResultElement qre = docNumberResult.getResult(this.qreIndex++);
+						logActivity("  - adding data for result document " + qre.docNr + " (" + qre.relevance + ")");
 						
-						//	order data
-						Attributed data = new AbstractAttributed();
-						for (int a = 0; a < this.resultAttributes.length; a++) {
-							if (elementData[a+1] != null)
-								data.setAttribute(this.resultAttributes[a], elementData[a+1]);
+						//	load index data
+						IndexData indexData = getIndexData(qre.docNr, null);
+						if (indexData == null)
+							indexData = createIndexData(qre.docNr);
+						if (indexData == null) {
+//							checkStaleDocumentNumber(qre.docNr);
+							staleDocNumbers.add(new Long(qre.docNr));
+							continue;
 						}
 						
 						//	build title
-						StringBuffer value = new StringBuffer();
-						value.append(data.getAttribute(DOCUMENT_AUTHOR_ATTRIBUTE, "Unknown Author").toString());
-						value.append(". ");
-						value.append(data.getAttribute(DOCUMENT_DATE_ATTRIBUTE, "Unknown Year").toString());
-						value.append(". ");
-						value.append(data.getAttribute(DOCUMENT_TITLE_ATTRIBUTE, "Unknown Title").toString());
+						StringBuffer ireValue = new StringBuffer();
+						ireValue.append(defaultDocumentAttribute(DOCUMENT_AUTHOR_ATTRIBUTE, indexData.getDocAttribute(DOCUMENT_AUTHOR_ATTRIBUTE)));
+						ireValue.append(". ");
+						ireValue.append(defaultDocumentAttribute(DOCUMENT_DATE_ATTRIBUTE, indexData.getDocAttribute(DOCUMENT_DATE_ATTRIBUTE)));
+						ireValue.append(". ");
+						ireValue.append(defaultDocumentAttribute(DOCUMENT_TITLE_ATTRIBUTE, indexData.getDocAttribute(DOCUMENT_TITLE_ATTRIBUTE)));
 						
 						//	create result element
-						IndexResultElement ire = new IndexResultElement(Long.parseLong(elementData[0]), DocumentRoot.DOCUMENT_TYPE, value.toString());
-						ire.copyAttributes(data);
-						return ire;
-					}
-				};
-				
-				//	no sub results required, we're done
-				if (subIndexersByName.isEmpty())
-					return baseResult;
-//				
-//				//	wrap result in buffer for adding sub results chunk-wise
-//				return new BufferedIndexResult(baseResult, 100) {
-//					void fillIreBuffer(int ireCount) {
-//						logActivity("GgSRS: not finished index search after " + (System.currentTimeMillis() - start) + "ms\r\n        query: " + query);
-//						int ireAdded = 0;
-//						
-//						//	get main result elements for next chunk
-//						ArrayList ireList = new ArrayList();
-//						while ((ireList.size() < ireCount) && this.data.hasNextElement())
-//							ireList.add(this.data.getNextIndexResultElement());
-//						
-//						//	get document numbers
-//						long[] ireDocNrs = new long[ireList.size()];
-//						for (int i = 0; i < ireList.size(); i++)
-//							ireDocNrs[i] = ((IndexResultElement) ireList.get(i)).docNr;
-//						
-//						//	collect sub results
-//						final ArrayList subResultNames = new ArrayList();
-//						final HashMap subResultLabels = new HashMap();
-//						final HashMap subResultAttributes = new HashMap();
-//						final HashMap subResultBuckets = new HashMap();
-//						
-//						//	go indexer by indexer
-//						for (int s = 0; s < subIndexers.length; s++) {
-//							String subIndexName = subIndexers[s].getIndexName();
-//							
-//							//	let indexer process query
-//							query.setIndexNameMask(subIndexName);
-//							final IndexResult subIndexResult = subIndexers[s].getIndexEntries(query, ireDocNrs, true);
-//							query.setIndexNameMask(null);
-//							
-//							//	got a sub result
-//							if (subIndexResult != null) {
-//								logActivity("  - got sub result from " + subIndexName);
-//								
-//								//	store index meta data
-//								subResultNames.add(subIndexResult.indexName);
-//								subResultLabels.put(subIndexResult.indexName, subIndexResult.indexLabel);
-//								subResultAttributes.put(subIndexResult.indexName, subIndexResult.resultAttributes);
-//								
-//								//	bucketize index entries, eliminating duplicates along the way
-//								while (subIndexResult.hasNextElement()) {
-//									IndexResultElement subIre = subIndexResult.getNextIndexResultElement();
-//									if (markSearcheables)
-//										subIndexers[s].addSearchAttributes(subIre);
-//									String subIreKey = (subIre.docNr + "." + subIndexResult.indexName);
-//									TreeSet subIreSet = ((TreeSet) subResultBuckets.get(subIreKey));
-//									if (subIreSet == null) {
-//										subIreSet = new TreeSet(subIndexResult.getSortOrder());
-//										subResultBuckets.put(subIreKey, subIreSet);
-//									}
-//									if (!subIreSet.contains(subIre)) // do not replace any elements (first one wins)
-//										subIreSet.add(subIre);
-//								}
-//							}
-//						}
-//						
-//						//	join elements with sub results and store them
-//						for (int i = 0; i < ireList.size(); i++) {
-//							IndexResultElement ire = ((IndexResultElement) ireList.get(i));
-//							
-//							//	get sub results
-//							int subResultSize = 0;
-//							for (int s = 0; s < subResultNames.size(); s++) {
-//								String subIndexName = ((String) subResultNames.get(s));
-//								String subResultKey = (ire.docNr + "." + subIndexName);
-//								TreeSet subResultData = ((TreeSet) subResultBuckets.get(subResultKey));
-//								
-//								//	got sub result for current element
-//								if (subResultData != null) {
-//									subResultSize += subResultData.size();
-//									final ArrayList subResultElements = new ArrayList(subResultData);
-//									ire.addSubResult(new IndexResult(((String[]) subResultAttributes.get(subIndexName)), subIndexName, ((String) subResultLabels.get(subIndexName))) {
-//										int sreIndex = 0;
-//										public boolean hasNextElement() {
-//											return (this.sreIndex < subResultElements.size());
-//										}
-//										public SrsSearchResultElement getNextElement() {
-//											return ((SrsSearchResultElement) subResultElements.get(this.sreIndex++));
-//										}
-//									});	
-//								}
-//							}
-//							
-//							//	do we have sufficient sub results?
-//							if (subResultSize >= subResultMinSize) {
-//								this.addToIreBuffer(ire);
-//								ireAdded++;
-//							}
-//						}
-//						
-//						//	clean up
-//						subResultNames.clear();
-//						subResultLabels.clear();
-//						subResultAttributes.clear();
-//						subResultBuckets.clear();
-//						
-//						//	did we add sufficient new elements to the buffer?
-//						//	in case that not, are there more elements left in the backing result?
-//						if (ireAdded < (ireCount / 2) && this.data.hasNextElement())
-//							
-//							//	need more elements, and more available, process another block of elements from backing result
-//							this.fillIreBuffer(ireCount);
-//					}
-//				};
-				
-				//	wrap result in buffer for adding sub results chunk-wise
-				return new BufferedIndexResult(baseResult, 100) {
-					void fillIreBuffer(int ireCount) {
-						logActivity("GgSRS: not finished index search after " + (System.currentTimeMillis() - start) + "ms\r\n        query: " + query);
-						int ireAdded = 0;
+						IndexResultElement ire = new IndexResultElement(indexData.docNr, DocumentRoot.DOCUMENT_TYPE, ireValue.toString());
 						
-						//	get main result elements for next chunk
-						ArrayList ireList = new ArrayList();
-						while ((ireList.size() < ireCount) && this.data.hasNextElement()) {
-							IndexResultElement ire = this.data.getNextIndexResultElement();
-							logActivity("  - adding result document " + ire.docNr);
-							
-							//	get cached sub results
-							IndexData indexData = getIndexData(ire.docNr, null);
-							if (indexData == null)
-								indexData = createIndexData(ire.docNr, ((String) ire.getAttribute(DOCUMENT_ID_ATTRIBUTE)));
-							if (indexData == null) {
-								if (subResultMinSize <= 0) {
-									this.addToIreBuffer(ire);
-									ireAdded++;
-								}
+						//	add result attributes from index data
+						for (int a = 0; a < this.resultAttributes.length; a++) {
+							String value = indexData.getDocAttribute(this.resultAttributes[a]);
+							if (value == null)
 								continue;
-							}
-							
-							//	add sub results
-							IndexResult[] subResults = indexData.getIndexResults();
-							int subResultSize = 0;
-							for (int s = 0; s < subResults.length; s++) {
-								if (!subResults[s].hasNextElement())
-									continue;
-								Indexer subIndexer = ((Indexer) subIndexersByName.get(subResults[s].indexName));
-								if (subIndexer == null)
-									continue;
-								query.setIndexNameMask(subResults[s].indexName);
-								IndexResult subResult = subIndexer.filterIndexEntries(query, subResults[s], false);
-								query.setIndexNameMask(null);
-								if (!subResult.hasNextElement())
-									continue;
-								
-								final ArrayList subResultElements = new ArrayList(16);
-								while (subResult.hasNextElement()) {
-									IndexResultElement subIre = subResult.getNextIndexResultElement();
-									if (markSearcheables)
-										subIndexer.addSearchAttributes(subIre);
-									subResultElements.add(subIre);
-								}
-								subResultSize += subResultElements.size();
-								
-								ire.addSubResult(new IndexResult(subResult.resultAttributes, subResult.indexName, subResult.indexLabel) {
-									int sreIndex = 0;
-									public boolean hasNextElement() {
-										return (this.sreIndex < subResultElements.size());
-									}
-									public SrsSearchResultElement getNextElement() {
-										return ((SrsSearchResultElement) subResultElements.get(this.sreIndex++));
-									}
-								});	
-							}
-							
-							//	do we have sufficient sub results?
-							if (subResultSize >= subResultMinSize) {
-								this.addToIreBuffer(ire);
-								ireAdded++;
-							}
+							value = value.trim();
+							if (value.length() == 0)
+								continue;
+							if (DOCUMENT_UUID_ATTRIBUTE.equals(this.resultAttributes[a]) && (value.indexOf('-') == -1) && (value.length() >= 32)) {
+								value = (value.substring(0, 8) + "-" + value.substring(8, 12) + "-" + value.substring(12, 16) + "-" + value.substring(16, 20) + "-" + value.substring(20));							}
+							ire.setAttribute(this.resultAttributes[a], value);
 						}
 						
-						//	did we add a sufficient number of new elements to the buffer?
-						//	in case that not, are there more elements left in the backing result?
-						if (ireAdded < (ireCount / 2) && this.data.hasNextElement())
-							this.fillIreBuffer(ireCount);
+						//	add sub results
+						IndexResult[] subResults = indexData.getIndexResults();
+						int subResultSize = 0;
+						for (int s = 0; s < subResults.length; s++) {
+							if (!subResults[s].hasNextElement())
+								continue;
+							Indexer subIndexer = ((Indexer) subIndexersByName.get(subResults[s].indexName));
+							if (subIndexer == null)
+								continue;
+							query.setIndexNameMask(subResults[s].indexName);
+							IndexResult subResult = subIndexer.filterIndexEntries(query, subResults[s], false);
+							query.setIndexNameMask(null);
+							if (!subResult.hasNextElement())
+								continue;
+							
+							final ArrayList subResultElements = new ArrayList(16);
+							while (subResult.hasNextElement()) {
+								IndexResultElement subIre = subResult.getNextIndexResultElement();
+								if (markSearcheables)
+									subIndexer.addSearchAttributes(subIre);
+								subResultElements.add(subIre);
+							}
+							subResultSize += subResultElements.size();
+							
+							ire.addSubResult(new IndexResult(subResult.resultAttributes, subResult.indexName, subResult.indexLabel) {
+								int sreIndex = 0;
+								public boolean hasNextElement() {
+									return (this.sreIndex < subResultElements.size());
+								}
+								public SrsSearchResultElement getNextElement() {
+									return ((SrsSearchResultElement) subResultElements.get(this.sreIndex++));
+								}
+							});	
+						}
+						
+						//	do we have enough sub results?
+						if (subResultSize < subResultMinSize)
+							continue;
+						
+						//	this one's good
+						this.nextIre = ire;
+						this.loaded++;
+						logActivity("    ==> loaded total of " + this.loaded + " documents");
+						break;
 					}
-				};
-			}
-			catch (SQLException sqle) {
-				this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document data.");
-				this.logError("  query was " + docNrToDocDataQuery.toString());
-				throw new IOException(sqle.getMessage());
-			}
+					
+					//	anything to work with?
+					return (this.nextIre != null);
+				}
+				public SrsSearchResultElement getNextElement() {
+					SrsSearchResultElement ire = this.nextIre;
+					this.nextIre = null;
+					return ire;
+				}
+			};
+			
+			//	schedule checking stale document numbers
+			this.checkStaleDocumentNumbers(staleDocNumbers);
+			
+			//	finally ...
+			return ir;
 		}
 	}
 	
@@ -4574,7 +4829,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		else if (minRelevance < 0) minRelevance = 0;
 		
 		//	do duplicate and relevance based elimination
-		QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
+		final QueryResult relevanceResult = this.doRelevanceElimination(docNrResult, minRelevance, queryResultPivotIndex);
 		this.logActivity("  - got " + relevanceResult.size() + " duplicate free, relevance sorted result document numbers");
 		
 		//	catch empty result
@@ -4588,99 +4843,56 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 			};
 		
-		//	return result fetching document IDs on the fly (block wise, though, to reduce number of DB queries)
-		else return new SqlDocumentResult(documentIdSearchResultAttributes, this.io, relevanceResult, 100) {
+		//	return result fetching document IDs on the fly
+		final DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+		final ArrayList staleDocNumbers = new ArrayList();
+		DocumentResult dr = new DocumentResult(documentIdSearchResultAttributes) {
 			private HashSet docNumberDeDuplicator = new HashSet();
-			protected void fillDreBuffer(int dreCount) {
+			private int loaded = 0;
+			private int qreIndex = 0;
+			private DocumentResultElement nextDre;
+			public boolean hasNextElement() {
+				if (this.nextDre != null)
+					return true;
 				
-				//	get query result elements for current block
-				StringVector docNumberCollector = new StringVector();
-				ArrayList qreList = new ArrayList();
-				QueryResultElement qre;
-				while ((qreList.size() < dreCount) && ((qre = this.getNextQre()) != null)) {
-					if (this.docNumberDeDuplicator.add(new Long(qre.docNr))) {
-						docNumberCollector.addElement("" + qre.docNr);
-						qreList.add(qre);
+				//	produce next element
+				while (this.qreIndex < relevanceResult.size()) {
+					QueryResultElement qre = relevanceResult.getResult(this.qreIndex++);
+					logActivity("  - adding ID of result document " + qre.docNr + " (" + qre.relevance + ")");
+					if (!this.docNumberDeDuplicator.add(new Long(qre.docNr)))
+						continue;
+					String docId = docNumberResolver.getDocumentId(qre.docNr);
+					if (docId == null) {
+//						checkStaleDocumentNumber(qre.docNr);
+						staleDocNumbers.add(new Long(qre.docNr));
+						continue;
 					}
-				}
-				if (docNumberCollector.isEmpty())
-					return;
-				
-				//	get IDs for current document numbers
-				HashMap docNrsToDocIDs = new HashMap();
-				String docNrsToDocIDsQuery = "SELECT " + Indexer.DOC_NUMBER_COLUMN_NAME + ", " + DOCUMENT_ID_ATTRIBUTE + 
-					" FROM " + DOCUMENT_TABLE_NAME + 
-					" WHERE " + Indexer.DOC_NUMBER_COLUMN_NAME + " IN (" + docNumberCollector.concatStrings(", ") + ");";
-				SqlQueryResult sqr = null;
-				try {
-					sqr = io.executeSelectQuery(docNrsToDocIDsQuery);
 					
-					//	read & store data
-					while (sqr.next()) {
-						String docNr = sqr.getString(0);
-						String docId = sqr.getString(1);
-						docNrsToDocIDs.put(docNr, docId);
-					}
-				}
-				catch (SQLException sqle) {
-					logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
-					logError("Query was " + docNrsToDocIDsQuery);
-				}
-				finally {
-					if (sqr != null)
-						sqr.close();
+					//	create result element
+					DocumentResultElement dre = new DocumentResultElement(qre.docNr, docId, qre.relevance, null);
+					
+					//	store result element, and remember last relevance for delaying cutoff
+					this.nextDre = dre;
+					this.loaded++;
+					logActivity("    ==> loaded total of " + this.loaded + " documents");
+					break;
 				}
 				
-				//	generate DREs from QREs and stored data
-				for (int q = 0; q < qreList.size(); q++) {
-					qre = ((QueryResultElement) qreList.get(q));
-					String docId = ((String) docNrsToDocIDs.remove("" + qre.docNr));
-					if (docId != null)
-						this.addToDreBuffer(new DocumentResultElement(qre.docNr, docId, qre.relevance, null));
-				}
+				//	anything to work with?
+				return (this.nextDre != null);
+			}
+			public SrsSearchResultElement getNextElement() {
+				DocumentResultElement dre = this.nextDre;
+				this.nextDre = null;
+				return dre;
 			}
 		};
-	}
-	
-	private abstract static class SqlDocumentResult extends DocumentResult {
-		protected IoProvider io;
 		
-		private QueryResult docNrResult;
-		private int docNrResultIndex = 0;
+		//	schedule checking stale document numbers
+		this.checkStaleDocumentNumbers(staleDocNumbers);
 		
-		private LinkedList dreBuffer = new LinkedList();
-		private int dreBufferSize;
-		
-		protected SqlDocumentResult(String[] resultAttributes, IoProvider io, QueryResult docNrResult, int bufferSize) {
-			super(resultAttributes);
-			this.io = io;
-			this.docNrResult = docNrResult;
-			this.dreBufferSize = bufferSize;
-		}
-		
-		public boolean hasNextElement() {
-			this.fillDreBuffer();
-			return (this.dreBuffer.size() != 0);
-		}
-		public SrsSearchResultElement getNextElement() {
-			return ((this.hasNextElement()) ? ((DocumentResultElement) this.dreBuffer.removeFirst()) : null);
-		}
-		
-		protected boolean hasNextQre() {
-			return (this.docNrResultIndex < this.docNrResult.size());
-		}
-		protected QueryResultElement getNextQre() {
-			return (this.hasNextQre() ? this.docNrResult.getResult(this.docNrResultIndex++) : null);
-		}
-		
-		protected void fillDreBuffer() {
-			if (this.dreBuffer.size() <= (this.dreBufferSize / 10))
-				this.fillDreBuffer(this.dreBufferSize - this.dreBuffer.size());
-		}
-		protected void addToDreBuffer(DocumentResultElement dre) {
-			this.dreBuffer.addLast(dre);
-		}
-		protected abstract void fillDreBuffer(int dreCount);
+		//	finally ...
+		return dr;
 	}
 	
 	private QueryResult searchDocumentNumbers(Query query) throws IOException {
@@ -4816,34 +5028,54 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		//	ID query only
 		else if (partialDocNrResults.isEmpty()) {
 			QueryResult result = new QueryResult();
-//			
-//			String docIdToDocNrQuery = "SELECT " + DOC_NUMBER_COLUMN_NAME + " FROM " + DOCUMENT_TABLE_NAME + " WHERE " + DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + DOCUMENT_UUID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "') OR " + MASTER_DOCUMENT_ID_ATTRIBUTE + " IN ('" + fixedResultDocIDs.concatStrings("', '") + "');";
-//			SqlQueryResult sqr = null;
-//			try {
-//				sqr = this.io.executeSelectQuery(docIdToDocNrQuery);
-//				while (sqr.next())
-//					result.addResultElement(new QueryResultElement(sqr.getLong(0), 1));
-//			}
-//			catch (SQLException sqle) {
-//				System.out.println("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
-//				System.out.println("  Query was " + docIdToDocNrQuery);
-//			}
-//			finally {
-//				if (sqr != null)
-//					sqr.close();
-//			}
 			
 			//	do document ID lookup (even though we theoretically have a document number, we still have to verify it's valid)
-			if (result.size() == 0)
-				result = this.doDocIdQuery(fixedResultDocIDs, DOCUMENT_ID_ATTRIBUTE, null);
+			if (result.size() == 0) {
+				DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+				for (int i = 0; i < fixedResultDocIDs.size(); i++) {
+					String docId = fixedResultDocIDs.get(i);
+					long docNr = getDocNr(docId);
+					String exDocId = docNumberResolver.getDocumentId(docNr);
+					if ((exDocId != null) && exDocId.equalsIgnoreCase(docId))
+						result.addResultElement(new QueryResultElement(docNr, 1.0));
+				}
+			}
 			
 			//	do document UUID lookup
-			if (result.size() == 0)
-				result = this.doDocIdQuery(fixedResultDocIDs, DOCUMENT_UUID_ATTRIBUTE, DOCUMENT_UUID_HASH_COLUMN_NAME);
+			if (result.size() == 0) {
+				DocumentUuidResolver docUuidResolver = this.getDocumentUuidResolver();
+				DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+				for (int i = 0; i < fixedResultDocIDs.size(); i++) try {
+					String docUuid = fixedResultDocIDs.get(i);
+					long docNr = docUuidResolver.getDocumentNumber(docUuid);
+					String docId = ((docNr == -1) ? null : docNumberResolver.getDocumentId(docNr));
+					if (docId != null)
+						result.addResultElement(new QueryResultElement(docNr, 1.0));
+				}
+				catch (IllegalArgumentException iae) {
+					this.logError("Invalid document UUID: " + iae.getMessage());
+				}
+			}
 			
 			//	do master document ID lookup
-			if (result.size() == 0)
-				result = this.doDocIdQuery(fixedResultDocIDs, MASTER_DOCUMENT_ID_ATTRIBUTE, MASTER_DOCUMENT_ID_HASH_COLUMN_NAME);
+			if (result.size() == 0) {
+				MasterDocumentIdMapper masterDocIdMapper = this.getMasterDocumentIdMapper();
+				DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+				for (int i = 0; i < fixedResultDocIDs.size(); i++) try {
+					String masterDocId = fixedResultDocIDs.get(i);
+					long[] docNrs = masterDocIdMapper.getDocumentNumbers(masterDocId);
+					if (docNrs == null)
+						continue;
+					for (int n = 0; n < docNrs.length; n++) {
+						String docId = docNumberResolver.getDocumentId(docNrs[n]);
+						if (docId != null)
+							result.addResultElement(new QueryResultElement(docNrs[n], 1.0));
+					}
+				}
+				catch (IllegalArgumentException iae) {
+					this.logError("Invalid master document ID: " + iae.getMessage());
+				}
+			}
 			
 			//	apply document data filter if given
 			if (docDataResult != null)
@@ -4891,60 +5123,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 			this.logActivity("  - got " + result.size() + " document numbers in result");
 			return result;
 		}
-	}
-	
-	private QueryResult doDocIdQuery(StringVector fixedResultDocIDs, String idFieldName, String idHashFieldName) {
-		QueryResult result = new QueryResult();
-		if (fixedResultDocIDs.isEmpty())
-			return result;
-		
-		//	assemble query
-		StringBuffer docIdToDocNrQuery = new StringBuffer("SELECT " + DOC_NUMBER_COLUMN_NAME);
-		docIdToDocNrQuery.append(" FROM " + DOCUMENT_TABLE_NAME);
-		if (fixedResultDocIDs.size() == 1) {
-			docIdToDocNrQuery.append(" WHERE " + idFieldName + " = '" + EasyIO.sqlEscape(fixedResultDocIDs.get(0)) + "'");
-			if (idHashFieldName == null)
-				docIdToDocNrQuery.append(" AND " + DOC_NUMBER_COLUMN_NAME + " = " + getDocNr(fixedResultDocIDs.get(0)));
-			else docIdToDocNrQuery.append(" AND " + idHashFieldName + " = " + fixedResultDocIDs.get(0).hashCode());
-		}
-		else {
-			docIdToDocNrQuery.append(" WHERE " + idFieldName + " IN (");
-			for (int i = 0; i < fixedResultDocIDs.size(); i++)
-				docIdToDocNrQuery.append(((i == 0) ? "" : ", ") + "'" + EasyIO.sqlEscape(fixedResultDocIDs.get(i)) + "'");
-			docIdToDocNrQuery.append(")");
-			if (idHashFieldName == null) {
-				docIdToDocNrQuery.append(" AND " + DOC_NUMBER_COLUMN_NAME + " IN (");
-				for (int i = 0; i < fixedResultDocIDs.size(); i++)
-					docIdToDocNrQuery.append(((i == 0) ? "" : ", ") + getDocNr(fixedResultDocIDs.get(i)));
-			}
-			else {
-				docIdToDocNrQuery.append(" AND " + idHashFieldName + " IN (");
-				for (int i = 0; i < fixedResultDocIDs.size(); i++)
-					docIdToDocNrQuery.append(((i == 0) ? "" : ", ") + fixedResultDocIDs.get(i).hashCode());
-			}
-			docIdToDocNrQuery.append(")");
-		}
-		docIdToDocNrQuery.append(";");
-		
-		//	do lookup
-		SqlQueryResult sqr = null;
-		try {
-			sqr = this.io.executeSelectQuery(docIdToDocNrQuery.toString());
-			while (sqr.next())
-				result.addResultElement(new QueryResultElement(sqr.getLong(0), 1));
-		}
-		catch (SQLException sqle) {
-			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while loading result document IDs.");
-			this.logError("  Query was " + docIdToDocNrQuery);
-		}
-		finally {
-			if (sqr != null)
-				sqr.close();
-		}
-		
-		//	return result
-		this.logActivity("  - got " + result.size() + " document numbers in result for " + idFieldName);
-		return result;
 	}
 	
 	private QueryResult doRelevanceElimination(QueryResult baseResult, double minRelevance, int resultPivotIndex) {
@@ -5071,11 +5249,17 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		String indexResultLabel = null;
 		String[] indexResultAttributes = null;
 		final LinkedHashMap indexResultElementData = new LinkedHashMap();
+		final ArrayList staleDocNumbers = new ArrayList();
 		for (int r = 0; r < qr.size(); r++) {
 			QueryResultElement qre = qr.getResult(r);
 			IndexData indexData = getIndexData(qre.docNr, null);
 			if (indexData == null)
-				indexData = createIndexData(qre.docNr, null);
+				indexData = createIndexData(qre.docNr);
+			if (indexData == null) {
+//				checkStaleDocumentNumber(qre.docNr);
+				staleDocNumbers.add(new Long(qre.docNr));
+				continue;
+			}
 			
 			IndexResult result = indexData.getIndexResult(mainIndexer.getIndexName());
 			if (result == null)
@@ -5133,6 +5317,9 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				}
 			}
 		}
+		
+		//	schedule checking stale document numbers
+		this.checkStaleDocumentNumbers(staleDocNumbers);
 		
 		//	anything to work with at all?
 		if ((indexResultLabel == null) || (indexResultAttributes == null)) {
@@ -5234,32 +5421,6 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		}
 	}
 	
-	private abstract static class BufferedIndexResult extends IndexResult {
-		IndexResult data;
-		private LinkedList ireBuffer = new LinkedList();
-		private int ireBufferSize;
-		BufferedIndexResult(IndexResult data, int bufferSize) {
-			super(data.resultAttributes, data.indexName, data.indexLabel);
-			this.data = data;
-			this.ireBufferSize = bufferSize;
-		}
-		public boolean hasNextElement() {
-			this.checkIreBuffer();
-			return (this.ireBuffer.size() != 0);
-		}
-		public SrsSearchResultElement getNextElement() {
-			return ((this.hasNextElement()) ? ((IndexResultElement) this.ireBuffer.removeFirst()) : null);
-		}
-		private void checkIreBuffer() {
-			if (this.ireBuffer.size() <= (this.ireBufferSize / 10))
-				this.fillIreBuffer(this.ireBufferSize - this.ireBuffer.size());
-		}
-		void addToIreBuffer(IndexResultElement ire) {
-			this.ireBuffer.addLast(ire);
-		}
-		abstract void fillIreBuffer(int ireCount);
-	}
-	
 	private ThesaurusResult searchThesaurus(Query query) {
 		this.logActivity("GgSRS Thesaurus Search ...");
 		this.logActivity("  - query is " + query.toString());
@@ -5295,16 +5456,35 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		parser.parseAndAddElements(queryString, "&");
 		for (int p = 0; p < parser.size(); p++) {
 			String[] pair = parser.get(p).split("\\=");
-			if (pair.length == 2) {
-				String name = pair[0].trim();
-				String value = URLDecoder.decode(pair[1].trim(), ENCODING).trim();
-				
-				String existingValue = query.getValue(name);
-				if (existingValue != null)
-					value = existingValue + "\n" + value;
-				
-				query.setValue(name, value);
+			if (pair.length < 2)
+				continue;
+			String name = pair[0].trim();
+			String value = URLDecoder.decode(pair[1].trim(), ENCODING).trim();
+			
+			String existingValue = query.getValue(name);
+			if (existingValue != null)
+				value = existingValue + "\n" + value;
+			
+			query.setValue(name, value);
+			if (name.indexOf(".") != -1)
+				this.sQueriedIndexerFields.add(name);
+		}
+		
+		//	check if it's time for logging query fields
+		long time = System.currentTimeMillis();
+		if ((this.indexersQueriedLastLogged + (1000 * 60 * 60)) < time) try {
+			long queriedTime = (time - this.indexersQueriedSince);
+			long queriedHours = ((queriedTime + ((1000 * 60 * 60) / 2)) / (1000 * 60 * 60));
+			ArrayList qfns = new ArrayList(this.sQueriedIndexerFields); // need to use intermediate list to avoid concurrent modification exceptions of iterator
+			this.logAlways("These " + qfns.size() + " indexer fields were queried in the past " + queriedHours + " hours (" + queriedTime + "ms):");
+			for (int f = 0; f < qfns.size(); f++) {
+				String queriedFieldName = ((String) qfns.get(f));
+				this.logAlways(" - '" + queriedFieldName + "': " + this.queriedIndexerFields.getCount(queriedFieldName) + " timed");
 			}
+			this.indexersQueriedLastLogged = time;
+		}
+		catch (RuntimeException re) {
+			this.logError("GoldenGateSRS: error logging queried indexer fields: " + re.getMessage());
 		}
 		
 		return query;
@@ -5326,6 +5506,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				docNrLow <<= 4;
 				docNrLow |= ((long) (ch - 'a' + 10));
 			}
+			else throw new IllegalArgumentException("Illegal HEX character in '" + docId + "': " + ch);
 		}
 		long docNrHigh = 0;
 		for (int c = 0; c < (docId.length() / 2); c++) {
@@ -5342,6 +5523,7 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 				docNrHigh <<= 4;
 				docNrHigh |= ((long) (ch - 'a' + 10));
 			}
+			else throw new IllegalArgumentException("Illegal HEX character in '" + docId + "': " + ch);
 		}
 		return (docNrHigh ^ docNrLow);
 	}
@@ -5357,6 +5539,770 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 		if (id.length() > 32) // truncate any excess characters
 			id = id.substring(0, 32);
 		return id;
+	}
+	
+	private void checkStaleDocumentNumbers(final ArrayList docNrs) {
+		if (docNrs.isEmpty())
+			return;
+		this.logInfo("Checking " + docNrs.size() + " potentially stale document numbers");
+		this.enqueueIndexerAction(new IndexerAction(IndexerAction.CHECK_DOCUMENT) {
+			void performAction() {
+				for (int n = 0; n < docNrs.size(); n++)
+					checkStaleDocumentNumber(((Long) docNrs.get(n)).longValue());
+			}
+		});
+	}
+	
+	private void checkStaleDocumentNumber(final long docNr) {
+		this.logInfo("Checking for stale document number: " + docNr);
+		long lastModified = this.getLastModified();
+		long time = System.currentTimeMillis();
+		if ((time - lastModified) < (1000 * 60 * 10)) {
+			this.logInfo(" ==> last update only " + (time - lastModified) + "ms ago");
+			return;
+		}
+		DocumentNumberResolver docNumberResolver = this.getDocumentNumberResolver();
+		String docId = docNumberResolver.getDocumentId(docNr);
+		if (docId != null) {
+			this.logInfo(" ==> found document ID " + docId + " after " + (System.currentTimeMillis() - time) + "ms");
+			return;
+		}
+		String checkQuery = "SELECT " + DOCUMENT_ID_ATTRIBUTE +
+				" FROM " + DOCUMENT_TABLE_NAME +
+				" WHERE " + DOC_NUMBER_COLUMN_NAME + " = " + docNr +
+				";";
+		SqlQueryResult checkSqr = null;
+		try {
+			checkSqr = this.io.executeSelectQuery(checkQuery, true);
+			this.logInfo(" - checked database after " + (System.currentTimeMillis() - time) + "ms");
+			if (checkSqr.next()) {
+				this.logInfo(" ==> found document ID " + docId + " in database");
+				this.enqueueIndexerAction(new IndexerAction(IndexerAction.RE_INDEX_NAME) {
+					void performAction() {
+						synchronized (docIdentifierResolverLock) {
+							initDocumentIdentifierResolvers();
+						}
+					}
+				});
+				this.logInfo(" ==> triggered ID resolver reload");
+			}
+			else this.logInfo(" - document ID " + docId + " not found in database");
+		}
+		catch (SQLException sqle) {
+			this.logError("GoldenGateSRS: " + sqle.getClass().getName() + " (" + sqle.getMessage() + ") while checking document number '" + docNr + "'.");
+			this.logError("  Query was " + checkQuery);
+		}
+		finally {
+			if (checkSqr != null)
+				checkSqr.close();
+		}
+		if (this.reIndexAction.isRunning()) {
+			this.logInfo(" ==> got re-indexing operation running after " + (System.currentTimeMillis() - time) + "ms");
+			return;
+		}
+		if (this.indexerActionQueue.size() != 0) {
+			this.logInfo(" ==> got pending indexing actions after " + (System.currentTimeMillis() - time) + "ms");
+			return;
+		}
+		for (int i = 0; i < this.indexers.length; i++) {
+			this.enqueueIndexerAction(new IndexerAction(IndexerAction.DELETE_NAME, this.indexers[i]) {
+				void performAction() {
+					this.indexer.deleteDocument(docNr);
+				}
+			});
+			this.logInfo(" - enqueued un-indexing from " + this.indexers[i].getIndexName() + " after " + (System.currentTimeMillis() - time) + "ms");
+		}
+		this.enqueueIndexerAction(new IndexerAction(IndexerAction.DELETE_NAME) {
+			void performAction() {
+				deleteIndexData(docNr);
+			}
+		});
+		this.logInfo(" - enqueued removal of cached index data after " + (System.currentTimeMillis() - time) + "ms");
+		this.logInfo(" ==> stale document number erased after " + (System.currentTimeMillis() - time) + "ms");
+	}
+	
+	private Object docIdentifierResolverLock = new Object();
+	
+	private DocumentNumberResolver docNumberResolver;
+	private DocumentNumberResolver getDocumentNumberResolver() {
+		synchronized (this.docIdentifierResolverLock) {
+			return this.docNumberResolver;
+		}
+	}
+	
+	private DocumentUuidResolver docUuidResolver;
+	private DocumentUuidResolver getDocumentUuidResolver() {
+		synchronized (this.docIdentifierResolverLock) {
+			return this.docUuidResolver;
+		}
+	}
+	
+	private MasterDocumentIdMapper masterDocIdMapper;
+	private MasterDocumentIdMapper getMasterDocumentIdMapper() {
+		synchronized (this.docIdentifierResolverLock) {
+			return this.masterDocIdMapper;
+		}
+	}
+	
+	private static class DocumentNumberResolver {
+		private long[] index;
+		private long[] data;
+		private int size;
+		DocumentNumberResolver() {
+			this.index = new long[32];
+			this.data = new long[64];
+			this.size = 0;
+		}
+		private DocumentNumberResolver(long[] index, long[] data, int size) {
+			this.index = index;
+			this.data = data;
+			this.size = size;
+		}
+		boolean containsDocumentNumber(long docNr) {
+			int pos = Arrays.binarySearch(this.index, 0, this.size, docNr);
+			if ((pos < 0) || (this.size <= pos))
+				return false;
+			return (this.index[pos] == docNr);
+		}
+		String getDocumentId(long docNr) {
+			return getDocumentId(docNr, null);
+		}
+		String getDocumentId(long docNr, char[] docId) {
+			int pos = Arrays.binarySearch(this.index, 0, this.size, docNr);
+			if ((pos < 0) || (this.size <= pos))
+				return null;
+			if (this.index[pos] != docNr)
+				return null;
+			if (docId == null)
+				docId = new char[32];
+			decodeHex(this.data[pos * 2], this.data[(pos * 2) + 1], docId);
+			return new String(docId);
+		}
+//		String[] getDocumentIDs(long[] docNrs) {
+//			String[] docIds = new String[docNrs.length];
+//			Arrays.fill(docIds, null);
+//			char[] docId = new char[32]; // String constructor copies array content, so we can keep using same helper array over and over and thus save allocating new ones for every document number
+//			for (int n = 0; n < docNrs.length; n++)
+//				docIds[n] = this.getDocumentId(docNrs[n], docId);
+//			return docIds;
+//		}
+		long documentNumberAt(int index) {
+			return this.index[index];
+		}
+		String documentIdAt(int index) {
+			char[] docId = new char[32];
+			decodeHex(this.data[index * 2], this.data[(index * 2) + 1], docId);
+			return new String(docId);
+		}
+		int size() {
+			return this.size;
+		}
+		private static void decodeHex(long high, long low, char[] hex) {
+			for (int hexPos = 15; hexPos >= 0; hexPos--) {
+				byte b = ((byte) (high & 0x000000000000000F));
+				if (b < 10)
+					hex[hexPos] = ((char) ('0' + b));
+				else hex[hexPos] = ((char) ('A' + (b - 10)));
+				high >>>= 4;
+			}
+			for (int hexPos = 31; hexPos >= 16; hexPos--) {
+				byte b = ((byte) (low & 0x000000000000000F));
+				if (b < 10)
+					hex[hexPos] = ((char) ('0' + b));
+				else hex[hexPos] = ((char) ('A' + (b - 10)));
+				low >>>= 4;
+			}
+		}
+		
+		DocumentNumberResolver cloneForChanges(HashSet addedDocIDs, long[] removed) {
+			
+			//	line up to-add document numbers, and filter out ones that are already contained
+			long[] added = new long[addedDocIDs.size()];
+			HashMap addedMapping = new HashMap();
+			int a = 0;
+			for (Iterator didit = addedDocIDs.iterator(); didit.hasNext();) {
+				String docId = ((String) didit.next());
+				long docNr = getDocNr(docId);
+				if (this.containsDocumentNumber(docNr)) {
+					long[] cAdded = new long[added.length - 1];
+					System.arraycopy(added, 0, cAdded, 0, a);
+					added = cAdded;
+				}
+				else {
+					added[a++] = docNr;
+					addedMapping.put(new Long(docNr), docId);
+				}
+			}
+			
+			//	filter out to-remove document numbers that are not contained or will be added
+			for (int r = 0; r < removed.length; r++) {
+				if (!addedMapping.containsKey(new Long(removed[r])) && this.containsDocumentNumber(removed[r]))
+					continue; // this one's clear for removal
+				long[] cRemoved = new long[removed.length - 1];
+				System.arraycopy(removed, 0, cRemoved, 0, r);
+				System.arraycopy(removed, (r+1), cRemoved, r, (cRemoved.length - r));
+				removed = cRemoved;
+			}
+			
+			//	anything left to do at all?
+			if ((added.length == 0) && (removed.length == 0))
+				return this;
+			
+			//	sort to-add and to-remove document numbers
+			a = 0;
+			Arrays.sort(added);
+			int r = 0;
+			Arrays.sort(removed);
+			
+			//	merge data into new array (we're only ever reading the main ones, for thread safety)
+			int cSize = (this.size + added.length - removed.length);
+			long[] cIndex = new long[cSize];
+			long[] cData = new long[cSize * 2];
+			int cn = 0;
+			for (int n = 0; n < this.size; n++) {
+				
+				//	handle insertions before current document number
+				while ((a < added.length) && (added[a] < this.index[n])) {
+					String docId = ((String) addedMapping.get(new Long(added[a])));
+					cIndex[cn] = added[a];
+					encodeHex(cData, (cn * 2), docId);
+					cn++;
+					a++;
+				}
+				
+				//	handle removals
+				if (r == removed.length) {} // all removals handled
+				else if (removed[r] == this.index[n]) {
+					r++; // move on to next to-remove document number
+					continue; // skip over copying to-remove document number
+				}
+				
+				//	copy current document number
+				cIndex[cn] = this.index[n];
+				cData[cn * 2] = this.data[n * 2];
+				cData[(cn * 2) + 1] = this.data[(n * 2) + 1];
+				cn++;
+			}
+			
+			//	handle any additions after last document number
+			while (a < added.length) {
+				String docId = ((String) addedMapping.get(new Long(added[a])));
+				cIndex[cn] = added[a];
+				encodeHex(cData, (cn * 2), docId);
+				cn++;
+				a++;
+			}
+			
+			//	finally ...
+			return new DocumentNumberResolver(cIndex, cData, cSize);
+		}
+		
+		void mapDocumentNumber(long docNr, String docId) {
+			if ((this.size != 0) && (docNr <= this.index[this.size-1]))
+				throw new IllegalArgumentException("Map document numbers in incremental order !!!");
+			if (this.index.length == this.size) {
+				long[] cIndex = new long[this.size * 2];
+				System.arraycopy(this.index, 0, cIndex, 0, this.size);
+				this.index = cIndex;
+				long[] cData = new long[this.size * 2 * 2];
+				System.arraycopy(this.data, 0, cData, 0, (this.size * 2));
+				this.data = cData;
+			}
+			this.index[this.size] = docNr;
+			encodeHex(this.data, (this.size * 2), docId);
+			this.size++;
+		}
+		DocumentNumberResolver cloneToSize() {
+			if (this.index.length == this.size)
+				return this;
+			long[] cIndex = new long[this.size];
+			System.arraycopy(this.index, 0, cIndex, 0, this.size);
+			long[] cData = new long[this.size * 2];
+			System.arraycopy(this.data, 0, cData, 0, (this.size * 2));
+			return new DocumentNumberResolver(cIndex, cData, this.size);
+		}
+	}
+	
+	private static class DocumentUuidResolver {
+		private long[] indexHigh;
+		private long[] indexLow;
+		private long[] data;
+		private int size;
+		DocumentUuidResolver() {
+			this.indexHigh = new long[32];
+			this.indexLow = new long[32];
+			this.data = new long[32];
+			this.size = 0;
+		}
+		private DocumentUuidResolver(long[] indexHigh, long[] indexLow, long[] data, int size) {
+			this.indexHigh = indexHigh;
+			this.indexLow = indexLow;
+			this.data = data;
+			this.size = size;
+		}
+		private int findDocumentUuidPos(String docUuid) {
+			long uuidHigh = encodeHex(docUuid, 0);
+			int pos = Arrays.binarySearch(this.indexHigh, 0, this.size, uuidHigh);
+			if ((pos < 0) || (this.size <= pos))
+				return -1;
+			if (this.indexHigh[pos] != uuidHigh)
+				return -1;
+			while ((pos != 0) && (this.indexHigh[pos-1] == uuidHigh))
+				pos--;
+			long uuidLow = encodeHex(docUuid, 16);
+			while ((pos < this.size) && (this.indexHigh[pos] == uuidHigh)) {
+				if (this.indexLow[pos] < uuidLow)
+					pos++;
+				else if (this.indexLow[pos] == uuidLow)
+					return pos;
+				else break;
+			}
+			return -1;
+		}
+		boolean containsDocumentUuid(String docUuid) {
+			return (this.findDocumentUuidPos(docUuid) != -1);
+		}
+		long getDocumentNumber(String docUuid) {
+			int pos = this.findDocumentUuidPos(docUuid);
+			return ((pos == -1) ? -1 : this.data[pos]);
+		}
+		
+		boolean updateDocumentUuidMapping(String docUuid, long docNr) {
+			int pos = this.findDocumentUuidPos(docUuid);
+			if (pos == -1)
+				return false;
+			this.data[pos] = docNr;
+			return true;
+		}
+		DocumentUuidResolver cloneForChanges(HashMap addedDocUuidsToNrs, HashSet removedDocUuids) {
+			
+			//	line up to-add document UUIDs
+			String[] added = new String[addedDocUuidsToNrs.size()];
+			int a = 0;
+			for (Iterator duit = addedDocUuidsToNrs.keySet().iterator(); duit.hasNext();) {
+				String docUuid = ((String) duit.next());
+				Long docNr = ((Long) addedDocUuidsToNrs.get(docUuid));
+				if (!this.updateDocumentUuidMapping(docUuid, docNr.longValue()))
+					added[a++] = docUuid;
+			}
+			if (a < added.length) {
+				String[] cAdded = new String[a];
+				System.arraycopy(added, 0, cAdded, 0, a);
+				added = cAdded;
+			}
+			
+			//	filter out to-remove document UUIDs that are not contained or will be added
+			String[] removed = new String[removedDocUuids.size()];
+			int r = 0;
+			for (Iterator duit = removedDocUuids.iterator(); duit.hasNext();) {
+				String docUuid = ((String) duit.next());
+				if (addedDocUuidsToNrs.containsKey(docUuid))
+					continue; // this one's being re-added
+				if (!this.containsDocumentUuid(docUuid))
+					continue; // not removing this one
+				removed[r++] = docUuid;
+			}
+			if (r < removed.length) {
+				String[] cRemoved = new String[r];
+				System.arraycopy(removed, 0, cRemoved, 0, r);
+				removed = cRemoved;
+			}
+			
+			//	anything left to do at all?
+			if ((added.length == 0) && (removed.length == 0))
+				return this;
+			
+			//	line up to-add document UUID bytes
+			Arrays.sort(added, signAwareHexStringOrder);
+			long[] addedHigh = new long[added.length];
+			long[] addedLow = new long[added.length];
+			for (a = 0; a < added.length; a++) {
+				addedHigh[a] = encodeHex(added[a], 0);
+				addedLow[a] = encodeHex(added[a], 16);
+			}
+			
+			//	line up to-remove document UUID bytes
+			Arrays.sort(removed, signAwareHexStringOrder);
+			long[] removedHigh = new long[removed.length];
+			long[] removedLow = new long[removed.length];
+			for (r = 0; r < removed.length; r++) {
+				removedHigh[r] = encodeHex(removed[r], 0);
+				removedLow[r] = encodeHex(removed[r], 16);
+			}
+			
+			//	sort to-add and to-remove document numbers
+			a = 0;
+			r = 0;
+			
+			//	merge data into new array (we're only ever reading the main ones, for thread safety)
+			int cSize = (this.size + added.length - removed.length);
+			long[] cIndexHigh = new long[cSize];
+			long[] cIndexLow = new long[cSize];
+			long[] cData = new long[cSize];
+			int cn = 0;
+			for (int n = 0; n < this.size; n++) {
+				
+				//	handle insertions before current document UUID
+				while ((a < added.length) && ((addedHigh[a] < this.indexHigh[n]) || ((addedHigh[a] == this.indexHigh[n]) && (addedLow[a] < this.indexLow[n])))) {
+					Long docNr = ((Long) addedDocUuidsToNrs.get(added[a]));
+					cIndexHigh[cn] = addedHigh[a];
+					cIndexLow[cn] = addedLow[a];
+					cData[cn] = docNr.longValue();
+					cn++;
+					a++;
+				}
+				
+				//	handle removals
+				if (r == removed.length) {} // all removals handled
+				else if ((removedHigh[r] == this.indexHigh[n]) && (removedLow[r] == this.indexLow[n])) {
+					r++; // move on to next to-remove document number
+					continue; // skip over copying to-remove document number
+				}
+				
+				//	copy current document UUID
+				cIndexHigh[cn] = this.indexHigh[n];
+				cIndexLow[cn] = this.indexLow[n];
+				cData[cn] = this.data[n];
+				cn++;
+			}
+			
+			//	handle any additions after last document number
+			while (a < added.length) {
+				Long docNr = ((Long) addedDocUuidsToNrs.get(added[a]));
+				cIndexHigh[cn] = addedHigh[a];
+				cIndexLow[cn] = addedLow[a];
+				cData[cn] = docNr.longValue();
+				cn++;
+				a++;
+			}
+			
+			//	finally ...
+			return new DocumentUuidResolver(cIndexHigh, cIndexLow, cData, cSize);
+		}
+		
+		void mapDocumentUuid(String docUuid, long docNr) {
+			long[] uuid = new long[2];
+			encodeHex(uuid, 0, docUuid);
+			if (this.size == 0) {}
+			else if (uuid[0] < this.indexHigh[this.size-1])
+				throw new IllegalArgumentException("Map document UUIDs in incremental order !!!");
+			else if ((uuid[0] == this.indexHigh[this.size-1]) && (uuid[1] <= this.indexLow[this.size-1]))
+				throw new IllegalArgumentException("Map document UUIDs in incremental order !!!");
+			if (this.data.length == this.size) {
+				long[] cIndexHigh = new long[this.size * 2];
+				System.arraycopy(this.indexHigh, 0, cIndexHigh, 0, this.size);
+				this.indexHigh = cIndexHigh;
+				long[] cIndexLow = new long[this.size * 2];
+				System.arraycopy(this.indexLow, 0, cIndexLow, 0, this.size);
+				this.indexLow = cIndexLow;
+				long[] cData = new long[this.size * 2];
+				System.arraycopy(this.data, 0, cData, 0, this.size);
+				this.data = cData;
+			}
+			this.indexHigh[this.size] = uuid[0];
+			this.indexLow[this.size] = uuid[1];
+			this.data[this.size] = docNr;
+			this.size++;
+		}
+		DocumentUuidResolver cloneToSize() {
+			if (this.data.length == this.size)
+				return this;
+			long[] cIndexHigh = new long[this.size];
+			System.arraycopy(this.indexHigh, 0, cIndexHigh, 0, this.size);
+			long[] cIndexLow = new long[this.size];
+			System.arraycopy(this.indexLow, 0, cIndexLow, 0, this.size);
+			long[] cData = new long[this.size];
+			System.arraycopy(this.data, 0, cData, 0, this.size);
+			return new DocumentUuidResolver(cIndexHigh, cIndexLow, cData, this.size);
+		}
+	}
+	
+	private static class MasterDocumentIdMapper {
+		private long[] indexHigh;
+		private long[] indexLow;
+		private int[] dataOffsets;
+		private int size;
+		private long[] data;
+		private int dataSize;
+		MasterDocumentIdMapper() {
+			this.indexHigh = new long[32];
+			this.indexLow = new long[32];
+			this.dataOffsets = new int[32];
+			this.size = 0;
+			this.data = new long[1024];
+			this.dataSize = 0;
+		}
+		private MasterDocumentIdMapper(long[] indexHigh, long[] indexLow, int[] dataOffsets, int size, long[] data, int dataSize) {
+			this.indexHigh = indexHigh;
+			this.indexLow = indexLow;
+			this.dataOffsets = dataOffsets;
+			this.size = size;
+			this.data = data;
+			this.dataSize = dataSize;
+		}
+		private int findMasterDocumentIdPos(String masterDocId) {
+			long mdidHigh = encodeHex(masterDocId, 0);
+			int pos = Arrays.binarySearch(this.indexHigh, 0, this.size, mdidHigh);
+			if ((pos < 0) || (this.size <= pos))
+				return -1;
+			if (this.indexHigh[pos] != mdidHigh)
+				return -1;
+			while ((pos != 0) && (this.indexHigh[pos-1] == mdidHigh))
+				pos--;
+			long mdidLow = encodeHex(masterDocId, 16);
+			while ((pos < this.size) && (this.indexHigh[pos] == mdidHigh)) {
+				if (this.indexLow[pos] < mdidLow)
+					pos++;
+				else if (this.indexLow[pos] == mdidLow)
+					return pos;
+				else break;
+			}
+			return -1;
+		}
+//		boolean containsMasterDocumentId(String masterDocId) {
+//			return (this.findMasterDocumentIdPos(masterDocId) != -1);
+//		}
+		long[] getDocumentNumbers(String masterDocId) {
+			int pos = this.findMasterDocumentIdPos(masterDocId);
+			if (pos == -1)
+				return null;
+			int dataStart = this.dataOffsets[pos];
+			int dataEnd = (((pos + 1) < this.size) ? this.dataOffsets[pos + 1] : this.dataSize);
+			long[] docNrs = new long[dataEnd - dataStart];
+			System.arraycopy(this.data, dataStart, docNrs, 0, docNrs.length);
+			return docNrs;
+		}
+		int getDocumentCount() {
+			return this.dataSize;
+		}
+		int getDocumentCount(String masterDocId) {
+			int pos = this.findMasterDocumentIdPos(masterDocId);
+			if (pos == -1)
+				return -1;
+			int dataStart = this.dataOffsets[pos];
+			int dataEnd = (((pos + 1) < this.size) ? this.dataOffsets[pos + 1] : this.dataSize);
+			return (dataEnd - dataStart);
+		}
+		
+		boolean updateMasterDocumentIdMapping(String masterDocId, long[] docNrs) {
+			int pos = this.findMasterDocumentIdPos(masterDocId);
+			if (pos == -1)
+				return false;
+			int dataStart = this.dataOffsets[pos];
+			int dataEnd = (((pos + 1) < this.size) ? this.dataOffsets[pos + 1] : this.dataSize);
+			if (docNrs.length != (dataEnd - dataStart))
+				return false;
+			System.arraycopy(docNrs, 0, this.data, dataStart, docNrs.length);
+			return true;
+		}
+		MasterDocumentIdMapper cloneForChanges(String masterDocId, long[] docNrs) {
+			
+			//	try to perform update in place
+			if ((docNrs != null) && (docNrs.length != 0) && this.updateMasterDocumentIdMapping(masterDocId, docNrs))
+				return this;
+			
+			//	extract binary key, and get number of existing entries
+			int exDocNrCount = this.getDocumentCount(masterDocId);
+			
+			//	no use removing non-existing entry
+			if ((exDocNrCount == -1) && ((docNrs == null) || (docNrs.length == 0)))
+				return this;
+			
+			//	compute size of cloned arrays
+			int cSize;
+			int cDataSize;
+			
+			//	new entry, also need to manipulate index arrays
+			if (exDocNrCount == -1) {
+				cSize = (this.size + 1);
+				cDataSize = (this.dataSize + docNrs.length);
+			}
+			
+			//	removal of existing entry
+			else if ((docNrs == null) || (docNrs.length == 0)) {
+				cSize = (this.size - 1);
+				cDataSize = (this.dataSize - exDocNrCount);
+			}
+			
+			//	existing entry with changed content
+			else {
+				cSize = this.size;
+				cDataSize = (this.dataSize + docNrs.length - exDocNrCount);
+			}
+			
+			//	get the bytes we're aiming for
+			long addedHigh = encodeHex(masterDocId, 0);
+			long addedLow = encodeHex(masterDocId, 16);
+			
+			//	merge data into new array (we're only ever reading the main ones, for thread safety)
+			long[] cIndexHigh = new long[cSize];
+			long[] cIndexLow = new long[cSize];
+			int[] cDataOffsets = new int[cSize];
+			int cn = 0;
+			long[] cData = new long[cDataSize];
+			int cdn = 0;
+			for (int n = 0; n < this.size; n++) {
+				
+				//	handle insertion before current master document ID
+				if ((exDocNrCount == -1) && (addedHigh < this.indexHigh[n]) || ((addedHigh == this.indexHigh[n]) && (addedLow < this.indexLow[n]))) {
+					cIndexHigh[cn] = addedHigh;
+					cIndexLow[cn] = addedLow;
+					cDataOffsets[cn] = cdn;
+					System.arraycopy(docNrs, 0, cData, cdn, docNrs.length);
+					cn++;
+					cdn += docNrs.length;
+					exDocNrCount = docNrs.length; // need to mark as done
+				}
+				
+				//	handle update or skip removal
+				else if ((addedHigh == this.indexHigh[n]) && (addedLow == this.indexLow[n])) {
+					if ((docNrs == null) || (docNrs.length == 0))
+						continue;
+					cDataOffsets[cn] = cdn;
+					System.arraycopy(docNrs, 0, cData, cdn, docNrs.length);
+					cn++;
+					cdn += docNrs.length;
+					continue;
+				}
+				
+				//	copy current master document ID and associated document numbers
+				cIndexHigh[cn] = this.indexHigh[n];
+				cIndexLow[cn] = this.indexLow[n];
+				cDataOffsets[cn] = cdn;
+				int dataStart = this.dataOffsets[n];
+				int dataEnd = (((n + 1) < this.size) ? this.dataOffsets[n + 1] : this.dataSize);
+				System.arraycopy(this.data, dataStart, cData, cdn, (dataEnd - dataStart));
+				cn++;
+				cdn += (dataEnd - dataStart);
+			}
+			
+			//	handle any additions after last document number
+			if (exDocNrCount == -1) {
+				cIndexHigh[cn] = addedHigh;
+				cIndexLow[cn] = addedLow;
+				cDataOffsets[cn] = cdn;
+				System.arraycopy(docNrs, 0, cData, cdn, docNrs.length);
+				cn++;
+				cdn += docNrs.length;
+			}
+			
+			//	finally ...
+			return new MasterDocumentIdMapper(cIndexHigh, cIndexLow, cDataOffsets, cSize, cData, cDataSize);
+		}
+		
+		void mapMasterDocumentId(String masterDocId, long[] docNrs) {
+			long mdidHigh = encodeHex(masterDocId, 0);
+			long mdidLow = encodeHex(masterDocId, 16);
+			if (this.size == 0) {}
+			else if (mdidHigh < this.indexHigh[this.size-1])
+				throw new IllegalArgumentException("Map master document IDs in incremental order !!!");
+			else if ((mdidHigh == this.indexHigh[this.size-1]) && (mdidLow <= this.indexLow[this.size-1]))
+				throw new IllegalArgumentException("Map master document IDs in incremental order !!!");
+			if (this.dataOffsets.length == this.size) {
+				long[] cIndexHigh = new long[this.size * 2];
+				System.arraycopy(this.indexHigh, 0, cIndexHigh, 0, this.size);
+				this.indexHigh = cIndexHigh;
+				long[] cIndexLow = new long[this.size * 2];
+				System.arraycopy(this.indexLow, 0, cIndexLow, 0, this.size);
+				this.indexLow = cIndexLow;
+				int[] cDataOffsets = new int[this.size * 2];
+				System.arraycopy(this.dataOffsets, 0, cDataOffsets, 0, this.size);
+				this.dataOffsets = cDataOffsets;
+			}
+			this.indexHigh[this.size] = mdidHigh;
+			this.indexLow[this.size] = mdidLow;
+			this.dataOffsets[this.size] = this.dataSize;
+			this.size++;
+			if (this.data.length < (this.dataSize + docNrs.length)) {
+				int scaleUp = 2;
+				while ((this.data.length * scaleUp) < (this.dataSize + docNrs.length))
+					scaleUp *= 2;
+				long[] cData = new long[this.data.length * scaleUp];
+				System.arraycopy(this.data, 0, cData, 0, this.dataSize);
+				this.data = cData;
+			}
+			System.arraycopy(docNrs, 0, this.data, this.dataSize, docNrs.length);
+			this.dataSize += docNrs.length;
+		}
+		MasterDocumentIdMapper cloneToSize() {
+			if ((this.dataOffsets.length == this.size) && (this.data.length == this.dataSize))
+				return this;
+			long[] cIndexHigh = new long[this.size];
+			System.arraycopy(this.indexHigh, 0, cIndexHigh, 0, this.size);
+			long[] cIndexLow = new long[this.size];
+			System.arraycopy(this.indexLow, 0, cIndexLow, 0, this.size);
+			int[] cDataOffsets = new int[this.size];
+			System.arraycopy(this.dataOffsets, 0, cDataOffsets, 0, this.size);
+			long[] cData = new long[this.dataSize];
+			System.arraycopy(this.data, 0, cData, 0, this.dataSize);
+			return new MasterDocumentIdMapper(cIndexHigh, cIndexLow, cDataOffsets, this.size, cData, this.dataSize);
+		}
+	}
+	
+	static final Comparator signAwareHexStringOrder = new Comparator() {
+		public int compare(Object obj1, Object obj2) {
+			String hex1 = ((String) obj1);
+			String hex2 = ((String) obj2);
+			/* need to sort 8-F starts before 0-7 starts, as former
+			 * become negative on encoding in primitive longs */
+			long high1 = encodeHex(hex1, 0);
+			long high2 = encodeHex(hex2, 0);
+			if (high1 != high2)
+				return ((high1 < high2) ? -1 : 1);
+			long low1 = encodeHex(hex1, 16);
+			long low2 = encodeHex(hex2, 16);
+			if (low1 == low2)
+				return 0;
+			return ((low1 < low2) ? -1 : 1);
+		}
+	};
+	
+	static void encodeHex(long[] data, int dataPos, String hex) {
+		data[dataPos] = encodeHex(hex, 0);
+		data[dataPos + 1] = encodeHex(hex, 16);
+	}
+	static long encodeHex(String hex, int fromChar) {
+		if (hex.length() < (fromChar + 16))
+			throw new IllegalArgumentException("Cannot encode '" + hex + "' from position " + fromChar + ", only " + (hex.length() - fromChar) + " chars left, need 16.");
+		long binary = 0;
+		for (int hexPos = fromChar; hexPos < (fromChar + 16); hexPos++) {
+			char ch = hex.charAt(hexPos);
+			binary <<= 4;
+			byte b;
+			if (('0' <= ch) && (ch <= '9'))
+				b = ((byte) (ch - '0'));
+			else if (('A' <= ch) && (ch <= 'F'))
+				b = ((byte) ((ch - 'A') + 10));
+			else if (('a' <= ch) && (ch <= 'f'))
+				b = ((byte) ((ch - 'a') + 10));
+			else throw new IllegalArgumentException("Illegal HEX character in '" + hex + "': " + ch);
+			binary |= b;
+		}
+		return binary;
+	}
+	
+	private static String defaultDocumentAttribute(String name, String value) {
+		if (value != null)
+			return value;
+		if (PAGE_NUMBER_ATTRIBUTE.equals(name))
+			return "-1";
+		if (LAST_PAGE_NUMBER_ATTRIBUTE.equals(name))
+			return "-1";
+		if (MASTER_PAGE_NUMBER_ATTRIBUTE.equals(name))
+			return "-1";
+		if (MASTER_LAST_PAGE_NUMBER_ATTRIBUTE.equals(name))
+			return "-1";
+		if (CHECKIN_USER_ATTRIBUTE.equals(name))
+			return "Unknown User";
+		if (UPDATE_USER_ATTRIBUTE.equals(name))
+			return "Unknown User";
+		if (DOCUMENT_AUTHOR_ATTRIBUTE.equals(name))
+			return "Unknown Author";
+		if (DOCUMENT_ORIGIN_ATTRIBUTE.equals(name))
+			return "Unknown Journal or Book";
+		if (MASTER_DOCUMENT_TITLE_ATTRIBUTE.equals(name))
+			return "Unknown Document";
+		return "";
 	}
 	
 	private static class ChecksumFilterSet {
@@ -5464,4 +6410,193 @@ public class GoldenGateSRS extends AbstractGoldenGateServerComponent implements 
 	public void removeDocumentChecksumAttributeFilter(AttributeFilter af) {
 		this.checksumDigest.removeAttributeFilter(af);
 	}
+//	
+//	//	FOR TESTING ONLY !!!
+//	public static void main(String[] args) throws Exception {
+//		DocumentNumberResolver dnr = new DocumentNumberResolver();
+//		HashMap docNrsToIDs = new HashMap();
+//		for (int d = 0; d < 10000; d++) {
+//			long docNr = d;
+//			String docId = RandomByteSource.getRandomHex(128);
+//			dnr.mapDocumentNumber(docNr, docId);
+//			docNrsToIDs.put(new Long(docNr), docId);
+//		}
+//		System.out.println(dnr.size + " (array is " + dnr.index.length + ")");
+//		dnr = dnr.cloneToSize();
+//		System.out.println(dnr.size + " (array is " + dnr.index.length + ")");
+//		testDocumentNumberResolver(dnr, docNrsToIDs);
+//		HashSet addDocIDs = new HashSet();
+//		long[] removeDocNrs = new long[6];
+//		for (int r = 0; r < removeDocNrs.length; r++) {
+//			removeDocNrs[r] = ((long) (10000 * Math.random()));
+//			docNrsToIDs.remove(new Long(removeDocNrs[r]));
+//		}
+//		for (int a = 0; a < 27; a++) {
+//			String docId = RandomByteSource.getRandomHex(128);
+//			addDocIDs.add(docId);
+//			docNrsToIDs.put(new Long(getDocNr(docId)), docId);
+//		}
+//		dnr = dnr.cloneForChanges(addDocIDs, removeDocNrs);
+//		System.out.println(dnr.size + " (array is " + dnr.index.length + ")");
+//		testDocumentNumberResolver(dnr, docNrsToIDs);
+//		for (int r = 0; r < removeDocNrs.length; r++) {
+//			String docId = dnr.getDocumentId(removeDocNrs[r]);
+//			System.out.println(removeDocNrs[r] + " ==> " + docId);
+//		}
+//	}
+//	private static void testDocumentNumberResolver(DocumentNumberResolver dnr, HashMap docNrsToIDs) {
+//		long maxDocNr = dnr.index[dnr.size - 1];
+//		for (int d = 0; d < 200; d++) {
+//			long docNr = ((long) (maxDocNr * 1.3 * Math.random()));
+//			String docId = dnr.getDocumentId(docNr);
+//			System.out.println(docNr + " ==> " + docId);
+//			String cDocId = ((String) docNrsToIDs.get(new Long(docNr)));
+//			if (docId == null) {
+//				if (cDocId == null)
+//					System.out.println(" ==> MATCH");
+//				else System.out.println(" ==> FUCK");
+//			}
+//			else {
+//				if (docId.equals(cDocId))
+//					System.out.println(" ==> MATCH");
+//				else System.out.println(" ==> FUCK");
+//			}
+//		}
+//	}
+//	
+//	//	FOR TESTING ONLY !!!
+//	public static void main(String[] args) throws Exception {
+//		DocumentUuidResolver dur = new DocumentUuidResolver();
+//		TreeMap docUuidsToNrs = new TreeMap(signAwareHexStringOrder);
+//		for (int d = 0; d < 10000; d++) {
+//			String docUuid = RandomByteSource.getRandomHex(128);
+//			long docNr = getDocNr(docUuid);
+//			docUuidsToNrs.put(docUuid, new Long(docNr));
+//		}
+//		for (Iterator duit = docUuidsToNrs.keySet().iterator(); duit.hasNext();) {
+//			String docUuid = ((String) duit.next());
+//			Long docNr = ((Long) docUuidsToNrs.get(docUuid));
+//			dur.mapDocumentUuid(docUuid, docNr);
+//		}
+//		System.out.println(dur.size + " (array is " + dur.data.length + ")");
+//		dur = dur.cloneToSize();
+//		System.out.println(dur.size + " (array is " + dur.data.length + ")");
+//		testDocumentUuidResolver(dur, docUuidsToNrs);
+//		HashSet removeDocUuids = new HashSet();
+//		for (Iterator duit = docUuidsToNrs.keySet().iterator(); duit.hasNext();) {
+//			String docUuid = ((String) duit.next());
+//			if (Math.random() < 0.01)
+//				removeDocUuids.add(docUuid);
+//		}
+//		for (Iterator duit = removeDocUuids.iterator(); duit.hasNext();) {
+//			String docUuid = ((String) duit.next());
+//			docUuidsToNrs.remove(docUuid);
+//		}
+//		System.out.println("Removing " + removeDocUuids.size() + " UUIDs");
+//		HashMap addDocUuids = new HashMap();
+//		for (int a = 0; a < 1000; a++) {
+//			String docUuid = RandomByteSource.getRandomHex(128);
+//			long docNr = getDocNr(docUuid);
+//			docUuidsToNrs.put(docUuid, new Long(docNr));
+//			addDocUuids.put(docUuid, new Long(docNr));
+//		}
+//		dur = dur.cloneForChanges(addDocUuids, removeDocUuids);
+//		System.out.println(dur.size + " (array is " + dur.data.length + ")");
+//		testDocumentUuidResolver(dur, docUuidsToNrs);
+//		for (Iterator duit = removeDocUuids.iterator(); duit.hasNext();) {
+//			String docUuid = ((String) duit.next());
+//			System.out.println(docUuid + " ==> " + dur.getDocumentNumber(docUuid));
+//		}
+//	}
+//	private static void testDocumentUuidResolver(DocumentUuidResolver dur, TreeMap docUuidsToNrs) {
+//		for (Iterator duit = docUuidsToNrs.keySet().iterator(); duit.hasNext();) {
+//			String docUuid = ((String) duit.next());
+//			if (Math.random() < 0.01) {
+//				Long docNr = ((Long) docUuidsToNrs.get(docUuid));
+//				System.out.println(docUuid + " ==> " + docNr);
+//				if (docNr.longValue() == dur.getDocumentNumber(docUuid))
+//					System.out.println(" ==> MATCH");
+//				else System.out.println(" ==> FUCK");
+//			}
+//		}
+//	}
+//	
+//	//	FOR TESTING ONLY !!!
+//	public static void main(String[] args) throws Exception {
+//		MasterDocumentIdMapper mdim = new MasterDocumentIdMapper();
+//		TreeMap masterDocIdsToNrs = new TreeMap(signAwareHexStringOrder);
+//		for (int md = 0; md < 1000; md++) {
+//			String masterDocId = RandomByteSource.getRandomHex(128);
+//			int docCount = ((int) (Math.random() * 1000));
+//			long[] docNrs = new long[Math.max(docCount, 1)];
+//			for (int d = 0; d < docNrs.length; d++)
+//				docNrs[d] = Double.doubleToLongBits(Math.random());
+//			masterDocIdsToNrs.put(masterDocId, docNrs);
+//		}
+//		for (Iterator mdidit = masterDocIdsToNrs.keySet().iterator(); mdidit.hasNext();) {
+//			String masterDocId = ((String) mdidit.next());
+//			long[] docNrs = ((long[]) masterDocIdsToNrs.get(masterDocId));
+//			mdim.mapMasterDocumentId(masterDocId, docNrs);
+//		}
+//		System.out.println(mdim.size + " (array is " + mdim.dataOffsets.length + "), " + mdim.dataSize + " (array is " + mdim.data.length + ")");
+//		mdim = mdim.cloneToSize();
+//		System.out.println(mdim.size + " (array is " + mdim.dataOffsets.length + "), " + mdim.dataSize + " (array is " + mdim.data.length + ")");
+//		testMasterDocumentIdMapper(mdim, masterDocIdsToNrs);
+//		String removeMasterDocId = null;
+//		for (Iterator mdidit = masterDocIdsToNrs.keySet().iterator(); mdidit.hasNext();) {
+//			String masterDocId = ((String) mdidit.next());
+//			if (Math.random() < 0.01)
+//				removeMasterDocId = masterDocId;
+//		}
+//		if (removeMasterDocId != null) {
+//			System.out.println("Removing master document ID " + removeMasterDocId);
+//			mdim = mdim.cloneForChanges(removeMasterDocId, null);
+//			System.out.println(mdim.size + " (array is " + mdim.dataOffsets.length + "), " + mdim.dataSize + " (array is " + mdim.data.length + ")");
+//			testMasterDocumentIdMapper(mdim, masterDocIdsToNrs);
+//		}
+//		String addMasterDocId = RandomByteSource.getRandomHex(128);
+//		int addDocCount = ((int) (Math.random() * 1000));
+//		long[] addDocNrs = new long[Math.max(addDocCount, 1)];
+//		for (int d = 0; d < addDocNrs.length; d++)
+//			addDocNrs[d] = Double.doubleToLongBits(Math.random());
+//		masterDocIdsToNrs.put(addMasterDocId, addDocNrs);
+//		System.out.println("Adding master document ID " + addMasterDocId + " with " + addDocNrs.length + " document numbers");
+//		mdim = mdim.cloneForChanges(addMasterDocId, addDocNrs);
+//		System.out.println(mdim.size + " (array is " + mdim.dataOffsets.length + "), " + mdim.dataSize + " (array is " + mdim.data.length + ")");
+//		testMasterDocumentIdMapper(mdim, masterDocIdsToNrs);
+//		String updateMasterDocId = null;
+//		for (Iterator mdidit = masterDocIdsToNrs.keySet().iterator(); mdidit.hasNext();) {
+//			String masterDocId = ((String) mdidit.next());
+//			if (Math.random() < 0.01)
+//				updateMasterDocId = masterDocId;
+//		}
+//		if (updateMasterDocId != null) {
+//			int updateDocCount = ((int) (Math.random() * 1000));
+//			long[] updateDocNrs = new long[Math.max(updateDocCount, 1)];
+//			for (int d = 0; d < updateDocNrs.length; d++)
+//				updateDocNrs[d] = Double.doubleToLongBits(Math.random());
+//			long[] docNrs = ((long[]) masterDocIdsToNrs.put(updateMasterDocId, updateDocNrs));
+//			System.out.println("Updating master document ID " + updateMasterDocId + " from " + docNrs.length + " to " + updateDocNrs.length + " document numbers");
+//			mdim = mdim.cloneForChanges(updateMasterDocId, updateDocNrs);
+//			System.out.println(mdim.size + " (array is " + mdim.dataOffsets.length + "), " + mdim.dataSize + " (array is " + mdim.data.length + ")");
+//			testMasterDocumentIdMapper(mdim, masterDocIdsToNrs);
+//		}
+//	}
+//	private static void testMasterDocumentIdMapper(MasterDocumentIdMapper mdim, TreeMap masterDocIdsToNrs) {
+//		for (Iterator mdidit = masterDocIdsToNrs.keySet().iterator(); mdidit.hasNext();) {
+//			String masterDocId = ((String) mdidit.next());
+//			if (Math.random() < 0.05) {
+//				long[] docNrs = ((long[]) masterDocIdsToNrs.get(masterDocId));
+//				System.out.println(masterDocId + " ==> " + docNrs);
+//				long[] rDocNrs = mdim.getDocumentNumbers(masterDocId);
+//				if (rDocNrs == null)
+//					System.out.println(" ==> FUCK");
+//				else if (docNrs.length != rDocNrs.length)
+//					System.out.println(" ==> FUCK");
+//				else if (Arrays.equals(docNrs, rDocNrs))
+//					System.out.println(" ==> MATCH");
+//				else System.out.println(" ==> FUCK");
+//			}
+//		}
+//	}
 }

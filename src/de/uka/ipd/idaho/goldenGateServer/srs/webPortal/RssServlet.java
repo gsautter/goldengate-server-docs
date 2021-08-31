@@ -207,7 +207,8 @@ public class RssServlet extends AbstractSrsWebPortalServlet implements SearchPor
 		super.doInit();
 		
 		//	get where to cache the feeds
-		this.rssFeedCacheFolder = new File(new File(this.webInfFolder, "caches"), "srsRssFeeds");
+//		this.rssFeedCacheFolder = new File(new File(this.webInfFolder, "caches"), "srsRssFeeds");
+		this.rssFeedCacheFolder = new File(this.cacheRootFolder, "srsRssFeeds");
 		if (!this.rssFeedCacheFolder.exists())
 			this.rssFeedCacheFolder.mkdir();
 		

@@ -33,6 +33,7 @@ import java.util.Properties;
 import de.uka.ipd.idaho.easyIO.SqlQueryResult;
 import de.uka.ipd.idaho.gamta.Annotation;
 import de.uka.ipd.idaho.gamta.MutableAnnotation;
+import de.uka.ipd.idaho.gamta.QueriableAnnotation;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResultElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.SrsSearchResultElement;
@@ -103,23 +104,14 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 		String namePrefix = (name + ".");
 		
 		SearchFieldGroup fieldGroup = this.getFieldGroup();
-//		SearchFieldGroup qualifiedFieldGroup = new SearchFieldGroup(this.getIndexName(), fieldGroup.label, fieldGroup.legend, fieldGroup.indexEntryLabel);
 		SearchFieldGroup qualifiedFieldGroup = new SearchFieldGroup(this.getIndexName(), fieldGroup.label, fieldGroup.tooltip, fieldGroup.indexEntryLabel);
 		
 		SearchFieldRow[] fieldRows = fieldGroup.getFieldRows();
 		for (int r = 0; r < fieldRows.length; r++) {
-//			SearchFieldRow qualifiedFieldRow = new SearchFieldRow(fieldRows[r].label);
 			SearchFieldRow qualifiedFieldRow = new SearchFieldRow(fieldRows[r].label, fieldRows[r].tooltip);
 			
 			SearchField[] fields = fieldRows[r].getFields();
 			for (int f = 0; f < fields.length; f++) {
-//				SearchField qualifiedField = new SearchField(
-//							(fields[f].name.startsWith(namePrefix) ? fields[f].name : (namePrefix + fields[f].name)),
-//							fields[f].label,
-//							fields[f].value,
-//							fields[f].size,
-//							fields[f].type
-//						);
 				SearchField qualifiedField = new SearchField(
 						(fields[f].name.startsWith(namePrefix) ? fields[f].name : (namePrefix + fields[f].name)),
 						fields[f].label,
@@ -149,6 +141,19 @@ public abstract class AbstractIndexer extends AbstractGoldenGateSrsPlugin implem
 	 *         plus their alignment in rows
 	 */
 	protected abstract SearchFieldGroup getFieldGroup();
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#reIndex(de.uka.ipd.idaho.gamta.QueriableAnnotation, long)
+	 */
+	public IndexResult reIndex(QueriableAnnotation doc, long docNr) {
+		this.deleteDocument(docNr);
+		return this.index(doc, docNr);
+	}
+	
+	/* (non-Javadoc)
+	 * @see de.uka.ipd.idaho.goldenGateServer.srs.Indexer#masterDocumentFinished()
+	 */
+	public void masterDocumentFinished() {}
 	
 	/**
 	 * replace a language specific special characters in a string with their

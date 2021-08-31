@@ -30,6 +30,7 @@ package de.uka.ipd.idaho.goldenGateServer.srs.indexers;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -38,6 +39,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -61,7 +63,6 @@ import de.uka.ipd.idaho.goldenGateServer.srs.QueryResultElement;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.IndexResult;
 import de.uka.ipd.idaho.goldenGateServer.srs.data.ThesaurusResult;
 import de.uka.ipd.idaho.stringUtils.StringUtils;
-import de.uka.ipd.idaho.stringUtils.StringVector;
 
 /**
  * Indexer for full text search, using file based inverted index lists
@@ -143,9 +144,14 @@ public class FullTextIndexer extends AbstractIndexer {
 		//	load stop words
 		System.out.println("  - loading stop words ...");
 		try {
-			StringVector stopWords = StringVector.loadList(new File(this.dataPath, "stopWords.txt"));
-			for (int s = 0; s < stopWords.size(); s++)
-				this.stopWords.add(this.normalizeTerm(stopWords.get(s)));
+			BufferedReader swBr = new BufferedReader(new InputStreamReader(new FileInputStream(new File(this.dataPath, "stopWords.txt")), "UTF-8"));
+			for (String swLine; (swLine = swBr.readLine()) != null;) {
+				swLine = swLine.trim();
+				if (swLine.startsWith("//"))
+					continue;
+				this.stopWords.add(this.normalizeTerm(swLine));
+			}
+			swBr.close();
 			System.out.println("  - got " + this.stopWords.size() + " stop words");
 		}
 		catch (IOException ioe) {
@@ -262,37 +268,34 @@ public class FullTextIndexer extends AbstractIndexer {
 		
 		//	extract query terms
 		TokenSequence termTs = Gamta.newTokenSequence(termString, Gamta.NO_INNER_PUNCTUATION_TOKENIZER);
-		StringVector terms = new StringVector();
+		CountingSet terms = new CountingSet(new LinkedHashMap());
 		for (int t = 0; t < termTs.size(); t++) {
 			String term = termTs.valueAt(t);
 			if (Gamta.isWord(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH) && !this.stopWords.contains(term))
-				terms.addElement(this.normalizeTerm(term));
+				terms.add(this.normalizeTerm(term));
 			else if (Gamta.isNumber(term) && (term.length() >= INDEX_TERM_MIN_LENGHTH))
-				terms.addElement(this.normalizeTerm(term));
+				terms.add(this.normalizeTerm(term));
 		}
-		this.host.logActivity("  - got terms '" + terms.concatStrings("', '") + "'");
+		this.host.logActivity("  - got terms '" + terms.toString() + "'");
 		
 		//	no terms given
-		if (terms.isEmpty()) return null;
-		
-		//	eliminate duplicates
-		StringVector distinctTerms = new StringVector();
-		distinctTerms.addContentIgnoreDuplicates(terms);
+		if (terms.isEmpty())
+			return null;
 		
 		//	read match mode
 		String matchMode = query.getValue(MATCH_MODE, PREFIX_MATCH_MODE);
 		
 		//	process query
 		QueryResult result = null;
-		for (int t = 0; t < distinctTerms.size(); t++) {
-			this.host.logActivity("  - doing query term '" + distinctTerms.get(t) + "'");
+		for (Iterator tit = terms.iterator(); tit.hasNext();) {
+			String term = ((String) tit.next());
+			this.host.logActivity("  - doing query term '" + term + "'");
 			
 			//	assemble result for current term/infix
 			QueryResult termOrInfixResult = null;
 			
 			//	do exact match
 			if (EXACT_MATCH_MODE.equals(matchMode)) {
-				String term = distinctTerms.get(t);
 				
 				//	get index for term
 				TermIndex termIndex = this.getTermIndex(term);
@@ -307,52 +310,56 @@ public class FullTextIndexer extends AbstractIndexer {
 			
 			//	do wildcard lookup
 			else {
-				String infix = distinctTerms.get(t);
+				String infix = term;
 				HashSet infixBearingTerms = null;
 				
 				//	find index terms bearing wildcard match term as infix
 				for (int i = 0; i <= (infix.length() - 3); i++) {
 					HashSet trigramTermSet = ((HashSet) this.trigramsToIndexTerms.get(infix.substring(i, (i+3))));
-					if (trigramTermSet == null) { // we have no index terms including this trigram
+					
+					//	we have no index terms including this trigram
+					if (trigramTermSet == null) {
 						if (infixBearingTerms != null)
 							infixBearingTerms.clear();
-						break;
-						// could return empty result here in boolean AND mode, but not in VSR or other advanced modes
+						break; // could return empty result right here in boolean AND mode, but not in VSR or other advanced modes
 					}
-					else { // we have index terms including this trigram
-						if (infixBearingTerms == null)
-							infixBearingTerms = new HashSet(trigramTermSet); // first trigram, initialize intersecting
-						else infixBearingTerms.retainAll(trigramTermSet); // do intersection with all further sets
-					}
+					
+					//	first trigram, initialize intersecting
+					if (infixBearingTerms == null)
+						infixBearingTerms = new HashSet(trigramTermSet);
+					
+					//	do intersection with all further sets
+					else infixBearingTerms.retainAll(trigramTermSet);
 				}
 				
 				//	iterate over terms bearing current infix
-				if (infixBearingTerms != null)
-					for (Iterator it = infixBearingTerms.iterator(); it.hasNext();) {
-						String infixBearingTerm = ((String) it.next());
+				if (infixBearingTerms == null)
+					continue;
+				for (Iterator it = infixBearingTerms.iterator(); it.hasNext();) {
+					String infixBearingTerm = ((String) it.next());
+					
+					//	check if actual suffix matches (trigrams are indicators, but no secure evidence)
+					if (INFIX_MATCH_MODE.equals(matchMode) ? (infixBearingTerm.indexOf(infix) != -1) : infixBearingTerm.startsWith(infix)) {
+						this.host.logActivity("    - got " + matchMode + " match term '" + infixBearingTerm + "'");
 						
-						//	check if actual suffix matches (trigrams are indicators, but no secure evidence)
-						if (INFIX_MATCH_MODE.equals(matchMode) ? (infixBearingTerm.indexOf(infix) != -1) : infixBearingTerm.startsWith(infix)) {
-							this.host.logActivity("    - got " + matchMode + " match term '" + infixBearingTerm + "'");
-							
-							//	get index for wildcard matched term
-							TermIndex infixBearingTermIndex = this.getTermIndex(infixBearingTerm);
-							
-							//	produce query result
-							QueryResult infixBearingTermResult = new QueryResult(false);
-							if (infixBearingTermIndex != null)
-								for (int e = 0; e < infixBearingTermIndex.size(); e++)
-									infixBearingTermResult.addResultElement(new QueryResultElement(infixBearingTermIndex.entries[e].docNr, 1.0));
-							
-							//	union with results for other terms bearing current infix
-							if (termOrInfixResult == null)
-								termOrInfixResult = infixBearingTermResult;
-							else termOrInfixResult = QueryResult.merge(termOrInfixResult, infixBearingTermResult, QueryResult.USE_MAX, 0);
-						}
+						//	get index for wildcard matched term
+						TermIndex infixBearingTermIndex = this.getTermIndex(infixBearingTerm);
+						
+						//	produce query result
+						QueryResult infixBearingTermResult = new QueryResult(false);
+						if (infixBearingTermIndex != null)
+							for (int e = 0; e < infixBearingTermIndex.size(); e++)
+								infixBearingTermResult.addResultElement(new QueryResultElement(infixBearingTermIndex.entries[e].docNr, 1.0));
+						
+						//	union with results for other terms bearing current infix
+						if (termOrInfixResult == null)
+							termOrInfixResult = infixBearingTermResult;
+						else termOrInfixResult = QueryResult.merge(termOrInfixResult, infixBearingTermResult, QueryResult.USE_MAX, 0);
 					}
+				}
 			}
 			
-			this.host.logActivity("  - got " + ((termOrInfixResult == null) ? "no" : ("" + termOrInfixResult.size())) + " results for '" + distinctTerms.get(t) + "'");
+			this.host.logActivity("  - got " + ((termOrInfixResult == null) ? "no" : ("" + termOrInfixResult.size())) + " results for '" + term + "'");
 			
 			//	combine result for current term/infix with results for other terms/infixes (boolean AND, vector space measure, etc)
 			if (result == null)
@@ -500,6 +507,10 @@ public class FullTextIndexer extends AbstractIndexer {
 		return indexFile;
 	}
 	
+	/*
+TODO Keep SRS full text index entries as byte[] ...
+... and decode data akin to taxonomic epithet index
+	 */
 	private static class TermIndex {
 		private static final int CAPACITY_INCREMENT = 16;
 		final String term;
@@ -547,6 +558,7 @@ public class FullTextIndexer extends AbstractIndexer {
 			 * all but the last two elements are guaranteed to be sorted (would
 			 * have to shift array anyway for insertion)
 			 */
+			//	TODO use binary search and System.arraycopy instead (swapping gets a bit more finicky with plain arrays, and arraycopy is native)
 			boolean modified = false;
 			for (int i = (this.size - 1); i > 0; i--) {
 				if (this.entries[i-1].docNr < this.entries[i].docNr)

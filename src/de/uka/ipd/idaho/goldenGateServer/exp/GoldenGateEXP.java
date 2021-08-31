@@ -489,8 +489,7 @@ public abstract class GoldenGateEXP extends GoldenGateAEP implements LiteratureC
 						UPDATE_DELETE_COMMAND,
 						"Trigger forwarding pending document deletions."
 					};
-//				return explanation;
-				return mergeArrays(explanation, updateParamExplanations);
+				return explanation;
 			}
 			public void performActionConsole(String[] arguments) {
 				if (arguments.length != 0)

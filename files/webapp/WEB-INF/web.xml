@@ -53,6 +53,10 @@
 		<servlet-name>GgSrsSearchPortal</servlet-name>
 		<url-pattern>/xml/*</url-pattern>
 	</servlet-mapping>
+	<servlet-mapping>
+		<servlet-name>GgSrsSearchPortal</servlet-name>
+		<url-pattern>/summary/*</url-pattern>
+	</servlet-mapping>
 	
 	<servlet>
 		<servlet-name>GgSrsLinkPortal</servlet-name>

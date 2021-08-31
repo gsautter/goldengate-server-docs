@@ -159,7 +159,8 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	public abstract ThesaurusResult doThesaurusLookup(Query query);
 	
 	/**
-	 * Produce the index entries for a document
+	 * Produce the index entries for a document. This method is called when
+	 * a document is indexed for the first time.
 	 * @param doc the document to produce the index entries for
 	 * @param docNr the number of the specified document (to use as foreign key)
 	 *            Note: if this method writes class or instance fields, it
@@ -168,6 +169,27 @@ public interface Indexer extends GoldenGateSrsPlugin {
 	 *            document
 	 */
 	public abstract IndexResult index(QueriableAnnotation doc, long docNr);
+	
+	/**
+	 * Re-produce the index entries for a document. This method is called when
+	 * a document is re-indexed after an update.
+	 * @param doc the document to produce the index entries for
+	 * @param docNr the number of the specified document (to use as foreign key)
+	 *            Note: if this method writes class or instance fields, it
+	 *            should be synchronized
+	 * @return an index result containing the index entries for the argument
+	 *            document
+	 */
+	public abstract IndexResult reIndex(QueriableAnnotation doc, long docNr);
+	
+	/**
+	 * Perform any cleanup actions required after all documents extracted from
+	 * a given master document have been indexed, re-indexed, or deleted. This
+	 * is mainly intended for persisting files, etc. that make little sense to
+	 * persist after every single document, especially with large master
+	 * documents.
+	 */
+	public abstract void masterDocumentFinished();
 	
 	/**
 	 * Delete a document from the index

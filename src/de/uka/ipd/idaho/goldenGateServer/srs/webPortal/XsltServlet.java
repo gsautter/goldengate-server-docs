@@ -426,9 +426,11 @@ public class XsltServlet extends AbstractSrsWebPortalServlet implements SearchPo
 	private Transformer getTransformer(String xsltUrl) throws IOException {
 		Transformer xslt;
 		
-		if (xsltUrl.indexOf("://") == -1)
-			xslt = XsltUtils.getTransformer(new File(this.dataFolder, xsltUrl), !this.cachedStylesheets.add(xsltUrl));
-		else xslt = XsltUtils.getTransformer(xsltUrl, !this.cachedStylesheets.add(xsltUrl));
+		if (xsltUrl.indexOf("://") != -1)
+			xslt = XsltUtils.getTransformer(xsltUrl, !this.cachedStylesheets.add(xsltUrl));
+		else if (xsltUrl.startsWith("/") || (xsltUrl.indexOf(":") != -1))
+			xslt = XsltUtils.getTransformer(new File(xsltUrl), !this.cachedStylesheets.add(xsltUrl));
+		else xslt = XsltUtils.getTransformer(new File(this.dataFolder, xsltUrl), !this.cachedStylesheets.add(xsltUrl));
 		
 		if (xslt == null)
 			throw new IOException("XSLT transformer chain broken at '" + xsltUrl + "'");

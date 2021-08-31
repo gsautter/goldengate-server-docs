@@ -54,6 +54,7 @@ import de.uka.ipd.idaho.goldenGateServer.AbstractGoldenGateServerComponent;
 import de.uka.ipd.idaho.goldenGateServer.GoldenGateServerConstants.GoldenGateServerEvent.EventLogger;
 import de.uka.ipd.idaho.goldenGateServer.dio.GoldenGateDIO;
 import de.uka.ipd.idaho.goldenGateServer.util.AsynchronousDataActionHandler;
+import de.uka.ipd.idaho.goldenGateServer.util.masterSlave.SlaveErrorRecorder;
 import de.uka.ipd.idaho.goldenGateServer.util.masterSlave.SlaveInstallerUtils;
 import de.uka.ipd.idaho.goldenGateServer.util.masterSlave.SlaveJob;
 import de.uka.ipd.idaho.goldenGateServer.util.masterSlave.SlaveProcessInterface;
@@ -85,6 +86,7 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	private long processingStepStart = -1;
 	private String processingInfo = null;
 	private long processingInfoStart = -1;
+	private int processingProgress = 0;
 	
 	private String ggConfigHost;
 	private String ggConfigName;
@@ -153,6 +155,11 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		//	TODO get list of documents from DIO
 		
 		//	TODO release all documents we still hold the lock for
+		
+		//	set up collecting of errors from our slave processes
+		String slaveErrorPath = this.host.getServerProperty("SlaveProcessErrorPath");
+		if (slaveErrorPath != null)
+			SlaveErrorRecorder.setErrorPath(slaveErrorPath);
 	}
 	
 	/* (non-Javadoc)
@@ -263,7 +270,7 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 				//	TODO list more detailed status of individual slave if ID specified
 				long time = System.currentTimeMillis();
 				this.reportResult("Processing document " + processingDocId + " (started " + (time - processingStart) + "ms ago)");
-				this.reportResult(" - current processor is " + processorName + " (since " + (time - processorStart) + "ms)");
+				this.reportResult(" - current processor is " + processorName + " (since " + (time - processorStart) + "ms, at " + processingProgress + "%)");
 				this.reportResult(" - current step is " + processingStep + " (since " + (time - processingStepStart) + "ms)");
 				this.reportResult(" - current info is " + processingInfo + " (since " + (time - processingInfoStart) + "ms)");
 			}
@@ -524,7 +531,7 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 			protected void finalizeSystemOut() {
 				this.finalizeDocProcessorManager();
 			}
-			protected void handleError(String error) {
+			protected void handleError(String error, boolean fromSysErr) {
 				cac.reportError(error);;
 			}
 			protected void finalizeSystemErr() {
@@ -582,14 +589,13 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 			this.processingStepStart = -1;
 			this.processingInfo = null;
 			this.processingInfoStart = -1;
+			this.processingProgress = -1;
 		}
 	}
 	
-//	private void processDocument(String docId, DocumentReader docIn, String processorName) throws IOException {
 	private void processDocument(String docId, DocumentReader docIn, String processorName, String userName) throws IOException {
 		
 		//	preserve original update user (unless user name explicitly specified)
-//		String docUpdateUser = ((String) docIn.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE, this.updateUserName));
 		String docUpdateUser = ((userName == null) ? ((String) docIn.getAttribute(GoldenGateDIO.UPDATE_USER_ATTRIBUTE, this.updateUserName)) : userName);
 		
 		//	create document cache file
@@ -614,21 +620,29 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 		this.batchRun = Runtime.getRuntime().exec(dsj.getCommand(null), new String[0], this.workingFolder);
 		
 		//	get output channel
-		this.batchInterface = new DprSlaveProcessInterface(this.batchRun, ("DprBatch" + docId));
+		this.batchInterface = new DprSlaveProcessInterface(this.batchRun, ("DprBatch" + docId), docId);
 		this.batchInterface.setProgressMonitor(new ProgressMonitor() {
 			public void setStep(String step) {
-				logInfo(step);
+				logInfo("DPR: " + step);
 				processingStep = step;
 				processingStepStart = System.currentTimeMillis();
 			}
 			public void setInfo(String info) {
-				logDebug(info);
+				logDebug("DPR: " + info);
 				processingInfo = info;
 				processingInfoStart = System.currentTimeMillis();
 			}
-			public void setBaseProgress(int baseProgress) {}
-			public void setMaxProgress(int maxProgress) {}
-			public void setProgress(int progress) {}
+			private int baseProgress = 0;
+			private int maxProgress = 0;
+			public void setBaseProgress(int baseProgress) {
+				this.baseProgress = baseProgress;
+			}
+			public void setMaxProgress(int maxProgress) {
+				this.maxProgress = maxProgress;
+			}
+			public void setProgress(int progress) {
+				processingProgress = (this.baseProgress + (((this.maxProgress - this.baseProgress) * progress) / 100));
+			}
 		});
 		this.batchInterface.start();
 		
@@ -749,8 +763,10 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 	
 	private class DprSlaveProcessInterface extends SlaveProcessInterface {
 		private ComponentActionConsole reportTo = null;
-		DprSlaveProcessInterface(Process slave, String slaveName) {
+		private String docId;
+		DprSlaveProcessInterface(Process slave, String slaveName, String docId) {
 			super(slave, slaveName);
+			this.docId = docId;
 		}
 		void setReportTo(ComponentActionConsole reportTo) {
 			this.reportTo = reportTo;
@@ -762,19 +778,62 @@ public class GoldenGateDPR extends AbstractGoldenGateServerComponent {
 				processorName = input;
 				processorStart = System.currentTimeMillis();
 			}
-			else logInfo(input);
+			else logInfo("DPR: " + input);
 		}
 		protected void handleResult(String result) {
 			ComponentActionConsole cac = this.reportTo;
 			if (cac == null)
-				logInfo(result);
+				logInfo("DPR: " + result);
 			else cac.reportResult(result);
 		}
-		protected void handleError(String error) {
+		private ArrayList outStackTrace = new ArrayList();
+		protected void handleStackTrace(String stackTraceLine) {
+			if (stackTraceLine.trim().length() == 0)
+				this.reportError(this.outStackTrace);
+			else {
+				this.outStackTrace.add(stackTraceLine);
+				super.handleStackTrace(stackTraceLine);
+			}
+		}
+		protected void finalizeSystemOut() {
+			this.reportError(this.outStackTrace);
+		}
+		private ArrayList errStackTrace = new ArrayList();
+		protected void handleError(String error, boolean fromSysErr) {
 			ComponentActionConsole cac = this.reportTo;
-			if (cac == null)
-				logError(error);
+			if (fromSysErr && (cac == null)) {
+				if (error.startsWith("CR\t") || error.startsWith("LA\t") || error.startsWith("Stale "))
+					return; // TODO remove this once server fixed
+				if (error.matches("(Im|Gamta)Document(Root)?Guard\\:.*"))
+					return; // TODO remove this once server fixed
+			}
+			if (cac == null) {
+				if (fromSysErr)
+					this.errStackTrace.add(error);
+				logError("DPR: " + error);
+			}
 			else cac.reportError(error);
+		}
+		protected void finalizeSystemErr() {
+			this.reportError(this.errStackTrace);
+		}
+		private void reportError(ArrayList stackTrace) {
+			if (stackTrace.size() == 0)
+				return;
+			String classAndMessge = ((String) stackTrace.get(0));
+			String errorClassName;
+			String errorMessage;
+			if (classAndMessge.indexOf(":") == -1) {
+				errorClassName = classAndMessge;
+				errorMessage = "";
+			}
+			else {
+				errorClassName = classAndMessge.substring(0, classAndMessge.indexOf(":")).trim();
+				errorMessage = classAndMessge.substring(classAndMessge.indexOf(":") + ":".length()).trim();
+			}
+			String[] errorStackTrace = ((String[]) stackTrace.toArray(new String[this.outStackTrace.size()]));
+			stackTrace.clear();
+			SlaveErrorRecorder.recordError(getLetterCode(), this.docId, errorClassName, errorMessage, errorStackTrace);
 		}
 	}
 }

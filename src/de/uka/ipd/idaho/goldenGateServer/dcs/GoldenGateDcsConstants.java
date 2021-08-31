@@ -887,6 +887,14 @@ public interface GoldenGateDcsConstants extends GoldenGateServerConstants, Liter
 		}
 		
 		/**
+		 * Retrieve the number of fields in the statistics.
+		 * @return the number of fields
+		 */
+		public int getFieldCount() {
+			return this.fields.length;
+		}
+		
+		/**
 		 * Retrieve the data fields contained in the statistics. This method
 		 * clones the internal array, so changing the returned array has no
 		 * effect on the future behavior of this object.

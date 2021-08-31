@@ -98,6 +98,7 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 	private GPathExpression[] filters = new GPathExpression[0];
 	
 	private long exportsDue = Long.MAX_VALUE;
+	private long exportsStart = -1;
 	
 	private CollectionExporter collectionExporter;
 	private AsynchronousWorkQueue collectionExporterMonitor;
@@ -320,10 +321,11 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 	private HashSet cachedStylesheets = new HashSet();
 	private Transformer getTransformer(String xsltName) throws IOException {
 		Transformer xslt;
-		if (xsltName.indexOf("://") == -1)
-			xslt = XsltUtils.getTransformer(new File(this.dataPath, xsltName), !this.cachedStylesheets.add(xsltName));
-		else xslt = XsltUtils.getTransformer(xsltName, !this.cachedStylesheets.add(xsltName));
-		
+		if (xsltName.indexOf("://") != -1)
+			xslt = XsltUtils.getTransformer(xsltName, !this.cachedStylesheets.add(xsltName));
+		else if (xsltName.startsWith("/") || (xsltName.indexOf(":") != -1))
+			xslt = XsltUtils.getTransformer(new File(xsltName), !this.cachedStylesheets.add(xsltName));
+		else xslt = XsltUtils.getTransformer(new File(this.dataPath, xsltName), !this.cachedStylesheets.add(xsltName));
 		if (xslt == null)
 			throw new IOException("XSLT transformer chain broken at '" + xsltName + "'");
 		
@@ -381,10 +383,10 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 		//	start packing scheduler
 		this.collectionExporter = new CollectionExporter();
 		this.collectionExporter.start();
-		this.collectionExporterMonitor = new AsynchronousWorkQueue("SrsCollectionPacker") {
+		this.collectionExporterMonitor = new AsynchronousWorkQueue(this.collectionExporter.getName()) {
 			public String getStatus() {
-				return (this.name + ": collections due for export in " + (exportsDue - System.currentTimeMillis()) + " ms");
-			}
+				return (this.name + ": collections export " + ((exportsStart < 0) ? ("due in " + (exportsDue - System.currentTimeMillis())) : ("running since " + (System.currentTimeMillis() - exportsStart))) + " ms");
+			} 
 		};
 	}
 	
@@ -640,6 +642,7 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 	
 	private void doExport(CollectionExporter exporter, long time) throws Exception {
 		this.setExportStatus("SRS Collection Packer: starting export", true);
+		this.exportsStart = System.currentTimeMillis();
 		long startTime;
 		
 		//	create index writer
@@ -1089,11 +1092,12 @@ public class GoldenGateSCP extends AbstractGoldenGateServerComponent implements 
 						logError(t.getClass().getName() + " while exporting collection: " + t.getMessage());
 						logError(t);
 					}
-					
-					//	whatever happened, give the others a little time
-					try {
-						Thread.sleep(1000 * 10);
-					} catch (InterruptedException e) {}
+					finally {
+						exportsStart = -1;
+						try {
+							Thread.sleep(1000 * 10); // whatever happens, wait at least 10 seconds before next run
+						} catch (InterruptedException ie) {}
+					}
 				}
 				
 				//	wait otherwise

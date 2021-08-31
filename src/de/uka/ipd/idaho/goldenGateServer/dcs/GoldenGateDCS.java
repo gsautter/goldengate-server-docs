@@ -38,11 +38,14 @@ import java.io.OutputStreamWriter;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Properties;
+import java.util.Set;
+import java.util.TreeMap;
 
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
@@ -53,6 +56,7 @@ import de.uka.ipd.idaho.easyIO.IoProvider;
 import de.uka.ipd.idaho.easyIO.sql.TableColumnDefinition;
 import de.uka.ipd.idaho.easyIO.sql.TableDefinition;
 import de.uka.ipd.idaho.gamta.QueriableAnnotation;
+import de.uka.ipd.idaho.gamta.util.CountingSet;
 import de.uka.ipd.idaho.gamta.util.gPath.types.GPathObject;
 import de.uka.ipd.idaho.goldenGateServer.AsynchronousWorkQueue;
 import de.uka.ipd.idaho.goldenGateServer.exp.GoldenGateEXP;
@@ -71,15 +75,19 @@ import de.uka.ipd.idaho.stringUtils.StringVector;
  * @author sautter
  */
 public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateDcsConstants, DataObjectUpdateConstants {
-	
 	private IoProvider io;
 	
 	private StatFieldSet fieldSet;
 	private Properties fieldLabels = new Properties();
 	
 	private GoldenGateDcsStatEngine statEngine;
+	private CountingSet queriedFields = new CountingSet(new TreeMap(String.CASE_INSENSITIVE_ORDER));
+	private Set sQueriedFields = Collections.synchronizedSet(this.queriedFields);
+	private long queriedSince = System.currentTimeMillis(); // simply remember startup time
+	private long queriedLastLoged = System.currentTimeMillis(); // simply remember startup time
 	
 	private FormattedStaticStatExport[] staticStatExports = new FormattedStaticStatExport[0];
+	private long staticStatExportsDone = System.currentTimeMillis(); // let there be changes before we get going
 	private long staticStatExportsDue = -1;
 	private StaticStatExportThread staticStatExportThread = null;
 	
@@ -140,6 +148,7 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	}
 	
 	private static final String LIST_FILED_GROUPS_COMMAND = "listGroups";
+	private static final String LIST_QUERIED_FIELDS_COMMAND = "listQueried";
 	private static final String RELOAD_STATIC_EXPORTS_COMMAND = "reloadStatic";
 	private static final String UPDATE_STATIC_EXPORTS_COMMAND = "updateStatic";
 	
@@ -246,6 +255,34 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 				this.reportResult("There are " + fgs.length + " field groups in stats '" + fieldSet.label + "':");
 				for (int g = 0; g < fgs.length; g++)
 					this.reportResult(" - '" + fgs[g].name + "': " + fgs[g].label + ((fgs[g].virtualTableName == null) ? "" : (" (virtual, from '" + fgs[g].virtualTableName + "')")));
+			}
+		};
+		cal.add(ca);
+		
+		//	list queried fields
+		ca = new ComponentActionConsole() {
+			public String getActionCommand() {
+				return LIST_QUERIED_FIELDS_COMMAND;
+			}
+			public String[] getExplanation() {
+				String[] explanation = {
+						LIST_QUERIED_FIELDS_COMMAND,
+						"List the fields queried in the wrapped stats engine."
+					};
+				return explanation;
+			}
+			public void performActionConsole(String[] arguments) {
+				if (arguments.length != 0) {
+					this.reportError(" Invalid arguments for '" + this.getActionCommand() + "', specify no arguments.");
+					return;
+				}
+				long queriedTime = (System.currentTimeMillis() - queriedSince);
+				long queriedHours = ((queriedTime + ((1000 * 60 * 60) / 2)) / (1000 * 60 * 60));
+				this.reportResult("These " + queriedFields.elementCount() + " fields were queried in the past " + queriedHours + " hours (" + queriedTime + "ms):");
+				for (Iterator qfnit = queriedFields.iterator(); qfnit.hasNext();) {
+					String queriedFieldName = ((String) qfnit.next());
+					this.reportResult(" - '" + queriedFieldName + "': " + queriedFields.getCount(queriedFieldName) + " timed");
+				}
 			}
 		};
 		cal.add(ca);
@@ -494,6 +531,9 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	 * @throws IOException
 	 */
 	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters) {
+		for (Iterator qfnit = fieldPredicates.keySet().iterator(); qfnit.hasNext();)
+			this.sQueriedFields.add((String) qfnit.next());
+		this.logQueried();
 		return this.statEngine.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters);
 	}
 	
@@ -514,7 +554,28 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 	 * @throws IOException
 	 */
 	public DcStatistics getStatistics(String[] outputFields, String[] groupingFields, String[] orderingFields, Properties fieldPredicates, Properties fieldAggregates, Properties aggregatePredicates, String[] customFilters, int limit) {
+		for (Iterator qfnit = fieldPredicates.keySet().iterator(); qfnit.hasNext();)
+			this.sQueriedFields.add((String) qfnit.next());
+		this.logQueried();
 		return this.statEngine.getStatistics(outputFields, groupingFields, orderingFields, fieldPredicates, fieldAggregates, aggregatePredicates, customFilters, limit);
+	}
+	
+	private void logQueried() {
+		long time = System.currentTimeMillis();
+		if ((this.queriedLastLoged + (1000 * 60 * 60)) < time) try {
+			long queriedTime = (time - this.queriedSince);
+			long queriedHours = ((queriedTime + ((1000 * 60 * 60) / 2)) / (1000 * 60 * 60));
+			ArrayList qfns = new ArrayList(this.sQueriedFields); // need to use intermediate list to avoid concurrent modification exceptions of iterator
+			this.logAlways("These " + qfns.size() + " " + this.getLetterCode() + " fields were queried in the past " + queriedHours + " hours (" + queriedTime + "ms):");
+			for (int f = 0; f < qfns.size(); f++) {
+				String queriedFieldName = ((String) qfns.get(f));
+				this.logAlways(" - '" + queriedFieldName + "': " + this.queriedFields.getCount(queriedFieldName) + " timed");
+			}
+			this.queriedLastLoged = time;
+		}
+		catch (RuntimeException re) {
+			this.logError("GoldenGate" + this.getLetterCode() + ": error logging queried fields: " + re.getMessage());
+		}
 	}
 	
 	/* (non-Javadoc)
@@ -852,12 +913,18 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 			finally {
 				this.monitor.dispose();
 				staticStatExportThread = null;
+				staticStatExportsDone = System.currentTimeMillis();
 			}
 		}
 	}
 	
 	private void updateStaticStatExports(boolean immediately) {
-		this.staticStatExportsDue = (System.currentTimeMillis() + (immediately ? 0 : (1000 * 60 * 2)));
+		if (immediately)
+			this.staticStatExportsDone = -1;
+		long time = System.currentTimeMillis();
+		if ((time - this.staticStatExportsDone) < (1000 * 60 * 30))
+			return;
+		this.staticStatExportsDue = (time + (immediately ? 0 : (1000 * 60 * 2)));
 		if (this.staticStatExportThread == null)
 			this.staticStatExportThread = new StaticStatExportThread();
 	}
@@ -866,7 +933,6 @@ public abstract class GoldenGateDCS extends GoldenGateEXP implements GoldenGateD
 //	public static void main(String[] args) throws Exception {
 //		
 //	}
-//	
 //	
 //	//	TEST FOR PREDICATE PARSING
 //	public static void main(String[] args) throws Exception {
